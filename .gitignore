@@ -1,0 +1,18 @@
+# Price caches and signal tensors - 421MB, all regenerable from src/.
+# GitHub rejects files over 100MB and the tensors alone are ~150MB.
+data/
+!data/.gitkeep
+
+# The assembled report is 15MB of embedded JSON; it is published as a hosted
+# artifact instead. Uncomment to version it.
+report/index.html
+
+# Claude Code session state, not project content
+.claude/
+
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+scratchpad/
+.DS_Store
