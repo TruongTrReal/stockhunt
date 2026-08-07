@@ -37,7 +37,7 @@ import metrics
 import signals
 import td_loader
 
-from talib_signals import GENERIC_FALLBACK_FUNCTIONS, get_all_indicator_names
+from strategies.talib_signals import GENERIC_FALLBACK_FUNCTIONS, get_all_indicator_names
 
 
 def split_index(n: int) -> int:

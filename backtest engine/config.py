@@ -1,10 +1,9 @@
 """Universe, timeframes, cost grids and paths for the master backtest.
 
-Load-bearing beyond configuration: this module prepends `../test research/src` to
-`sys.path`, which is the only reason `from talib_signals import ...` resolves anywhere
-in this project. The signal layer is **shared, not copied** — editing
-`test research/src/talib_signals.py` changes the rules here too, and moving or renaming
-that sibling directory breaks this study.
+Load-bearing beyond configuration: this module prepends the repo root to `sys.path`,
+which is the only reason `from strategies.talib_signals import ...` resolves anywhere in
+this project. The signal layer and the published-strategy catalog live in `../strategies/`
+and are shared with the walk-forward stage, the paper desk and the dashboard.
 
 Two things here differ from the earlier studies and both are deliberate:
 
@@ -30,9 +29,12 @@ RESULTS_DIR = HERE / "results"
 REPORT_DIR = HERE / "report"
 ENV_FILE = REPO_ROOT / ".env.local"
 
-SRC_DIR = REPO_ROOT / "test research" / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+# The repo root goes on sys.path so `import strategies` resolves. That package holds the
+# signal layer (`strategies.talib_signals`) and the published-strategy catalog. It used
+# to be reached by putting `../test research/src` on the path instead, which made a
+# frozen study a runtime dependency of live code; see `../LOCKED.md`.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 CAPITAL_PER_TICKER = 10_000.0
 BASELINE_NAME = "BUYHOLD"

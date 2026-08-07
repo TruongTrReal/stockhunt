@@ -41,7 +41,7 @@ from nautilus_trader.model.enums import BarAggregation, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
-from talib_signals import generate_position
+from strategies.talib_signals import generate_position
 
 
 def _bar_duration(bar_type: BarType) -> timedelta:

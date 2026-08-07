@@ -68,7 +68,7 @@ import metrics
 import signals
 import td_loader
 
-from talib_signals import GENERIC_FALLBACK_FUNCTIONS, get_all_indicator_names
+from strategies.talib_signals import GENERIC_FALLBACK_FUNCTIONS, get_all_indicator_names
 
 # `LINEARREG_INTERCEPT_50` must resolve to LINEARREG_INTERCEPT, not LINEARREG — so the
 # family is everything before the *final* underscore-integer, and only when that leaves a

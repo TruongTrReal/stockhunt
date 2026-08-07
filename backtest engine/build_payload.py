@@ -28,7 +28,7 @@ import metrics
 import signals
 import td_loader
 
-from talib_signals import describe_signal
+from strategies.talib_signals import describe_signal
 
 PAYLOAD_PATH = REPORT_DIR / "report_payload.json"
 

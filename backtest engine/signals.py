@@ -15,7 +15,7 @@ from config import CLASSES, rule_needs_volume, volume_dependent_rules
 from engines import vector
 import td_loader
 
-from talib_signals import BETA_NAME, CORREL_NAME, generate_position
+from strategies.talib_signals import BETA_NAME, CORREL_NAME, generate_position
 
 NEEDS_BENCHMARK = {BETA_NAME, CORREL_NAME}
 

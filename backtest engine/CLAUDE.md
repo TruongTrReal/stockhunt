@@ -43,8 +43,8 @@ python sweep.py --class us_stocks         # stage 1: singles
 python walkforward.py --class us_stocks --tf 1d   # stage 1b: rolling re-optimisation
 python variants.py --tf 1d 4h             # stage 1c: transforms on the IS shortlist
 python prereg.py --tf 1d 4h --freeze      # stage 1d: 5 pre-registered published rules
-python strategies.py --tf 1d 4h           # stage 1e: 25 published strategies + WFO
-python strategies.py --list               # ...print the catalog and exit
+python strat_wf.py --tf 1d 4h             # stage 1e: 26 published strategies + WFO
+python strat_wf.py --list                 # ...print the catalog and exit
 python gate_calibration.py                # are the four gates coherent on this sample?
 python combo_wf.py --tf 1d 4h             # stage 2b: walk-forward pairs (use this)
 python combo_sweep.py                     # stage 2/3: single-split pairs (legacy)
@@ -59,6 +59,8 @@ python build_report.py --demo             # synthetic payload, layout check only
 ```
 config.py        universes, 7 timeframes, per-class cost grids, gates, sys.path
    |
+../strategies/   talib_signals.py (231 rules) | catalog.py (26 published strategies)
+   |
 td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs>/<tf>/<SYMBOL>.parquet
 check_data.py    OHLC integrity scan and repair
    |
@@ -71,7 +73,7 @@ sweep.py         stage 1: 231 singles x assets x timeframes x costs
 walkforward.py   stage 1b: rolling re-optimisation + the IS#1 selection rule
 variants.py      stage 1c: 8 transforms on the IS-shortlisted leaders
 prereg.py        stage 1d: 5 published rules, no free parameters, no selection
-strategies.py    stage 1e: 25 published strategies, 93 cells, + the exposure controls
+strat_wf.py      stage 1e: the ../strategies/ catalog, 117 cells, + exposure controls
 gate_calibration.py  power check: is a gate below its own noise ceiling?
 combo_wf.py      stage 2b: walk-forward pairs + leg-correlation diagnosis
 combo_sweep.py   stage 2/3: pairs of train-shortlisted singles, 4 operators (legacy split)
@@ -82,10 +84,16 @@ build_payload.py results -> report/report_payload.json
 build_report.py  template.html + report.js + payload -> report/index.html
 ```
 
-**`config.py` is load-bearing beyond configuration.** It prepends
-`../test research/src` to `sys.path`, which is the only reason `from talib_signals
-import ...` resolves. The signal layer is *shared, not copied*: editing that file changes
-all three studies, and moving or renaming the sibling directory breaks this one.
+**`config.py` is load-bearing beyond configuration.** It prepends the **repo root** to
+`sys.path`, which is the only reason `from strategies.talib_signals import ...` resolves.
+The signal layer and the published-strategy catalog live in `../strategies/`, a real
+package shared with the walk-forward stage, the paper desk and the dashboard.
+
+It used to prepend `../test research/src` instead, which made a frozen study a runtime
+dependency of live code. `strategies/talib_signals.py` is now a byte-identical copy of
+that file — verified rule-for-rule, 231 of 231 producing the same positions — and the
+original stays where it is because 17 modules inside the locked folder still import it.
+See `../LOCKED.md`.
 
 **`signals.py` is the single source of positions.** `parity.py`, `sweep.py`,
 `combo_sweep.py` and `validate.py` must all produce byte-identical positions for the same
@@ -154,7 +162,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
 
 - **A negative IR does not mean a rule is worthless, and a leaderboard without exposure
   controls cannot tell you which.** Against a rising benchmark, IR is close to a linear
-  function of time-in-market: `strategies.py` measures it directly with six signal-free
+  function of time-in-market: `strat_wf.py` measures it directly with six signal-free
   controls (`ALWAYS_FLAT`, seeded block-random rules at 25/50/75/90%, `ALWAYS_LONG`) and
   on us_stocks 1d the curve runs -0.68 at zero exposure to 0.00 at full exposure. Rank on
   `ir_vs_random` — the row's IR minus that curve at its *own* exposure — before believing
@@ -164,7 +172,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   on SOXL scores IR -0.134 (a loss) and simultaneously compounds **+25.4%/yr more than
   buy-and-hold** (1,908x vs 230x), because it cuts annualised vol from 93.5% to 62.7% and
   the drag that removes is worth 24 points a year. Both numbers are correct.
-  `strategies.excess_cagr` reports `excess_cagr` / `excess_cagr_min` / `excess_cagr_hit`
+  `strat_wf.excess_cagr` reports `excess_cagr` / `excess_cagr_min` / `excess_cagr_hit`
   alongside IR for this reason. Note `walkforward.leaderboard_row`'s `excess_return_pct`
   is a mean of per-asset *total* returns and is near-meaningless when SOXL compounds 230x
   and SPY 6.4x — annualise first, average second.
@@ -172,7 +180,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   `prereg.volmanaged`, `variants._vol_scale` and any Pruitt-style adaptive lookback
   normalise current volatility against the median of the *entire* series. It is one
   scalar rather than a per-bar signal, but it is still future data: truncating the series
-  changed 11 of 93 cells' *past* positions. `strategies._causal_median` uses an expanding
+  changed 11 of 93 cells' *past* positions. `strategies.catalog._causal_median` uses an expanding
   median instead. **The stage 1c and 1d results were not re-run** — their
   volatility-scaled rows carry the leak, and it is worth 0.084 IR on `volmanaged` at
   us_stocks 1d (the contaminated version scored -0.368, the clean one -0.284).

@@ -15,10 +15,12 @@ from pathlib import Path
 
 import numpy as np
 
+# Duplicates config.py's shim on purpose: this module must run standalone for a layout
+# check, without importing the rest of the pipeline.
 HERE = Path(__file__).resolve().parent
-SRC = HERE.parent / "test research" / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+REPO_ROOT = HERE.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 CAPITAL = 10_000.0
 
@@ -109,7 +111,7 @@ TICKERS_PER_INDICATOR = 2
 def indicator_names() -> tuple[list[str], set[str], dict]:
     """Real TA-Lib rule names, so the leaderboard is the size it will actually be."""
     try:
-        from talib_signals import (GENERIC_FALLBACK_FUNCTIONS, describe_signal,
+        from strategies.talib_signals import (GENERIC_FALLBACK_FUNCTIONS, describe_signal,
                                    get_all_indicator_names)
         names = list(get_all_indicator_names())
         tldr = {}

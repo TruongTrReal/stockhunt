@@ -32,7 +32,7 @@ import numpy as np
 import pandas as pd
 
 import fwd_config                                # noqa: F401  (wires sys.path)
-from talib_signals import generate_position
+from strategies.talib_signals import generate_position
 
 # Windows to try, smallest first. 4000 is "effectively the whole daily series" for the
 # ETFs (~4100 bars) and is the honest answer for a rule that never converges.

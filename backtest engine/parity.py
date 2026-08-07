@@ -43,7 +43,7 @@ from engines import reference, vector
 import signals
 import td_loader
 
-from talib_signals import get_all_indicator_names
+from strategies.talib_signals import get_all_indicator_names
 
 # Relative tolerance for two implementations of the identical model.
 EXACT_TOL = 1e-9
