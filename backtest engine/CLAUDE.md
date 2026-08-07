@@ -224,6 +224,27 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
 - **Nautilus parity tolerance scales with sqrt(fills), not with equity.** Every fill
   rounds cash to the cent, and a short re-sizes every bar — one 7k-bar cell produced
   5,355 fills. A flat tolerance produces false failures; see the note in `parity.py`.
+- **`parity.py` is currently RED on one cell, and it is a real disagreement.**
+  `crypto 5m AVAX/USD EMA_1000` fails vector-vs-reference at `rel_diff ~= 1.0`. It is not
+  a refactor artifact — `engines/vector.py` and `engines/reference.py` are byte-identical
+  to the `pre-refactor` tag, and the cell had simply never been sampled (`--n 3`/`--n 4`
+  miss it; `--n 5` hits it).
+
+  The cause is real data. On 2025-10-10 AVAX fell from 23.06 to 11.44 and rebounded to
+  27.80 inside 15 minutes — the October liquidation cascade, not a bad tick: every bar is
+  internally consistent and `check_data.py` correctly reports no fault. Against a **short**
+  position a +143% bar is a >100% loss, and the two engines then disagree by construction:
+
+  | engine | final equity | why |
+  |---|---|---|
+  | `vector` | **$28.47** | clips per-bar net return at `RETURN_FLOOR = -0.999` |
+  | `reference` | **-$12,243** | share-level accounting, no floor; the account goes negative |
+
+  Both are faithful to their own model and **neither models a margin call**. A short that
+  is annihilated should be liquidated at zero, not clipped to survive and not allowed to
+  run negative. Fixing it changes published numbers, so it is deliberately left alone —
+  it wants its own task with the result diff as the deliverable. Until then, know that
+  `parity.py --n 5` exits nonzero for this reason and not because the build is broken.
 - **Nautilus parity runs at zero cost only.** A venue fee is charged on traded notional;
   this project's cost model charges on target change. Under constant-fraction rebalancing
   those legitimately differ. Cost modelling is verified between `vector` and `reference`

@@ -156,6 +156,10 @@ is the longest and worth reading in full before touching the engine.
   1-minute once turned buy-and-hold into 1e125 and contaminated every IR on the sheet.
   Structural validation did not catch it; looking at the rendered number did. Run
   `check_data.py --fix` after every fetch.
+- **`parity.py --n 5` currently exits nonzero**, on `crypto 5m AVAX/USD EMA_1000`. It is a
+  real vector-vs-reference disagreement about what happens when a short is annihilated
+  (AVAX's October 2025 crash and rebound), not a broken build and not a refactor
+  artifact. See `backtest engine/CLAUDE.md` for the numbers. Unfixed on purpose.
 - **Nautilus parity runs at zero cost only**, with a tolerance that scales with
   sqrt(fills), not with equity.
 - **Generated files are never edited**: `report/index.html`, `web/data.js`,
