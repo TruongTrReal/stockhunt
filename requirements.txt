@@ -1,9 +1,0 @@
-TA-Lib==0.7.1
-yfinance==1.5.2
-pandas==3.0.5
-numpy==2.5.1
-pyarrow==25.0.0
-requests==2.34.2
-lxml==6.1.1
-beautifulsoup4==4.15.0
-tqdm==4.70.0

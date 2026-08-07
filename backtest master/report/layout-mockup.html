@@ -1,0 +1,728 @@
+<title>Master Backtest &mdash; report layout</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane:      #F2F4F4;
+    --surface:    #FAFBFB;
+    --surface-2:  #EDF0F0;
+    --ink:        #101616;
+    --ink-2:      #4A5757;
+    --muted:      #7C8A8A;
+    --grid:       #E2E7E7;
+    --rule:       #D6DDDD;
+    --border:     rgba(16,22,22,0.10);
+    --accent:     #0E6B70;
+    --accent-ghost: rgba(14,107,112,0.09);
+
+    /* diverging: IR polarity. blue = positive, red = negative, gray = nil.
+       Poles validated against this surface: worst-pair CVD &Delta;E 21.5, normal 28.6. */
+    --pos-900: #0d366b; --pos-700: #184f95; --pos-500: #256abf; --pos-300: #5598e7; --pos-150: #9ec5f4;
+    --neg-900: #7d1f1f; --neg-700: #9b2c2c; --neg-500: #b83636; --neg-300: #d76161; --neg-150: #efb3b3;
+    --nil:     #E8E9E6;
+
+    /* status &mdash; reserved, never a series color */
+    --good:     #0ca30c;
+    --warning:  #fab219;
+    --critical: #d03b3b;
+
+    --serif: "Cambria", "Constantia", "Palatino Linotype", Georgia, serif;
+    --sans:  "Corbel", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --mono:  "Consolas", ui-monospace, "SF Mono", "Cascadia Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --plane:     #0C1011;
+      --surface:   #151B1C;
+      --surface-2: #1D2526;
+      --ink:       #F2F6F6;
+      --ink-2:     #A8B6B6;
+      --muted:     #7C8A8A;
+      --grid:      #242D2E;
+      --rule:      #2C3637;
+      --border:    rgba(255,255,255,0.10);
+      --accent:    #4BC8CE;
+      --accent-ghost: rgba(75,200,206,0.12);
+      /* dark steps re-selected for this surface, not flipped: mid-steps validated
+         (CVD &Delta;E 19.2, normal 29.0, both &ge;3:1 on #151B1C) */
+      --pos-900: #cde2fb; --pos-700: #86b6ef; --pos-500: #3987e5; --pos-300: #256abf; --pos-150: #184f95;
+      --neg-900: #f3c4c4; --neg-700: #e89a9a; --neg-500: #e66767; --neg-300: #c94f4f; --neg-150: #8f3232;
+      --nil:     #2E3533;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:     #0C1011;
+    --surface:   #151B1C;
+    --surface-2: #1D2526;
+    --ink:       #F2F6F6;
+    --ink-2:     #A8B6B6;
+    --muted:     #7C8A8A;
+    --grid:      #242D2E;
+    --rule:      #2C3637;
+    --border:    rgba(255,255,255,0.10);
+    --accent:    #4BC8CE;
+    --accent-ghost: rgba(75,200,206,0.12);
+    --pos-900: #cde2fb; --pos-700: #86b6ef; --pos-500: #3987e5; --pos-300: #256abf; --pos-150: #184f95;
+    --neg-900: #f3c4c4; --neg-700: #e89a9a; --neg-500: #e66767; --neg-300: #c94f4f; --neg-150: #8f3232;
+    --nil:     #2E3533;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px 96px; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: 30px; letter-spacing: -0.01em; }
+  h2 { font-size: 21px; letter-spacing: -0.005em; }
+  h3 { font-size: 15px; }
+  p { margin: 0; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ---- masthead ---- */
+  header.mast {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--plane) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .mast-in {
+    max-width: 1180px; margin: 0 auto; padding: 11px 28px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .mast-title { font-family: var(--serif); font-size: 16px; font-weight: 600; }
+  .mast-meta {
+    margin-left: auto; display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  }
+  .mast-meta b { color: var(--ink); font-weight: 600; }
+
+  /* ---- chips ---- */
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 9px 2px 7px; border-radius: 3px;
+    font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+    letter-spacing: 0.02em; border: 1px solid;
+    white-space: nowrap;
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .chip.pass { color: var(--good);
+    border-color: color-mix(in srgb, var(--good) 40%, transparent);
+    background: color-mix(in srgb, var(--good) 10%, transparent); }
+  .chip.pass .dot { background: var(--good); }
+  .chip.warn { color: color-mix(in srgb, var(--warning) 72%, var(--ink));
+    border-color: color-mix(in srgb, var(--warning) 46%, transparent);
+    background: color-mix(in srgb, var(--warning) 13%, transparent); }
+  .chip.warn .dot { background: var(--warning); }
+  .chip.fail { color: var(--critical);
+    border-color: color-mix(in srgb, var(--critical) 40%, transparent);
+    background: color-mix(in srgb, var(--critical) 10%, transparent); }
+  .chip.fail .dot { background: var(--critical); }
+
+  /* ---- mockup banner ---- */
+  .mockup-note {
+    margin: 22px 0 0; padding: 12px 16px; border-radius: 4px;
+    border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    background: var(--accent-ghost);
+    font-size: 13.5px; color: var(--ink-2);
+  }
+  .mockup-note b { color: var(--ink); }
+
+  /* ---- sections ---- */
+  section { margin-top: 52px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .sec-head .idx {
+    font-family: var(--mono); font-size: 12px; color: var(--accent); font-weight: 700;
+  }
+  .sec-sub { color: var(--ink-2); font-size: 13.5px; max-width: 68ch; margin-top: 4px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 5px; padding: 22px; margin-top: 18px;
+  }
+
+  /* ---- verdict ---- */
+  .verdict { display: grid; grid-template-columns: minmax(0,1.1fr) minmax(0,1fr); gap: 34px; align-items: center; }
+  .verdict-fig { font-family: var(--serif); font-size: 62px; line-height: 1; letter-spacing: -0.02em; }
+  .verdict-fig .of { font-size: 21px; color: var(--muted); font-family: var(--sans); letter-spacing: 0; }
+  .verdict-say { color: var(--ink-2); font-size: 14px; margin-top: 12px; max-width: 46ch; }
+  .gate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .gate-tile {
+    border: 1px solid var(--border); border-radius: 4px; padding: 11px 13px;
+    background: var(--surface-2); display: flex; flex-direction: column; gap: 6px;
+  }
+  .gate-tile .lbl { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .gate-tile .val { font-family: var(--mono); font-size: 19px; font-variant-numeric: tabular-nums; }
+  .gate-tile .tgt { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* ---- funnel ---- */
+  .funnel { display: flex; flex-direction: column; gap: 3px; }
+  .frow { display: grid; grid-template-columns: 210px 1fr 92px; align-items: center; gap: 14px; }
+  .frow .fl { font-size: 13px; color: var(--ink-2); }
+  .frow .fl small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .fbar-track { height: 26px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+  .fbar { height: 100%; border-radius: 0 3px 3px 0; }
+  .frow .fn { font-family: var(--mono); font-size: 13.5px; text-align: right; font-variant-numeric: tabular-nums; }
+  .frow.dead .fn { color: var(--critical); font-weight: 700; }
+
+  /* ---- matrix ---- */
+  .matrix-scroll { overflow-x: auto; }
+  table.matrix { border-collapse: collapse; width: 100%; min-width: 640px; }
+  table.matrix th {
+    font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--muted); padding: 0 0 9px; text-align: center;
+  }
+  table.matrix th.rowlab { text-align: left; width: 132px; }
+  table.matrix td.rowlab {
+    font-size: 13px; font-weight: 600; color: var(--ink-2); padding-right: 14px; white-space: nowrap;
+  }
+  table.matrix td.rowlab small { display: block; font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-weight: 400; }
+  /* Cells are a tint of the pole mixed into the surface, capped so page ink always
+     clears contrast in both themes. The number carries precision; the tint carries
+     magnitude at a glance. */
+  .cell {
+    height: 50px; border-radius: 3px; display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 13.5px; font-variant-numeric: tabular-nums;
+    color: var(--ink); border: 2px solid var(--surface); cursor: default;
+  }
+  .scale { display: flex; align-items: center; gap: 9px; margin-top: 16px; font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+  .scale .ramp { display: flex; height: 9px; border-radius: 2px; overflow: hidden; width: 190px; }
+  .scale .ramp i { flex: 1; }
+
+  /* ---- leaderboard ---- */
+  .lb-scroll { overflow-x: auto; }
+  table.lb { border-collapse: collapse; width: 100%; min-width: 900px; font-size: 13px; }
+  table.lb th {
+    text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em;
+    text-transform: uppercase; color: var(--muted); padding: 0 12px 9px 0;
+    border-bottom: 1px solid var(--rule); white-space: nowrap;
+  }
+  table.lb th.r, table.lb td.r { text-align: right; }
+  table.lb td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  /* clear the selected row's 3px inset rail so a leading "~" isn't clipped */
+  table.lb th:first-child, table.lb td:first-child { padding-left: 11px; }
+  table.lb tbody tr:hover { background: var(--accent-ghost); }
+  table.lb tr.sel { background: var(--accent-ghost); box-shadow: inset 3px 0 0 var(--accent); }
+  .cand { font-family: var(--mono); font-size: 12.5px; }
+  .tf-tag {
+    font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 3px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .gates-mini { display: flex; gap: 3px; }
+  /* Status colours are fixed, never themed &mdash; so their on-colours are fixed too,
+     rather than riding var(--surface) and inverting with the theme. */
+  .gm { width: 15px; height: 15px; border-radius: 2px; display: grid; place-items: center;
+        font-size: 9.5px; font-weight: 800; font-family: var(--sans); }
+  .gm.p { background: var(--good); color: #ffffff; }
+  .gm.w { background: var(--warning); color: #3a2a00; }
+  .gm.f { background: var(--critical); color: #ffffff; }
+
+  /* ---- detail ---- */
+  .detail { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 5px; padding: 18px; }
+  .panel h3 { margin-bottom: 2px; }
+  .panel .cap { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .legend i.line { height: 0; border-top: 2px dashed var(--muted); width: 15px; border-radius: 0; }
+
+  /* ---- audit ---- */
+  .audit { display: grid; grid-template-columns: repeat(auto-fit, minmax(228px,1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+  /* direct children only — a bare `.audit div` also matches .k/.v and pads them twice */
+  .audit > div { background: var(--surface); padding: 15px 17px; }
+  .audit .k { font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .audit .v { font-family: var(--mono); font-size: 13px; margin-top: 5px; }
+  .audit .v small { color: var(--ink-2); font-size: 11.5px; }
+
+  footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--muted); }
+
+  text { font-family: var(--sans); }
+  @media (max-width: 860px) {
+    .verdict, .detail { grid-template-columns: 1fr; }
+    .frow { grid-template-columns: 150px 1fr 76px; }
+  }
+</style>
+
+<header class="mast">
+  <div class="mast-in">
+    <span class="mast-title">Master Backtest</span>
+    <span class="chip pass"><span class="dot"></span>Parity OK &middot; max &Delta; 4.1e-6</span>
+    <div class="mast-meta">
+      <span>run <b>mb-0000</b></span>
+      <span>Twelve Data &middot; <b>adjust=all</b></span>
+      <span>30 assets &middot; 7 timeframes</span>
+      <span>60.2M bars</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="mockup-note">
+    <b>Layout mockup &mdash; every figure on this page is representative, not measured.</b>
+    Nothing has been run yet. This exists to settle structure, hierarchy and the shape of
+    each chart before the sweep is built. The numbers are plausible stand-ins chosen to
+    exercise the hardest case: a run where nothing survives.
+  </div>
+
+  <section>
+    <div class="sec-head"><span class="idx">01</span><h1>Verdict</h1></div>
+    <p class="sec-sub">
+      A candidate counts as an edge only if it clears all four gates at the class headline
+      cost, out of sample. One gate failed is a failed candidate.
+    </p>
+    <div class="card verdict">
+      <div>
+        <div class="verdict-fig num">0 <span class="of">of 47,180 candidates</span></div>
+        <p class="verdict-say">
+          Nothing cleared all four gates. The survivor set thinned steadily through
+          IR and breadth, then collapsed at the cost gate &mdash; 44 candidates carried enough
+          breadth, 3 of those had the cost headroom, and none of those three reached
+          <span class="num">t&nbsp;&ge;&nbsp;2</span>.
+        </p>
+      </div>
+      <div class="gate-grid">
+        <div class="gate-tile">
+          <span class="lbl">Best IR &middot; net, OOS</span>
+          <span class="val">0.62</span>
+          <span class="tgt">target 0.50&ndash;1.00</span>
+          <span><span class="chip pass"><span class="dot"></span>in band</span></span>
+        </div>
+        <div class="gate-tile">
+          <span class="lbl">Breadth &middot; IR hit rate</span>
+          <span class="val">72%</span>
+          <span class="tgt">target 70&ndash;80%</span>
+          <span><span class="chip pass"><span class="dot"></span>in band</span></span>
+        </div>
+        <div class="gate-tile">
+          <span class="lbl">Breakeven headroom</span>
+          <span class="val">2.8&times;</span>
+          <span class="tgt">target 3&ndash;5&times;</span>
+          <span><span class="chip fail"><span class="dot"></span>below floor</span></span>
+        </div>
+        <div class="gate-tile">
+          <span class="lbl">t = IR &times; &radic;years</span>
+          <span class="val">1.52</span>
+          <span class="tgt">target 2&ndash;3</span>
+          <span><span class="chip fail"><span class="dot"></span>below floor</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="idx">02</span><h2>Where candidates died</h2></div>
+    <p class="sec-sub">
+      Gates applied in sequence, each to the survivors of the last. The shape of this
+      funnel is the finding &mdash; a run that loses everything at the cost gate is a different
+      result from one that never had signal.
+    </p>
+    <div class="card">
+      <div class="funnel">
+        <div class="frow">
+          <div class="fl">Evaluated<small>231 singles + pairs + operators</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:100%;background:var(--pos-150)"></div></div>
+          <div class="fn">47,180</div>
+        </div>
+        <div class="frow">
+          <div class="fl">IR &gt; 0 net<small>at class headline cost</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:13.6%;background:var(--pos-300)"></div></div>
+          <div class="fn">6,412</div>
+        </div>
+        <div class="frow">
+          <div class="fl">Gate 1 &middot; IR &ge; 0.50<small>net, out of sample</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:4.5%;background:var(--pos-500)"></div></div>
+          <div class="fn">291</div>
+        </div>
+        <div class="frow">
+          <div class="fl">Gate 2 &middot; breadth &ge; 70%<small>IR hit rate across assets</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:2.2%;background:var(--pos-500)"></div></div>
+          <div class="fn">44</div>
+        </div>
+        <div class="frow">
+          <div class="fl">Gate 3 &middot; headroom &ge; 3&times;<small>breakeven &divide; headline cost</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:1.1%;background:var(--pos-700)"></div></div>
+          <div class="fn">3</div>
+        </div>
+        <div class="frow dead">
+          <div class="fl">Gate 4 &middot; t &ge; 2<small>IR &times; &radic;years</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:0.7%;background:var(--critical)"></div></div>
+          <div class="fn">0</div>
+        </div>
+        <div class="frow dead">
+          <div class="fl">Leave-one-out<small>drop best asset, keep &gt;80% IR</small></div>
+          <div class="fbar-track"><div class="fbar" style="width:0.7%;background:var(--nil)"></div></div>
+          <div class="fn">&mdash;</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="idx">03</span><h2>Best net IR by class and timeframe</h2></div>
+    <p class="sec-sub">
+      The single most diagnostic view. Each cell is the best out-of-sample IR any candidate
+      reached in that class and timeframe, at the class headline cost. Asset class is
+      separated by row, not by colour, so colour means one thing everywhere on this page:
+      the sign and size of IR.
+    </p>
+    <div class="card">
+      <div class="matrix-scroll">
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th class="rowlab">&nbsp;</th>
+              <th>1d</th><th>4h</th><th>2h</th><th>1h</th><th>15m</th><th>5m</th><th>1m</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="rowlab">Crypto<small>10 assets &middot; 10bps</small></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 20%,var(--surface))">0.31</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 15%,var(--surface))">0.18</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 11%,var(--surface))">0.09</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 7%,var(--surface))">0.04</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 12%,var(--surface))">&minus;0.12</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 22%,var(--surface))">&minus;0.38</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 40%,var(--surface))">&minus;1.24</div></td>
+            </tr>
+            <tr>
+              <td class="rowlab">US stocks<small>20 assets &middot; 5bps</small></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 17%,var(--surface))">0.22</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 12%,var(--surface))">0.11</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 9%,var(--surface))">0.06</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--pos-500) 5%,var(--surface))">0.02</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 11%,var(--surface))">&minus;0.09</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 20%,var(--surface))">&minus;0.31</div></td>
+              <td><div class="cell" style="background:color-mix(in srgb,var(--neg-500) 35%,var(--surface))">&minus;0.97</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="scale">
+        <span>&minus;1.25</span>
+        <span class="ramp">
+          <i style="background:color-mix(in srgb,var(--neg-500) 40%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--neg-500) 30%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--neg-500) 20%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--neg-500) 10%,var(--surface))"></i>
+          <i style="background:var(--surface-2)"></i>
+          <i style="background:color-mix(in srgb,var(--pos-500) 10%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--pos-500) 20%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--pos-500) 30%,var(--surface))"></i>
+          <i style="background:color-mix(in srgb,var(--pos-500) 40%,var(--surface))"></i>
+        </span>
+        <span>+1.25</span>
+        <span style="margin-left:10px">net IR, out of sample</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="idx">04</span><h2>Leaderboard</h2></div>
+    <p class="sec-sub">
+      Ranked on net out-of-sample IR. Shortlisting for the combo stage used the train
+      period only &mdash; no row here was chosen by looking at the column it is sorted on.
+      Selected from 47,180 candidates, so Bonferroni p&lt;0.05 needs
+      <span class="num">t&nbsp;&gt;&nbsp;4.6</span>.
+    </p>
+    <div class="card">
+      <div class="lb-scroll">
+        <table class="lb">
+          <thead>
+            <tr>
+              <th>Candidate</th><th>Class</th><th>TF</th>
+              <th class="r">IR net</th><th class="r">Breadth</th><th class="r">Headroom</th>
+              <th class="r">t</th><th class="r">Turnover</th><th>Gates</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="sel">
+              <td class="cand">~ADOSC &and; ~VAR</td><td>US stocks</td><td><span class="tf-tag">1d</span></td>
+              <td class="r num">0.62</td><td class="r num">72%</td><td class="r num">2.8&times;</td>
+              <td class="r num">1.52</td><td class="r num">39/yr</td>
+              <td><div class="gates-mini"><i class="gm p">&#10003;</i><i class="gm p">&#10003;</i><i class="gm f">&#10005;</i><i class="gm f">&#10005;</i></div></td>
+            </tr>
+            <tr>
+              <td class="cand">TRIMA_200 &oplus; regime(spy200)</td><td>US stocks</td><td><span class="tf-tag">1d</span></td>
+              <td class="r num">0.58</td><td class="r num">68%</td><td class="r num">3.1&times;</td>
+              <td class="r num">1.42</td><td class="r num">31/yr</td>
+              <td><div class="gates-mini"><i class="gm p">&#10003;</i><i class="gm w">~</i><i class="gm p">&#10003;</i><i class="gm f">&#10005;</i></div></td>
+            </tr>
+            <tr>
+              <td class="cand">~STDDEV_40 &and; MFI</td><td>Crypto</td><td><span class="tf-tag">4h</span></td>
+              <td class="r num">0.55</td><td class="r num">70%</td><td class="r num">1.9&times;</td>
+              <td class="r num">1.28</td><td class="r num">84/yr</td>
+              <td><div class="gates-mini"><i class="gm p">&#10003;</i><i class="gm p">&#10003;</i><i class="gm f">&#10005;</i><i class="gm f">&#10005;</i></div></td>
+            </tr>
+            <tr>
+              <td class="cand">CDLCLOSINGMARUBOZU</td><td>Crypto</td><td><span class="tf-tag">1d</span></td>
+              <td class="r num">0.51</td><td class="r num">60%</td><td class="r num">4.2&times;</td>
+              <td class="r num">1.19</td><td class="r num">12/yr</td>
+              <td><div class="gates-mini"><i class="gm p">&#10003;</i><i class="gm f">&#10005;</i><i class="gm p">&#10003;</i><i class="gm f">&#10005;</i></div></td>
+            </tr>
+            <tr>
+              <td class="cand">AROONOSC &oplus; vote(3)</td><td>US stocks</td><td><span class="tf-tag">4h</span></td>
+              <td class="r num">0.47</td><td class="r num">65%</td><td class="r num">2.2&times;</td>
+              <td class="r num">1.09</td><td class="r num">57/yr</td>
+              <td><div class="gates-mini"><i class="gm w">~</i><i class="gm w">~</i><i class="gm f">&#10005;</i><i class="gm f">&#10005;</i></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="legend">
+        <span><i class="gm p" style="width:11px;height:11px"></i> clears gate</span>
+        <span><i class="gm w" style="width:11px;height:11px"></i> marginal band</span>
+        <span><i class="gm f" style="width:11px;height:11px"></i> fails gate</span>
+        <span style="color:var(--muted)">gate order: IR &middot; breadth &middot; headroom &middot; t</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="idx">05</span><h2>Candidate detail &mdash; ~ADOSC &and; ~VAR, US stocks, 1d</h2></div>
+    <p class="sec-sub">
+      Selecting any leaderboard row drives these three panels. Together they answer why a
+      candidate passed or failed each gate, rather than only reporting that it did.
+    </p>
+    <div class="detail">
+      <div class="panel">
+        <h3>IR against cost</h3>
+        <p class="cap">Where the line crosses zero is the breakeven cost. Headroom is that
+          crossing divided by the 5bps headline.</p>
+        <svg viewBox="0 0 380 220" style="width:100%;height:auto;display:block" role="img"
+             aria-label="Information ratio falls linearly from 0.95 at zero cost to zero at 14 basis points.">
+          <line x1="46" y1="18" x2="46" y2="176" stroke="var(--rule)" stroke-width="1"/>
+          <line x1="46" y1="176" x2="364" y2="176" stroke="var(--rule)" stroke-width="1"/>
+          <g stroke="var(--grid)" stroke-width="1">
+            <line x1="46" y1="18" x2="364" y2="18"/>
+            <line x1="46" y1="60" x2="364" y2="60"/>
+            <line x1="46" y1="102" x2="364" y2="102"/>
+          </g>
+          <g fill="var(--muted)" font-size="10" text-anchor="end">
+            <text x="40" y="22">1.0</text><text x="40" y="64">0.7</text>
+            <text x="40" y="106">0.4</text><text x="40" y="148">0.1</text>
+            <text x="40" y="180">0.0</text>
+          </g>
+          <g fill="var(--muted)" font-size="10" text-anchor="middle">
+            <text x="46" y="194">0</text><text x="132" y="194">5</text>
+            <text x="218" y="194">10</text><text x="304" y="194">15</text>
+            <text x="205" y="212" font-size="10.5">round-trip cost (bps)</text>
+          </g>
+          <!-- target band 0.5-1.0 -->
+          <rect x="46" y="18" width="318" height="70" fill="var(--good)" opacity="0.07"/>
+          <text x="356" y="32" fill="var(--muted)" font-size="9.5" text-anchor="end">IR target band</text>
+          <!-- headline cost marker -->
+          <line x1="132" y1="18" x2="132" y2="176" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <text x="137" y="30" fill="var(--ink-2)" font-size="10">headline 5bps</text>
+          <!-- breakeven marker -->
+          <line x1="287" y1="18" x2="287" y2="176" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <text x="282" y="30" fill="var(--critical)" font-size="10" text-anchor="end">breakeven 14bps</text>
+          <!-- the line: IR 0.95 @0 -> 0 @14bps -->
+          <path d="M46 42 L132 88 L218 134 L287 176" fill="none" stroke="var(--pos-500)" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+          <g fill="var(--pos-500)" stroke="var(--surface)" stroke-width="2">
+            <circle cx="46" cy="42" r="4.5"/><circle cx="132" cy="88" r="4.5"/>
+            <circle cx="218" cy="134" r="4.5"/><circle cx="287" cy="176" r="4.5"/>
+          </g>
+          <text x="140" y="84" fill="var(--ink)" font-size="11" font-weight="600">0.62</text>
+        </svg>
+        <div class="legend">
+          <span><i style="background:var(--pos-500)"></i> net IR</span>
+          <span><i class="line"></i> cost markers</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Breadth &mdash; IR by asset</h3>
+        <p class="cap">14 of 20 names positive (72%). A candidate carried by two names is a
+          fitted candidate, however good its average looks.</p>
+        <svg viewBox="0 0 380 220" style="width:100%;height:auto;display:block" role="img"
+             aria-label="Information ratio per asset: fourteen of twenty names positive, six negative.">
+          <line x1="150" y1="8" x2="150" y2="196" stroke="var(--rule)" stroke-width="1"/>
+          <text x="150" y="212" fill="var(--muted)" font-size="10" text-anchor="middle">IR = 0</text>
+          <g font-size="9.5" fill="var(--ink-2)" text-anchor="end">
+            <text x="144" y="17">NVDA</text><text x="144" y="35">AAPL</text>
+            <text x="144" y="53">MSFT</text><text x="144" y="71">JPM</text>
+            <text x="144" y="89">HD</text><text x="144" y="107">WMT</text>
+            <text x="144" y="125">KO</text><text x="144" y="143">PG</text>
+            <text x="144" y="161">XOM</text><text x="144" y="179">TSLA</text>
+          </g>
+          <g>
+            <rect x="150" y="7"   width="118" height="11" rx="3" fill="var(--pos-500)"/>
+            <rect x="150" y="25"  width="96"  height="11" rx="3" fill="var(--pos-500)"/>
+            <rect x="150" y="43"  width="84"  height="11" rx="3" fill="var(--pos-500)"/>
+            <rect x="150" y="61"  width="71"  height="11" rx="3" fill="var(--pos-300)"/>
+            <rect x="150" y="79"  width="58"  height="11" rx="3" fill="var(--pos-300)"/>
+            <rect x="150" y="97"  width="41"  height="11" rx="3" fill="var(--pos-300)"/>
+            <rect x="150" y="115" width="22"  height="11" rx="3" fill="var(--pos-150)"/>
+            <rect x="131" y="133" width="19"  height="11" rx="3" fill="var(--neg-150)"/>
+            <rect x="108" y="151" width="42"  height="11" rx="3" fill="var(--neg-300)"/>
+            <rect x="74"  y="169" width="76"  height="11" rx="3" fill="var(--neg-500)"/>
+          </g>
+          <text x="272" y="17" fill="var(--ink-2)" font-size="10" class="num">+1.41</text>
+          <text x="68" y="179" fill="var(--ink-2)" font-size="10" text-anchor="end" class="num">&minus;0.88</text>
+        </svg>
+        <div class="legend">
+          <span><i style="background:var(--pos-500)"></i> positive IR</span>
+          <span><i style="background:var(--neg-500)"></i> negative IR</span>
+          <span style="color:var(--muted)">10 of 20 shown &middot; full list in table view</span>
+        </div>
+      </div>
+
+      <div class="panel" style="grid-column:1 / -1">
+        <h3>Leave-one-out</h3>
+        <p class="cap">IR recomputed with each asset removed in turn. Dropping NVDA costs 34% of
+          the IR &mdash; over the 20% limit, so the candidate fails this check independently of the four gates.</p>
+        <svg viewBox="0 0 760 150" style="width:100%;height:auto;display:block" role="img"
+             aria-label="Leave-one-out: removing NVDA drops the information ratio by 34 percent, past the 20 percent limit.">
+          <line x1="40" y1="112" x2="740" y2="112" stroke="var(--rule)" stroke-width="1"/>
+          <line x1="40" y1="52" x2="740" y2="52" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="4 4"/>
+          <!-- sits above the tallest bar (y=17); at y=47 the bars paint over it -->
+          <text x="740" y="10" fill="var(--critical)" font-size="10" text-anchor="end">&minus;20% limit (IR 0.50)</text>
+          <g fill="var(--muted)" font-size="10" text-anchor="end">
+            <text x="34" y="24">0.65</text><text x="34" y="116">0.30</text>
+          </g>
+          <g>
+            <rect x="52"  y="20" width="46" height="92" rx="3" fill="var(--pos-700)"/>
+            <rect x="118" y="76" width="46" height="36" rx="3" fill="var(--critical)"/>
+            <rect x="184" y="44" width="46" height="68" rx="3" fill="var(--warning)"/>
+            <rect x="250" y="30" width="46" height="82" rx="3" fill="var(--pos-500)"/>
+            <rect x="316" y="26" width="46" height="86" rx="3" fill="var(--pos-500)"/>
+            <rect x="382" y="24" width="46" height="88" rx="3" fill="var(--pos-500)"/>
+            <rect x="448" y="22" width="46" height="90" rx="3" fill="var(--pos-500)"/>
+            <rect x="514" y="21" width="46" height="91" rx="3" fill="var(--pos-500)"/>
+            <rect x="580" y="19" width="46" height="93" rx="3" fill="var(--pos-500)"/>
+            <rect x="646" y="17" width="46" height="95" rx="3" fill="var(--pos-500)"/>
+          </g>
+          <g font-size="9.5" fill="var(--ink-2)" text-anchor="middle">
+            <text x="75"  y="126">none</text><text x="141" y="126">&minus;NVDA</text>
+            <text x="207" y="126">&minus;TSLA</text><text x="273" y="126">&minus;XOM</text>
+            <text x="339" y="126">&minus;MA</text><text x="405" y="126">&minus;AMZN</text>
+            <text x="471" y="126">&minus;MSFT</text><text x="537" y="126">&minus;V</text>
+            <text x="603" y="126">&minus;CVX</text><text x="669" y="126">&minus;UNH</text>
+          </g>
+          <g font-size="10" fill="var(--ink)" text-anchor="middle" font-family="var(--mono)">
+            <text x="75" y="14">0.62</text><text x="141" y="70" fill="var(--critical)" font-weight="700">0.41</text>
+          </g>
+        </svg>
+        <div class="legend">
+          <span><i style="background:var(--pos-500)"></i> within limit</span>
+          <span><i style="background:var(--warning)"></i> marginal</span>
+          <span><i style="background:var(--critical)"></i> breaches limit</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!--EQ-START-->  <section>
+    <div class="sec-head"><span class="idx">06</span><h2>Equity and drawdown</h2></div>
+    <p class="sec-sub">
+      The view the old report was built around, kept because a scalar cannot show
+      <em>when</em> an edge happened. A candidate whose whole lead is earned before the
+      train/test split, or in one crash, is a different object from one that compounds
+      steadily &mdash; and both can report the same IR.
+    </p>
+    <div class="card">
+      <svg viewBox="0 0 800 312" style="width:100%;height:auto;display:block" role="img"
+           aria-label="Indexed equity of the candidate against buy-and-hold, with a drawdown panel beneath. The candidate's lead is earned almost entirely in the train period and in the 2020 crash; it is flat against the benchmark out of sample.">
+        <rect x="52.0" y="22.0" width="404.5" height="174.0"
+              fill="var(--ink)" opacity="0.035"/>
+        <rect x="52.0" y="232.0" width="404.5" height="60.0"
+              fill="var(--ink)" opacity="0.035"/>
+        <text x="58.0" y="34.0" fill="var(--muted)" font-size="9.5">train</text>
+        <text x="462.5" y="34.0" fill="var(--muted)" font-size="9.5">test &mdash; out of sample</text>
+        <line x1="456.5" y1="22.0" x2="456.5" y2="292.0"
+              stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+          <line x1="52.0" y1="194.6" x2="726.0" y2="194.6" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="198.1" fill="var(--muted)" font-size="9.5" text-anchor="end">100</text>
+          <line x1="52.0" y1="142.5" x2="726.0" y2="142.5" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="146.0" fill="var(--muted)" font-size="9.5" text-anchor="end">200</text>
+          <line x1="52.0" y1="90.4" x2="726.0" y2="90.4" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="93.9" fill="var(--muted)" font-size="9.5" text-anchor="end">300</text>
+          <line x1="52.0" y1="38.3" x2="726.0" y2="38.3" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="41.8" fill="var(--muted)" font-size="9.5" text-anchor="end">400</text>
+        <path d="M52.0 194.7 L53.4 194.0 L54.8 194.8 L56.2 194.7 L57.6 195.5 L59.0 193.1 L60.4 192.9 L61.8 192.2 L63.2 191.9 L64.6 190.7 L65.9 192.1 L67.3 190.3 L68.7 187.1 L70.1 183.8 L71.5 181.8 L72.9 179.9 L74.3 180.6 L75.7 179.0 L77.1 179.8 L78.5 179.4 L79.9 181.9 L81.3 180.8 L82.7 182.8 L84.1 183.5 L85.5 185.0 L86.9 187.0 L88.3 187.3 L89.7 187.7 L91.1 184.7 L92.5 183.1 L93.8 185.1 L95.2 183.6 L96.6 184.0 L98.0 183.3 L99.4 184.1 L100.8 184.4 L102.2 185.0 L103.6 183.1 L105.0 183.3 L106.4 183.5 L107.8 182.2 L109.2 183.6 L110.6 185.2 L112.0 183.4 L113.4 181.6 L114.8 179.4 L116.2 175.2 L117.6 175.7 L119.0 174.6 L120.4 172.6 L121.7 174.0 L123.1 175.0 L124.5 172.6 L125.9 169.3 L127.3 167.7 L128.7 168.6 L130.1 167.5 L131.5 167.0 L132.9 162.1 L134.3 163.4 L135.7 161.7 L137.1 159.7 L138.5 156.0 L139.9 156.0 L141.3 150.4 L142.7 148.2 L144.1 145.8 L145.5 149.3 L146.9 150.1 L148.3 150.8 L149.6 153.2 L151.0 152.0 L152.4 153.0 L153.8 154.1 L155.2 153.3 L156.6 154.2 L158.0 155.3 L159.4 155.8 L160.8 157.2 L162.2 157.6 L163.6 159.5 L165.0 160.7 L166.4 155.8 L167.8 149.5 L169.2 150.7 L170.6 146.4 L172.0 145.4 L173.4 144.8 L174.8 140.9 L176.2 139.7 L177.5 142.5 L178.9 140.0 L180.3 143.6 L181.7 147.5 L183.1 149.2 L184.5 146.0 L185.9 145.4 L187.3 145.6 L188.7 146.6 L190.1 149.3 L191.5 150.9 L192.9 150.6 L194.3 155.8 L195.7 154.8 L197.1 157.2 L198.5 157.7 L199.9 157.9 L201.3 159.2 L202.7 158.8 L204.1 159.1 L205.4 155.4 L206.8 153.7 L208.2 154.2 L209.6 157.6 L211.0 156.5 L212.4 151.8 L213.8 154.0 L215.2 154.5 L216.6 157.7 L218.0 157.0 L219.4 157.9 L220.8 158.0 L222.2 158.3 L223.6 154.5 L225.0 155.6 L226.4 150.8 L227.8 148.9 L229.2 150.0 L230.6 145.8 L232.0 147.0 L233.3 149.0 L234.7 145.2 L236.1 138.5 L237.5 135.0 L238.9 134.5 L240.3 138.1 L241.7 133.2 L243.1 136.1 L244.5 137.6 L245.9 141.5 L247.3 134.5 L248.7 135.8 L250.1 131.7 L251.5 128.6 L252.9 125.8 L254.3 126.9 L255.7 129.2 L257.1 125.9 L258.5 123.1 L259.8 125.1 L261.2 127.9 L262.6 132.1 L264.0 132.7 L265.4 128.9 L266.8 127.0 L268.2 125.9 L269.6 126.2 L271.0 124.2 L272.4 119.7 L273.8 121.3 L275.2 113.3 L276.6 114.7 L278.0 109.5 L279.4 112.4 L280.8 108.9 L282.2 119.9 L283.6 113.0 L285.0 119.8 L286.4 121.4 L287.7 115.4 L289.1 115.2 L290.5 118.3 L291.9 117.4 L293.3 118.4 L294.7 116.7 L296.1 121.0 L297.5 118.1 L298.9 120.2 L300.3 124.9 L301.7 123.1 L303.1 119.4 L304.5 118.4 L305.9 110.6 L307.3 109.1 L308.7 107.0 L310.1 108.0 L311.5 106.5 L312.9 107.3 L314.3 109.7 L315.6 104.5 L317.0 109.3 L318.4 114.0 L319.8 117.1 L321.2 116.1 L322.6 121.3 L324.0 119.5 L325.4 119.3 L326.8 119.7 L328.2 123.8 L329.6 121.4 L331.0 116.5 L332.4 113.8 L333.8 113.4 L335.2 113.5 L336.6 117.7 L338.0 122.3 L339.4 123.2 L340.8 122.8 L342.2 124.7 L343.5 127.2 L344.9 126.4 L346.3 123.3 L347.7 120.6 L349.1 116.4 L350.5 119.5 L351.9 124.5 L353.3 128.4 L354.7 132.5 L356.1 138.9 L357.5 144.6 L358.9 146.2 L360.3 142.1 L361.7 139.3 L363.1 141.4 L364.5 143.8 L365.9 146.7 L367.3 145.9 L368.7 144.2 L370.1 144.8 L371.4 145.1 L372.8 149.6 L374.2 147.1 L375.6 145.1 L377.0 147.2 L378.4 150.9 L379.8 148.9 L381.2 145.2 L382.6 141.4 L384.0 142.3 L385.4 137.5 L386.8 136.1 L388.2 135.2 L389.6 133.8 L391.0 138.4 L392.4 140.7 L393.8 143.5 L395.2 143.0 L396.6 140.4 L398.0 142.7 L399.3 139.6 L400.7 142.0 L402.1 142.4 L403.5 144.8 L404.9 147.9 L406.3 144.6 L407.7 143.7 L409.1 139.3 L410.5 140.4 L411.9 136.5 L413.3 134.4 L414.7 129.3 L416.1 131.2 L417.5 133.6 L418.9 135.0 L420.3 135.7 L421.7 134.9 L423.1 132.5 L424.5 126.9 L425.9 123.8 L427.2 119.5 L428.6 118.5 L430.0 121.9 L431.4 124.5 L432.8 131.0 L434.2 130.5 L435.6 126.1 L437.0 125.8 L438.4 127.4 L439.8 131.1 L441.2 131.5 L442.6 131.7 L444.0 130.9 L445.4 131.6 L446.8 133.9 L448.2 129.6 L449.6 128.6 L451.0 128.0 L452.4 122.9 L453.7 122.2 L455.1 122.0 L456.5 122.8 L457.9 121.6 L459.3 113.4 L460.7 115.3 L462.1 111.1 L463.5 107.0 L464.9 105.9 L466.3 102.5 L467.7 105.5 L469.1 104.6 L470.5 111.6 L471.9 114.2 L473.3 117.4 L474.7 117.3 L476.1 118.3 L477.5 121.6 L478.9 123.8 L480.3 126.0 L481.6 125.1 L483.0 122.0 L484.4 124.2 L485.8 128.3 L487.2 127.9 L488.6 129.6 L490.0 130.4 L491.4 135.7 L492.8 138.1 L494.2 136.7 L495.6 138.0 L497.0 138.3 L498.4 141.4 L499.8 136.8 L501.2 137.9 L502.6 135.9 L504.0 140.5 L505.4 140.1 L506.8 143.2 L508.2 149.8 L509.5 152.8 L510.9 146.3 L512.3 142.9 L513.7 136.4 L515.1 134.4 L516.5 135.5 L517.9 139.7 L519.3 142.2 L520.7 139.6 L522.1 141.1 L523.5 140.8 L524.9 138.9 L526.3 136.7 L527.7 136.6 L529.1 136.6 L530.5 135.8 L531.9 137.0 L533.3 133.7 L534.7 131.4 L536.1 123.5 L537.4 120.6 L538.8 124.5 L540.2 126.1 L541.6 127.8 L543.0 124.8 L544.4 128.1 L545.8 130.2 L547.2 134.5 L548.6 137.9 L550.0 140.7 L551.4 147.1 L552.8 145.9 L554.2 146.3 L555.6 149.0 L557.0 146.7 L558.4 150.5 L559.8 155.2 L561.2 150.6 L562.6 154.2 L564.0 150.3 L565.3 146.7 L566.7 144.3 L568.1 138.7 L569.5 133.7 L570.9 130.7 L572.3 132.2 L573.7 127.9 L575.1 128.3 L576.5 126.2 L577.9 126.1 L579.3 131.5 L580.7 132.7 L582.1 127.5 L583.5 126.6 L584.9 131.2 L586.3 134.2 L587.7 129.3 L589.1 132.0 L590.5 131.3 L591.9 127.3 L593.2 126.6 L594.6 127.4 L596.0 124.4 L597.4 129.3 L598.8 122.9 L600.2 123.0 L601.6 123.7 L603.0 120.9 L604.4 122.4 L605.8 122.9 L607.2 122.5 L608.6 119.5 L610.0 121.9 L611.4 119.9 L612.8 115.8 L614.2 111.1 L615.6 109.9 L617.0 108.9 L618.4 103.9 L619.8 97.4 L621.1 100.7 L622.5 93.2 L623.9 88.3 L625.3 87.5 L626.7 86.2 L628.1 83.7 L629.5 91.3 L630.9 92.9 L632.3 94.5 L633.7 93.7 L635.1 84.8 L636.5 84.3 L637.9 77.2 L639.3 68.7 L640.7 63.4 L642.1 65.8 L643.5 68.3 L644.9 60.9 L646.3 63.3 L647.6 70.8 L649.0 76.1 L650.4 72.9 L651.8 76.9 L653.2 77.2 L654.6 77.1 L656.0 80.6 L657.4 77.1 L658.8 75.7 L660.2 79.1 L661.6 81.0 L663.0 80.1 L664.4 81.1 L665.8 75.5 L667.2 75.7 L668.6 73.6 L670.0 67.5 L671.4 62.3 L672.8 68.6 L674.2 66.4 L675.5 67.3 L676.9 61.0 L678.3 61.1 L679.7 56.1 L681.1 46.9 L682.5 49.7 L683.9 49.8 L685.3 55.9 L686.7 58.0 L688.1 62.6 L689.5 48.4 L690.9 51.9 L692.3 45.1 L693.7 57.4 L695.1 54.2 L696.5 52.4 L697.9 54.7 L699.3 53.7 L700.7 51.4 L702.1 51.1 L703.4 47.1 L704.8 41.3 L706.2 40.6 L707.6 46.0 L709.0 53.5 L710.4 51.8 L711.8 57.1 L713.2 61.1 L714.6 57.8 L716.0 47.8 L717.4 43.5 L718.8 32.1 L720.2 33.9 L721.6 33.2 L723.0 37.6 L724.4 26.4 L725.8 28.5" fill="none" stroke="var(--muted)" stroke-width="2"
+              stroke-linejoin="round"/>
+        <path d="M52.0 194.4 L53.4 194.1 L54.8 194.9 L56.2 195.4 L57.6 195.3 L59.0 193.3 L60.4 192.4 L61.8 192.8 L63.2 192.6 L64.6 191.6 L65.9 192.7 L67.3 191.0 L68.7 189.2 L70.1 187.8 L71.5 185.8 L72.9 184.0 L74.3 184.4 L75.7 183.1 L77.1 184.3 L78.5 183.6 L79.9 185.1 L81.3 184.8 L82.7 185.4 L84.1 186.0 L85.5 187.3 L86.9 188.8 L88.3 188.9 L89.7 189.5 L91.1 187.9 L92.5 186.4 L93.8 187.7 L95.2 187.4 L96.6 187.8 L98.0 186.9 L99.4 187.2 L100.8 186.3 L102.2 186.6 L103.6 186.1 L105.0 186.6 L106.4 187.0 L107.8 185.5 L109.2 186.1 L110.6 186.5 L112.0 185.3 L113.4 183.6 L114.8 181.9 L116.2 179.1 L117.6 179.1 L119.0 177.8 L120.4 177.3 L121.7 179.4 L123.1 180.2 L124.5 179.4 L125.9 178.9 L127.3 178.3 L128.7 179.3 L130.1 179.2 L131.5 179.3 L132.9 177.7 L134.3 179.2 L135.7 178.4 L137.1 176.7 L138.5 174.6 L139.9 174.9 L141.3 172.5 L142.7 171.3 L144.1 170.2 L145.5 171.7 L146.9 172.9 L148.3 173.0 L149.6 174.4 L151.0 175.0 L152.4 175.7 L153.8 176.0 L155.2 175.5 L156.6 176.7 L158.0 177.5 L159.4 177.9 L160.8 178.1 L162.2 178.5 L163.6 178.8 L165.0 179.6 L166.4 177.0 L167.8 174.3 L169.2 173.9 L170.6 172.4 L172.0 171.1 L173.4 170.1 L174.8 168.6 L176.2 167.8 L177.5 168.5 L178.9 167.6 L180.3 169.7 L181.7 171.9 L183.1 172.8 L184.5 170.8 L185.9 170.6 L187.3 170.8 L188.7 171.4 L190.1 172.1 L191.5 172.4 L192.9 172.3 L194.3 174.4 L195.7 173.5 L197.1 174.5 L198.5 173.9 L199.9 172.9 L201.3 173.2 L202.7 172.0 L204.1 173.0 L205.4 171.3 L206.8 170.5 L208.2 170.8 L209.6 173.3 L211.0 172.8 L212.4 169.9 L213.8 170.5 L215.2 170.6 L216.6 173.1 L218.0 172.7 L219.4 173.1 L220.8 172.6 L222.2 171.5 L223.6 168.8 L225.0 169.5 L226.4 167.0 L227.8 164.7 L229.2 166.0 L230.6 164.1 L232.0 164.9 L233.3 166.2 L234.7 164.3 L236.1 160.7 L237.5 158.7 L238.9 158.1 L240.3 160.0 L241.7 156.7 L243.1 156.8 L244.5 157.0 L245.9 158.5 L247.3 155.0 L248.7 156.0 L250.1 154.1 L251.5 152.3 L252.9 150.5 L254.3 150.7 L255.7 151.4 L257.1 150.7 L258.5 149.3 L259.8 149.7 L261.2 149.6 L262.6 152.1 L264.0 152.8 L265.4 149.7 L266.8 150.9 L268.2 150.5 L269.6 149.3 L271.0 147.5 L272.4 144.9 L273.8 146.2 L275.2 142.6 L276.6 143.9 L278.0 139.3 L279.4 139.7 L280.8 136.3 L282.2 143.1 L283.6 140.0 L285.0 141.7 L286.4 141.8 L287.7 138.5 L289.1 137.1 L290.5 138.8 L291.9 136.7 L293.3 138.0 L294.7 138.4 L296.1 141.3 L297.5 139.7 L298.9 139.8 L300.3 142.5 L301.7 141.1 L303.1 138.4 L304.5 136.4 L305.9 132.7 L307.3 131.9 L308.7 130.9 L310.1 131.2 L311.5 130.5 L312.9 130.7 L314.3 130.5 L315.6 129.2 L317.0 130.3 L318.4 131.7 L319.8 134.0 L321.2 134.7 L322.6 137.7 L324.0 136.3 L325.4 136.0 L326.8 136.3 L328.2 138.2 L329.6 137.5 L331.0 132.3 L332.4 132.0 L333.8 130.7 L335.2 131.4 L336.6 134.8 L338.0 136.3 L339.4 135.6 L340.8 134.8 L342.2 136.7 L343.5 137.4 L344.9 136.3 L346.3 134.4 L347.7 133.1 L349.1 129.1 L350.5 131.3 L351.9 134.5 L353.3 137.5 L354.7 138.6 L356.1 139.9 L357.5 140.7 L358.9 141.1 L360.3 140.9 L361.7 138.4 L363.1 138.6 L364.5 139.1 L365.9 140.6 L367.3 137.8 L368.7 136.5 L370.1 137.1 L371.4 137.2 L372.8 140.2 L374.2 136.8 L375.6 136.3 L377.0 136.6 L378.4 139.0 L379.8 136.8 L381.2 133.8 L382.6 130.7 L384.0 132.1 L385.4 128.7 L386.8 126.3 L388.2 126.2 L389.6 123.7 L391.0 125.7 L392.4 125.7 L393.8 129.7 L395.2 129.8 L396.6 128.5 L398.0 128.8 L399.3 126.7 L400.7 127.8 L402.1 127.0 L403.5 129.4 L404.9 131.4 L406.3 129.5 L407.7 127.6 L409.1 123.7 L410.5 125.7 L411.9 122.6 L413.3 120.4 L414.7 116.6 L416.1 119.8 L417.5 122.2 L418.9 123.0 L420.3 123.9 L421.7 123.7 L423.1 120.6 L424.5 116.8 L425.9 116.7 L427.2 112.6 L428.6 111.7 L430.0 115.2 L431.4 115.7 L432.8 117.6 L434.2 118.1 L435.6 112.9 L437.0 112.7 L438.4 111.6 L439.8 114.3 L441.2 115.1 L442.6 115.5 L444.0 114.4 L445.4 115.6 L446.8 117.2 L448.2 114.8 L449.6 116.8 L451.0 114.7 L452.4 111.7 L453.7 110.5 L455.1 112.1 L456.5 113.4 L457.9 114.1 L459.3 108.3 L460.7 109.2 L462.1 103.8 L463.5 102.6 L464.9 101.4 L466.3 98.5 L467.7 98.7 L469.1 98.7 L470.5 101.9 L471.9 103.6 L473.3 106.1 L474.7 106.5 L476.1 106.6 L477.5 109.6 L478.9 110.7 L480.3 113.8 L481.6 114.1 L483.0 111.5 L484.4 112.1 L485.8 116.0 L487.2 114.0 L488.6 114.6 L490.0 115.8 L491.4 120.2 L492.8 123.8 L494.2 122.2 L495.6 122.1 L497.0 121.1 L498.4 124.8 L499.8 122.1 L501.2 124.2 L502.6 122.3 L504.0 125.8 L505.4 126.7 L506.8 129.2 L508.2 133.1 L509.5 137.2 L510.9 133.1 L512.3 130.7 L513.7 125.9 L515.1 123.2 L516.5 124.6 L517.9 126.5 L519.3 129.7 L520.7 127.0 L522.1 129.4 L523.5 128.4 L524.9 128.3 L526.3 127.6 L527.7 127.6 L529.1 128.7 L530.5 128.6 L531.9 130.1 L533.3 128.7 L534.7 126.4 L536.1 120.3 L537.4 117.1 L538.8 119.9 L540.2 120.2 L541.6 122.4 L543.0 120.8 L544.4 122.9 L545.8 125.1 L547.2 126.8 L548.6 128.6 L550.0 129.9 L551.4 134.5 L552.8 134.5 L554.2 136.7 L555.6 139.2 L557.0 137.3 L558.4 140.5 L559.8 144.6 L561.2 141.2 L562.6 145.3 L564.0 143.1 L565.3 140.5 L566.7 137.6 L568.1 133.8 L569.5 129.6 L570.9 127.7 L572.3 129.8 L573.7 127.6 L575.1 128.5 L576.5 128.5 L577.9 129.1 L579.3 133.2 L580.7 132.5 L582.1 128.7 L583.5 128.0 L584.9 129.5 L586.3 131.2 L587.7 126.3 L589.1 126.0 L590.5 125.6 L591.9 122.7 L593.2 122.4 L594.6 124.1 L596.0 122.7 L597.4 124.7 L598.8 120.1 L600.2 118.8 L601.6 120.6 L603.0 120.5 L604.4 119.7 L605.8 119.3 L607.2 117.0 L608.6 116.7 L610.0 117.9 L611.4 114.9 L612.8 112.5 L614.2 109.6 L615.6 108.2 L617.0 107.8 L618.4 105.3 L619.8 102.4 L621.1 105.5 L622.5 102.0 L623.9 99.2 L625.3 97.7 L626.7 96.6 L628.1 93.6 L629.5 97.5 L630.9 98.4 L632.3 100.4 L633.7 100.5 L635.1 95.1 L636.5 94.3 L637.9 89.2 L639.3 82.1 L640.7 79.1 L642.1 80.0 L643.5 80.4 L644.9 75.4 L646.3 75.3 L647.6 80.9 L649.0 85.4 L650.4 82.0 L651.8 82.7 L653.2 81.1 L654.6 82.1 L656.0 83.1 L657.4 79.8 L658.8 77.4 L660.2 80.5 L661.6 81.9 L663.0 81.0 L664.4 81.7 L665.8 76.3 L667.2 76.3 L668.6 74.8 L670.0 69.5 L671.4 64.7 L672.8 67.6 L674.2 65.8 L675.5 65.6 L676.9 63.8 L678.3 64.8 L679.7 63.3 L681.1 57.7 L682.5 60.7 L683.9 61.5 L685.3 65.5 L686.7 67.0 L688.1 69.9 L689.5 60.6 L690.9 62.1 L692.3 60.0 L693.7 66.3 L695.1 65.2 L696.5 60.5 L697.9 61.4 L699.3 63.1 L700.7 62.7 L702.1 61.5 L703.4 57.8 L704.8 53.1 L706.2 55.2 L707.6 59.1 L709.0 61.5 L710.4 58.7 L711.8 59.1 L713.2 62.6 L714.6 60.2 L716.0 55.8 L717.4 54.8 L718.8 48.4 L720.2 47.1 L721.6 45.7 L723.0 49.4 L724.4 42.9 L725.8 44.0" fill="none" stroke="var(--pos-500)" stroke-width="2"
+              stroke-linejoin="round"/>
+        <text x="731.0" y="33.3" fill="var(--muted)" font-size="10">B&amp;H 416</text>
+        <text x="731.0" y="49.2" fill="var(--pos-500)" font-size="10" font-weight="600">rule 386</text>
+        <text x="46.0" y="16.0" fill="var(--muted)" font-size="9.5" text-anchor="end">index</text>
+
+        <text x="52.0" y="224.0" fill="var(--ink-2)" font-size="10" font-weight="600">Drawdown</text>
+
+          <line x1="52.0" y1="232.0" x2="726.0" y2="232.0" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="235.5" fill="var(--muted)" font-size="9.5" text-anchor="end">0%</text>
+          <line x1="52.0" y1="264.3" x2="726.0" y2="264.3" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="267.8" fill="var(--muted)" font-size="9.5" text-anchor="end">-20%</text>
+          <line x1="52.0" y1="296.7" x2="726.0" y2="296.7" stroke="var(--grid)" stroke-width="1"/>
+          <text x="46.0" y="300.2" fill="var(--muted)" font-size="9.5" text-anchor="end">-40%</text>
+        <path d="M52.0 232.0 L52.0 232.0 L53.4 233.4 L54.8 235.9 L56.2 237.4 L57.6 237.0 L59.0 232.2 L60.4 232.4 L61.8 233.6 L63.2 232.9 L64.6 232.8 L65.9 235.9 L67.3 232.6 L68.7 232.0 L70.1 232.0 L71.5 232.0 L72.9 232.2 L74.3 233.4 L75.7 233.4 L77.1 236.6 L78.5 234.8 L79.9 238.6 L81.3 237.8 L82.7 239.3 L84.1 240.8 L85.5 244.2 L86.9 247.9 L88.3 248.0 L89.7 249.7 L91.1 245.5 L92.5 241.7 L93.8 245.1 L95.2 244.4 L96.6 245.2 L98.0 243.0 L99.4 243.9 L100.8 241.6 L102.2 242.2 L103.6 240.9 L105.0 242.3 L106.4 243.4 L107.8 239.6 L109.2 241.0 L110.6 242.0 L112.0 238.9 L113.4 234.6 L114.8 232.7 L116.2 232.0 L117.6 234.9 L119.0 232.3 L120.4 233.0 L121.7 237.7 L123.1 239.6 L124.5 237.8 L125.9 236.7 L127.3 235.1 L128.7 237.4 L130.1 237.4 L131.5 237.6 L132.9 233.8 L134.3 237.4 L135.7 235.5 L137.1 233.0 L138.5 232.0 L139.9 232.7 L141.3 232.3 L142.7 232.1 L144.1 232.4 L145.5 235.9 L146.9 238.6 L148.3 238.7 L149.6 241.7 L151.0 242.9 L152.4 244.3 L153.8 245.1 L155.2 243.9 L156.6 246.4 L158.0 248.1 L159.4 249.1 L160.8 249.5 L162.2 250.3 L163.6 250.8 L165.0 252.6 L166.4 247.0 L167.8 241.5 L169.2 240.7 L170.6 237.4 L172.0 234.9 L173.4 233.6 L174.8 232.6 L176.2 232.0 L177.5 233.6 L178.9 233.2 L180.3 237.5 L181.7 242.0 L183.1 243.7 L184.5 239.7 L185.9 239.2 L187.3 239.6 L188.7 241.0 L190.1 242.3 L191.5 242.8 L192.9 242.7 L194.3 247.1 L195.7 245.3 L197.1 247.3 L198.5 245.9 L199.9 243.9 L201.3 244.5 L202.7 242.1 L204.1 244.1 L205.4 240.7 L206.8 239.0 L208.2 239.7 L209.6 244.8 L211.0 243.8 L212.4 237.9 L213.8 239.1 L215.2 239.2 L216.6 244.4 L218.0 243.6 L219.4 244.4 L220.8 243.3 L222.2 241.1 L223.6 235.5 L225.0 237.1 L226.4 232.0 L227.8 232.0 L229.2 234.7 L230.6 232.0 L232.0 233.5 L233.3 236.2 L234.7 232.5 L236.1 232.0 L237.5 232.0 L238.9 232.6 L240.3 236.0 L241.7 232.0 L243.1 233.5 L244.5 233.9 L245.9 236.5 L247.3 232.0 L248.7 233.8 L250.1 232.0 L251.5 232.0 L252.9 234.8 L254.3 235.1 L255.7 236.3 L257.1 235.0 L258.5 232.7 L259.8 233.9 L261.2 233.7 L262.6 237.8 L264.0 238.9 L265.4 233.9 L266.8 235.8 L268.2 235.2 L269.6 233.3 L271.0 232.1 L272.4 233.6 L273.8 237.2 L275.2 232.0 L276.6 234.1 L278.0 232.0 L279.4 233.1 L280.8 232.9 L282.2 242.8 L283.6 238.2 L285.0 240.8 L286.4 240.9 L287.7 236.0 L289.1 234.1 L290.5 236.4 L291.9 233.4 L293.3 235.3 L294.7 235.9 L296.1 240.1 L297.5 237.8 L298.9 238.0 L300.3 241.9 L301.7 239.9 L303.1 235.9 L304.5 232.9 L305.9 232.0 L307.3 232.4 L308.7 232.3 L310.1 232.7 L311.5 232.7 L312.9 232.9 L314.3 232.7 L315.6 235.1 L317.0 236.6 L318.4 238.4 L319.8 241.6 L321.2 242.6 L322.6 246.7 L324.0 244.7 L325.4 244.3 L326.8 244.7 L328.2 247.2 L329.6 246.4 L331.0 239.3 L332.4 238.9 L333.8 237.2 L335.2 238.1 L336.6 242.6 L338.0 244.6 L339.4 243.8 L340.8 242.7 L342.2 245.2 L343.5 246.2 L344.9 244.7 L346.3 242.1 L347.7 240.4 L349.1 235.0 L350.5 238.0 L351.9 242.3 L353.3 246.4 L354.7 247.8 L356.1 249.6 L357.5 250.7 L358.9 251.2 L360.3 250.9 L361.7 247.5 L363.1 247.8 L364.5 248.5 L365.9 250.5 L367.3 246.8 L368.7 245.0 L370.1 245.7 L371.4 245.9 L372.8 249.9 L374.2 245.4 L375.6 244.7 L377.0 245.2 L378.4 248.4 L379.8 245.3 L381.2 241.3 L382.6 237.1 L384.0 239.1 L385.4 234.5 L386.8 232.0 L388.2 234.6 L389.6 232.0 L391.0 234.7 L392.4 234.7 L393.8 239.9 L395.2 240.1 L396.6 238.4 L398.0 238.7 L399.3 235.9 L400.7 237.4 L402.1 236.4 L403.5 239.5 L404.9 242.1 L406.3 239.7 L407.7 237.1 L409.1 234.5 L410.5 237.1 L411.9 233.1 L413.3 232.0 L414.7 233.1 L416.1 237.0 L417.5 240.0 L418.9 241.0 L420.3 242.1 L421.7 241.9 L423.1 238.0 L424.5 233.4 L425.9 233.3 L427.2 232.0 L428.6 232.0 L430.0 236.2 L431.4 236.8 L432.8 239.1 L434.2 239.8 L435.6 233.5 L437.0 233.3 L438.4 232.5 L439.8 235.6 L441.2 236.6 L442.6 237.1 L444.0 235.8 L445.4 237.2 L446.8 239.1 L448.2 236.3 L449.6 238.6 L451.0 236.2 L452.4 233.5 L453.7 232.8 L455.1 234.8 L456.5 236.3 L457.9 237.2 L459.3 232.0 L460.7 233.0 L462.1 232.0 L463.5 232.0 L464.9 233.1 L466.3 232.0 L467.7 232.6 L469.1 233.6 L470.5 237.1 L471.9 238.9 L473.3 241.6 L474.7 242.0 L476.1 242.2 L477.5 245.4 L478.9 246.6 L480.3 249.9 L481.6 250.3 L483.0 247.4 L484.4 248.1 L485.8 252.3 L487.2 250.2 L488.6 250.8 L490.0 252.1 L491.4 256.9 L492.8 260.8 L494.2 259.0 L495.6 258.9 L497.0 257.8 L498.4 261.8 L499.8 258.9 L501.2 261.2 L502.6 259.1 L504.0 262.9 L505.4 263.9 L506.8 266.6 L508.2 270.8 L509.5 275.2 L510.9 270.8 L512.3 268.3 L513.7 263.0 L515.1 260.1 L516.5 261.6 L517.9 263.6 L519.3 267.2 L520.7 264.2 L522.1 266.8 L523.5 265.7 L524.9 265.7 L526.3 264.9 L527.7 264.9 L529.1 266.1 L530.5 265.9 L531.9 267.5 L533.3 266.0 L534.7 263.6 L536.1 257.0 L537.4 253.5 L538.8 256.5 L540.2 256.9 L541.6 259.3 L543.0 257.4 L544.4 259.8 L545.8 262.2 L547.2 264.0 L548.6 266.0 L550.0 267.3 L551.4 272.4 L552.8 272.4 L554.2 274.7 L555.6 277.4 L557.0 275.3 L558.4 278.8 L559.8 283.3 L561.2 279.6 L562.6 284.1 L564.0 281.6 L565.3 278.8 L566.7 275.7 L568.1 271.5 L569.5 267.1 L570.9 265.0 L572.3 267.2 L573.7 264.9 L575.1 265.8 L576.5 265.9 L577.9 266.5 L579.3 270.9 L580.7 270.2 L582.1 266.0 L583.5 265.3 L584.9 266.9 L586.3 268.7 L587.7 263.5 L589.1 263.1 L590.5 262.7 L591.9 259.5 L593.2 259.2 L594.6 261.0 L596.0 259.6 L597.4 261.7 L598.8 256.8 L600.2 255.3 L601.6 257.3 L603.0 257.2 L604.4 256.3 L605.8 255.9 L607.2 253.4 L608.6 253.0 L610.0 254.4 L611.4 251.1 L612.8 248.6 L614.2 245.3 L615.6 243.8 L617.0 243.5 L618.4 240.8 L619.8 237.6 L621.1 241.0 L622.5 237.1 L623.9 234.1 L625.3 232.6 L626.7 235.7 L628.1 232.5 L629.5 236.6 L630.9 237.6 L632.3 239.7 L633.7 239.8 L635.1 234.1 L636.5 233.3 L637.9 232.0 L639.3 232.0 L640.7 232.0 L642.1 233.3 L643.5 233.7 L644.9 232.2 L646.3 233.6 L647.6 238.7 L649.0 243.0 L650.4 239.8 L651.8 240.4 L653.2 238.9 L654.6 239.9 L656.0 240.8 L657.4 237.8 L658.8 235.5 L660.2 238.3 L661.6 239.7 L663.0 238.9 L664.4 239.5 L665.8 234.5 L667.2 234.5 L668.6 233.0 L670.0 232.1 L671.4 232.0 L672.8 235.5 L674.2 234.0 L675.5 233.8 L676.9 232.2 L678.3 234.6 L679.7 233.3 L681.1 232.7 L682.5 236.1 L683.9 236.8 L685.3 240.2 L686.7 241.5 L688.1 243.9 L689.5 236.0 L690.9 237.3 L692.3 235.5 L693.7 240.8 L695.1 239.9 L696.5 235.9 L697.9 236.7 L699.3 238.2 L700.7 237.8 L702.1 236.8 L703.4 233.6 L704.8 232.2 L706.2 234.1 L707.6 238.4 L709.0 240.4 L710.4 238.1 L711.8 238.4 L713.2 241.3 L714.6 239.3 L716.0 235.7 L717.4 234.9 L718.8 232.0 L720.2 232.0 L721.6 233.2 L723.0 236.1 L724.4 232.0 L725.8 235.0 L725.8 232.0 Z" fill="var(--neg-500)" opacity="0.22"/>
+        <path d="M52.0 232.0 L53.4 233.6 L54.8 236.0 L56.2 235.8 L57.6 238.3 L59.0 232.4 L60.4 232.0 L61.8 232.5 L63.2 233.6 L64.6 233.1 L65.9 237.3 L67.3 233.2 L68.7 232.0 L70.1 232.0 L71.5 232.0 L72.9 233.0 L74.3 234.7 L75.7 233.3 L77.1 235.2 L78.5 234.4 L79.9 240.2 L81.3 237.6 L82.7 242.2 L84.1 243.8 L85.5 247.5 L86.9 252.2 L88.3 253.1 L89.7 253.9 L91.1 246.8 L92.5 243.1 L93.8 247.7 L95.2 244.1 L96.6 245.1 L98.0 243.5 L99.4 245.5 L100.8 246.1 L102.2 247.4 L103.6 243.0 L105.0 243.5 L106.4 244.0 L107.8 240.9 L109.2 244.3 L110.6 247.9 L112.0 243.7 L113.4 239.3 L114.8 234.3 L116.2 232.0 L117.6 235.9 L119.0 234.0 L120.4 233.1 L121.7 236.2 L123.1 238.5 L124.5 233.3 L125.9 232.8 L127.3 232.0 L128.7 233.9 L130.1 232.3 L131.5 232.0 L132.9 232.0 L134.3 234.6 L135.7 232.0 L137.1 234.7 L138.5 232.0 L139.9 232.1 L141.3 232.0 L142.7 232.5 L144.1 232.0 L145.5 238.6 L146.9 239.9 L148.3 241.0 L149.6 244.8 L151.0 243.0 L152.4 244.5 L153.8 246.3 L155.2 244.9 L156.6 246.4 L158.0 248.1 L159.4 249.0 L160.8 251.2 L162.2 251.8 L163.6 254.9 L165.0 256.7 L166.4 249.0 L167.8 238.9 L169.2 240.8 L170.6 234.0 L172.0 236.9 L173.4 236.0 L174.8 232.6 L176.2 232.5 L177.5 236.8 L178.9 233.9 L180.3 239.3 L181.7 245.1 L183.1 247.7 L184.5 242.9 L185.9 242.1 L187.3 242.3 L188.7 243.8 L190.1 247.9 L191.5 250.3 L192.9 249.9 L194.3 257.7 L195.7 256.2 L197.1 259.7 L198.5 260.4 L199.9 260.8 L201.3 262.8 L202.7 262.1 L204.1 262.5 L205.4 257.0 L206.8 254.5 L208.2 255.2 L209.6 260.4 L211.0 258.7 L212.4 251.7 L213.8 255.0 L215.2 255.7 L216.6 260.4 L218.0 259.3 L219.4 260.7 L220.8 260.9 L222.2 261.3 L223.6 255.7 L225.0 257.2 L226.4 250.2 L227.8 247.3 L229.2 249.0 L230.6 242.6 L232.0 244.4 L233.3 247.4 L234.7 241.8 L236.1 232.0 L237.5 232.0 L238.9 232.0 L240.3 237.2 L241.7 232.0 L243.1 236.3 L244.5 238.4 L245.9 243.9 L247.3 233.9 L248.7 235.9 L250.1 232.0 L251.5 232.0 L252.9 235.8 L254.3 237.2 L255.7 240.3 L257.1 235.9 L258.5 232.3 L259.8 234.9 L261.2 238.6 L262.6 244.1 L264.0 244.8 L265.4 239.9 L266.8 237.3 L268.2 235.9 L269.6 236.4 L271.0 233.7 L272.4 233.8 L273.8 238.3 L275.2 232.0 L276.6 235.2 L278.0 232.0 L279.4 235.4 L280.8 232.0 L282.2 245.0 L283.6 236.9 L285.0 244.8 L286.4 246.8 L287.7 239.7 L289.1 239.4 L290.5 243.1 L291.9 242.1 L293.3 243.2 L294.7 241.2 L296.1 246.2 L297.5 242.8 L298.9 245.3 L300.3 250.8 L301.7 248.7 L303.1 244.3 L304.5 243.2 L305.9 234.0 L307.3 233.5 L308.7 232.7 L310.1 233.8 L311.5 233.7 L312.9 234.6 L314.3 237.4 L315.6 235.0 L317.0 240.4 L318.4 245.6 L319.8 249.1 L321.2 248.0 L322.6 253.8 L324.0 251.8 L325.4 251.5 L326.8 252.0 L328.2 256.6 L329.6 253.9 L331.0 248.4 L332.4 245.4 L333.8 245.0 L335.2 245.1 L336.6 249.7 L338.0 254.9 L339.4 255.9 L340.8 255.4 L342.2 257.5 L343.5 260.4 L344.9 259.5 L346.3 256.0 L347.7 253.0 L349.1 248.3 L350.5 251.7 L351.9 257.3 L353.3 261.7 L354.7 266.3 L356.1 273.5 L357.5 279.7 L358.9 281.5 L360.3 277.0 L361.7 273.9 L363.1 276.2 L364.5 278.8 L365.9 282.2 L367.3 281.2 L368.7 279.3 L370.1 280.0 L371.4 280.3 L372.8 285.3 L374.2 282.5 L375.6 280.3 L377.0 282.6 L378.4 286.8 L379.8 284.5 L381.2 280.4 L382.6 276.2 L384.0 277.2 L385.4 271.8 L386.8 270.3 L388.2 269.3 L389.6 267.7 L391.0 272.9 L392.4 275.4 L393.8 278.6 L395.2 278.0 L396.6 275.1 L398.0 277.7 L399.3 274.2 L400.7 276.9 L402.1 277.3 L403.5 280.0 L404.9 283.5 L406.3 279.8 L407.7 278.8 L409.1 273.9 L410.5 275.1 L411.9 270.8 L413.3 268.4 L414.7 262.7 L416.1 264.8 L417.5 267.5 L418.9 269.1 L420.3 269.8 L421.7 269.0 L423.1 266.3 L424.5 260.1 L425.9 256.5 L427.2 251.8 L428.6 250.7 L430.0 254.5 L431.4 257.3 L432.8 264.6 L434.2 264.1 L435.6 259.2 L437.0 258.8 L438.4 260.6 L439.8 264.7 L441.2 265.2 L442.6 265.4 L444.0 264.4 L445.4 265.3 L446.8 267.8 L448.2 263.1 L449.6 261.9 L451.0 261.3 L452.4 255.6 L453.7 254.8 L455.1 254.6 L456.5 255.4 L457.9 254.1 L459.3 245.0 L460.7 247.1 L462.1 242.4 L463.5 237.8 L464.9 236.6 L466.3 232.8 L467.7 236.1 L469.1 235.1 L470.5 242.9 L471.9 245.9 L473.3 249.4 L474.7 249.3 L476.1 250.5 L477.5 254.1 L478.9 256.6 L480.3 259.0 L481.6 258.0 L483.0 254.5 L484.4 257.0 L485.8 261.6 L487.2 261.1 L488.6 263.0 L490.0 264.0 L491.4 269.8 L492.8 272.5 L494.2 270.9 L495.6 272.4 L497.0 272.7 L498.4 276.2 L499.8 271.1 L501.2 272.3 L502.6 270.1 L504.0 275.2 L505.4 274.7 L506.8 278.2 L508.2 285.5 L509.5 288.9 L510.9 281.6 L512.3 277.9 L513.7 270.7 L515.1 268.4 L516.5 269.6 L517.9 274.4 L519.3 277.1 L520.7 274.2 L522.1 275.8 L523.5 275.6 L524.9 273.4 L526.3 271.0 L527.7 270.9 L529.1 270.9 L530.5 269.9 L531.9 271.3 L533.3 267.6 L534.7 265.0 L536.1 256.3 L537.4 253.0 L538.8 257.3 L540.2 259.2 L541.6 261.0 L543.0 257.7 L544.4 261.4 L545.8 263.7 L547.2 268.5 L548.6 272.3 L550.0 275.4 L551.4 282.6 L552.8 281.2 L554.2 281.7 L555.6 284.6 L557.0 282.1 L558.4 286.3 L559.8 291.7 L561.2 286.4 L562.6 290.5 L564.0 286.1 L565.3 282.1 L566.7 279.4 L568.1 273.1 L569.5 267.6 L570.9 264.2 L572.3 265.9 L573.7 261.2 L575.1 261.6 L576.5 259.2 L577.9 259.1 L579.3 265.2 L580.7 266.5 L582.1 260.7 L583.5 259.7 L584.9 264.8 L586.3 268.2 L587.7 262.7 L589.1 265.7 L590.5 265.0 L591.9 260.5 L593.2 259.7 L594.6 260.6 L596.0 257.2 L597.4 262.7 L598.8 255.6 L600.2 255.7 L601.6 256.4 L603.0 253.4 L604.4 255.0 L605.8 255.6 L607.2 255.2 L608.6 251.7 L610.0 254.4 L611.4 252.3 L612.8 247.6 L614.2 242.4 L615.6 241.0 L617.0 239.9 L618.4 234.4 L619.8 232.0 L621.1 235.6 L622.5 232.0 L623.9 232.0 L625.3 232.8 L626.7 237.5 L628.1 235.1 L629.5 242.5 L630.9 244.0 L632.3 245.6 L633.7 244.8 L635.1 236.1 L636.5 235.6 L637.9 232.0 L639.3 232.0 L640.7 232.0 L642.1 234.1 L643.5 236.3 L644.9 232.0 L646.3 235.0 L647.6 241.5 L649.0 246.1 L650.4 243.3 L651.8 246.7 L653.2 247.0 L654.6 247.0 L656.0 250.0 L657.4 246.9 L658.8 245.8 L660.2 248.7 L661.6 250.4 L663.0 249.5 L664.4 250.4 L665.8 245.6 L667.2 245.8 L668.6 243.9 L670.0 238.6 L671.4 234.2 L672.8 239.6 L674.2 237.7 L675.5 238.4 L676.9 233.0 L678.3 234.3 L679.7 233.2 L681.1 232.0 L682.5 235.2 L683.9 235.4 L685.3 240.2 L686.7 242.0 L688.1 245.7 L689.5 234.2 L690.9 237.0 L692.3 233.0 L693.7 242.8 L695.1 240.2 L696.5 238.8 L697.9 240.6 L699.3 239.8 L700.7 238.0 L702.1 237.8 L703.4 234.6 L704.8 233.0 L706.2 232.5 L707.6 241.3 L709.0 247.1 L710.4 245.8 L711.8 249.7 L713.2 252.8 L714.6 250.3 L716.0 242.7 L717.4 239.4 L718.8 232.0 L720.2 233.4 L721.6 233.6 L723.0 236.9 L724.4 232.0 L725.8 236.7" fill="none" stroke="var(--muted)" stroke-width="1.5"/>
+        <path d="M52.0 232.0 L53.4 233.4 L54.8 235.9 L56.2 237.4 L57.6 237.0 L59.0 232.2 L60.4 232.4 L61.8 233.6 L63.2 232.9 L64.6 232.8 L65.9 235.9 L67.3 232.6 L68.7 232.0 L70.1 232.0 L71.5 232.0 L72.9 232.2 L74.3 233.4 L75.7 233.4 L77.1 236.6 L78.5 234.8 L79.9 238.6 L81.3 237.8 L82.7 239.3 L84.1 240.8 L85.5 244.2 L86.9 247.9 L88.3 248.0 L89.7 249.7 L91.1 245.5 L92.5 241.7 L93.8 245.1 L95.2 244.4 L96.6 245.2 L98.0 243.0 L99.4 243.9 L100.8 241.6 L102.2 242.2 L103.6 240.9 L105.0 242.3 L106.4 243.4 L107.8 239.6 L109.2 241.0 L110.6 242.0 L112.0 238.9 L113.4 234.6 L114.8 232.7 L116.2 232.0 L117.6 234.9 L119.0 232.3 L120.4 233.0 L121.7 237.7 L123.1 239.6 L124.5 237.8 L125.9 236.7 L127.3 235.1 L128.7 237.4 L130.1 237.4 L131.5 237.6 L132.9 233.8 L134.3 237.4 L135.7 235.5 L137.1 233.0 L138.5 232.0 L139.9 232.7 L141.3 232.3 L142.7 232.1 L144.1 232.4 L145.5 235.9 L146.9 238.6 L148.3 238.7 L149.6 241.7 L151.0 242.9 L152.4 244.3 L153.8 245.1 L155.2 243.9 L156.6 246.4 L158.0 248.1 L159.4 249.1 L160.8 249.5 L162.2 250.3 L163.6 250.8 L165.0 252.6 L166.4 247.0 L167.8 241.5 L169.2 240.7 L170.6 237.4 L172.0 234.9 L173.4 233.6 L174.8 232.6 L176.2 232.0 L177.5 233.6 L178.9 233.2 L180.3 237.5 L181.7 242.0 L183.1 243.7 L184.5 239.7 L185.9 239.2 L187.3 239.6 L188.7 241.0 L190.1 242.3 L191.5 242.8 L192.9 242.7 L194.3 247.1 L195.7 245.3 L197.1 247.3 L198.5 245.9 L199.9 243.9 L201.3 244.5 L202.7 242.1 L204.1 244.1 L205.4 240.7 L206.8 239.0 L208.2 239.7 L209.6 244.8 L211.0 243.8 L212.4 237.9 L213.8 239.1 L215.2 239.2 L216.6 244.4 L218.0 243.6 L219.4 244.4 L220.8 243.3 L222.2 241.1 L223.6 235.5 L225.0 237.1 L226.4 232.0 L227.8 232.0 L229.2 234.7 L230.6 232.0 L232.0 233.5 L233.3 236.2 L234.7 232.5 L236.1 232.0 L237.5 232.0 L238.9 232.6 L240.3 236.0 L241.7 232.0 L243.1 233.5 L244.5 233.9 L245.9 236.5 L247.3 232.0 L248.7 233.8 L250.1 232.0 L251.5 232.0 L252.9 234.8 L254.3 235.1 L255.7 236.3 L257.1 235.0 L258.5 232.7 L259.8 233.9 L261.2 233.7 L262.6 237.8 L264.0 238.9 L265.4 233.9 L266.8 235.8 L268.2 235.2 L269.6 233.3 L271.0 232.1 L272.4 233.6 L273.8 237.2 L275.2 232.0 L276.6 234.1 L278.0 232.0 L279.4 233.1 L280.8 232.9 L282.2 242.8 L283.6 238.2 L285.0 240.8 L286.4 240.9 L287.7 236.0 L289.1 234.1 L290.5 236.4 L291.9 233.4 L293.3 235.3 L294.7 235.9 L296.1 240.1 L297.5 237.8 L298.9 238.0 L300.3 241.9 L301.7 239.9 L303.1 235.9 L304.5 232.9 L305.9 232.0 L307.3 232.4 L308.7 232.3 L310.1 232.7 L311.5 232.7 L312.9 232.9 L314.3 232.7 L315.6 235.1 L317.0 236.6 L318.4 238.4 L319.8 241.6 L321.2 242.6 L322.6 246.7 L324.0 244.7 L325.4 244.3 L326.8 244.7 L328.2 247.2 L329.6 246.4 L331.0 239.3 L332.4 238.9 L333.8 237.2 L335.2 238.1 L336.6 242.6 L338.0 244.6 L339.4 243.8 L340.8 242.7 L342.2 245.2 L343.5 246.2 L344.9 244.7 L346.3 242.1 L347.7 240.4 L349.1 235.0 L350.5 238.0 L351.9 242.3 L353.3 246.4 L354.7 247.8 L356.1 249.6 L357.5 250.7 L358.9 251.2 L360.3 250.9 L361.7 247.5 L363.1 247.8 L364.5 248.5 L365.9 250.5 L367.3 246.8 L368.7 245.0 L370.1 245.7 L371.4 245.9 L372.8 249.9 L374.2 245.4 L375.6 244.7 L377.0 245.2 L378.4 248.4 L379.8 245.3 L381.2 241.3 L382.6 237.1 L384.0 239.1 L385.4 234.5 L386.8 232.0 L388.2 234.6 L389.6 232.0 L391.0 234.7 L392.4 234.7 L393.8 239.9 L395.2 240.1 L396.6 238.4 L398.0 238.7 L399.3 235.9 L400.7 237.4 L402.1 236.4 L403.5 239.5 L404.9 242.1 L406.3 239.7 L407.7 237.1 L409.1 234.5 L410.5 237.1 L411.9 233.1 L413.3 232.0 L414.7 233.1 L416.1 237.0 L417.5 240.0 L418.9 241.0 L420.3 242.1 L421.7 241.9 L423.1 238.0 L424.5 233.4 L425.9 233.3 L427.2 232.0 L428.6 232.0 L430.0 236.2 L431.4 236.8 L432.8 239.1 L434.2 239.8 L435.6 233.5 L437.0 233.3 L438.4 232.5 L439.8 235.6 L441.2 236.6 L442.6 237.1 L444.0 235.8 L445.4 237.2 L446.8 239.1 L448.2 236.3 L449.6 238.6 L451.0 236.2 L452.4 233.5 L453.7 232.8 L455.1 234.8 L456.5 236.3 L457.9 237.2 L459.3 232.0 L460.7 233.0 L462.1 232.0 L463.5 232.0 L464.9 233.1 L466.3 232.0 L467.7 232.6 L469.1 233.6 L470.5 237.1 L471.9 238.9 L473.3 241.6 L474.7 242.0 L476.1 242.2 L477.5 245.4 L478.9 246.6 L480.3 249.9 L481.6 250.3 L483.0 247.4 L484.4 248.1 L485.8 252.3 L487.2 250.2 L488.6 250.8 L490.0 252.1 L491.4 256.9 L492.8 260.8 L494.2 259.0 L495.6 258.9 L497.0 257.8 L498.4 261.8 L499.8 258.9 L501.2 261.2 L502.6 259.1 L504.0 262.9 L505.4 263.9 L506.8 266.6 L508.2 270.8 L509.5 275.2 L510.9 270.8 L512.3 268.3 L513.7 263.0 L515.1 260.1 L516.5 261.6 L517.9 263.6 L519.3 267.2 L520.7 264.2 L522.1 266.8 L523.5 265.7 L524.9 265.7 L526.3 264.9 L527.7 264.9 L529.1 266.1 L530.5 265.9 L531.9 267.5 L533.3 266.0 L534.7 263.6 L536.1 257.0 L537.4 253.5 L538.8 256.5 L540.2 256.9 L541.6 259.3 L543.0 257.4 L544.4 259.8 L545.8 262.2 L547.2 264.0 L548.6 266.0 L550.0 267.3 L551.4 272.4 L552.8 272.4 L554.2 274.7 L555.6 277.4 L557.0 275.3 L558.4 278.8 L559.8 283.3 L561.2 279.6 L562.6 284.1 L564.0 281.6 L565.3 278.8 L566.7 275.7 L568.1 271.5 L569.5 267.1 L570.9 265.0 L572.3 267.2 L573.7 264.9 L575.1 265.8 L576.5 265.9 L577.9 266.5 L579.3 270.9 L580.7 270.2 L582.1 266.0 L583.5 265.3 L584.9 266.9 L586.3 268.7 L587.7 263.5 L589.1 263.1 L590.5 262.7 L591.9 259.5 L593.2 259.2 L594.6 261.0 L596.0 259.6 L597.4 261.7 L598.8 256.8 L600.2 255.3 L601.6 257.3 L603.0 257.2 L604.4 256.3 L605.8 255.9 L607.2 253.4 L608.6 253.0 L610.0 254.4 L611.4 251.1 L612.8 248.6 L614.2 245.3 L615.6 243.8 L617.0 243.5 L618.4 240.8 L619.8 237.6 L621.1 241.0 L622.5 237.1 L623.9 234.1 L625.3 232.6 L626.7 235.7 L628.1 232.5 L629.5 236.6 L630.9 237.6 L632.3 239.7 L633.7 239.8 L635.1 234.1 L636.5 233.3 L637.9 232.0 L639.3 232.0 L640.7 232.0 L642.1 233.3 L643.5 233.7 L644.9 232.2 L646.3 233.6 L647.6 238.7 L649.0 243.0 L650.4 239.8 L651.8 240.4 L653.2 238.9 L654.6 239.9 L656.0 240.8 L657.4 237.8 L658.8 235.5 L660.2 238.3 L661.6 239.7 L663.0 238.9 L664.4 239.5 L665.8 234.5 L667.2 234.5 L668.6 233.0 L670.0 232.1 L671.4 232.0 L672.8 235.5 L674.2 234.0 L675.5 233.8 L676.9 232.2 L678.3 234.6 L679.7 233.3 L681.1 232.7 L682.5 236.1 L683.9 236.8 L685.3 240.2 L686.7 241.5 L688.1 243.9 L689.5 236.0 L690.9 237.3 L692.3 235.5 L693.7 240.8 L695.1 239.9 L696.5 235.9 L697.9 236.7 L699.3 238.2 L700.7 237.8 L702.1 236.8 L703.4 233.6 L704.8 232.2 L706.2 234.1 L707.6 238.4 L709.0 240.4 L710.4 238.1 L711.8 238.4 L713.2 241.3 L714.6 239.3 L716.0 235.7 L717.4 234.9 L718.8 232.0 L720.2 232.0 L721.6 233.2 L723.0 236.1 L724.4 232.0 L725.8 235.0" fill="none" stroke="var(--neg-500)" stroke-width="1.5"/>
+        <text x="731.0" y="287.6" fill="var(--neg-500)" font-size="9.5">-32%</text>
+        <text x="731.0" y="295.5" fill="var(--muted)" font-size="9.5">-37%</text>
+
+          <text x="52.0" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2015</text>
+          <text x="169.2" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2017</text>
+          <text x="286.4" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2019</text>
+          <text x="403.5" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2021</text>
+          <text x="520.7" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2023</text>
+          <text x="637.9" y="307.0" fill="var(--muted)" font-size="9.5" text-anchor="middle">2025</text>
+      </svg>
+      <div class="legend">
+        <span><i style="background:var(--pos-500)"></i> candidate, net of 5bps</span>
+        <span><i style="background:var(--muted)"></i> buy &amp; hold, same asset</span>
+        <span><i class="line" style="border-top-color:var(--accent)"></i> train/test split</span>
+      </div>
+      <p class="sec-sub" style="margin-top:14px">
+        Read against the gates: the rule ends at <span class="num">386</span> against
+        buy-and-hold at <span class="num">416</span>, capturing
+        90% of the return for a worst drawdown 87% as deep
+        (<span class="num">-32%</span> against
+        <span class="num">-37%</span>). But the ratio is not the point &mdash;
+        <b>where it was earned is</b>. Measured against buy-and-hold the rule runs
+        <span class="num">+7%</span> by the split and
+        <span class="num">-8%</span> by the end: the whole lead sits inside the
+        window the shortlist selected on, and is handed back out of sample. A scalar
+        leaderboard cannot show that; the curve can. It is the shape train-period selection
+        produces by construction &mdash; and precisely why the <span class="num">t</span>
+        gate exists.
+      </p>
+    </div>
+  </section>
+<!--EQ-END-->
+  <section>
+    <div class="sec-head"><span class="idx">07</span><h2>Audit trail</h2></div>
+    <p class="sec-sub">
+      Every claim above depends on these being true. They are on the page rather than in a
+      log so that a result cannot be quoted without its provenance.
+    </p>
+    <div class="audit" style="margin-top:18px">
+      <div><div class="k">Price source</div><div class="v">Twelve Data<br><small>adjust=all &middot; never mixed with yfinance</small></div></div>
+      <div><div class="k">Parity check</div><div class="v">3 engines &middot; max &Delta; 4.1e-6<br><small>vector &middot; reference &middot; nautilus</small></div></div>
+      <div><div class="k">Parity coverage</div><div class="v">full 1d/4h/2h/1h<br><small>20k-bar window at 15m/5m/1m</small></div></div>
+      <div><div class="k">Signal alignment</div><div class="v">position.shift(1)<br><small>close of t trades t+1</small></div></div>
+      <div><div class="k">Annualisation</div><div class="v">measured<br><small>bars_per_year from index span</small></div></div>
+      <div><div class="k">Benchmark</div><div class="v">buy &amp; hold, per asset<br><small>never flattened, never modified</small></div></div>
+      <div><div class="k">Multiplicity</div><div class="v">47,180 candidates<br><small>Bonferroni p&lt;0.05 needs t &gt; 4.6</small></div></div>
+      <div><div class="k">Survivorship</div><div class="v">present, uncorrected<br><small>cancels in IR; absolute CAGR unusable</small></div></div>
+      <div><div class="k">Scope gap</div><div class="v">no futures<br><small>Twelve Data serves zero CME contracts</small></div></div>
+    </div>
+  </section>
+
+  <footer>
+    Layout mockup for <span class="num">backtest master/</span> &mdash; structure only, figures are
+    stand-ins. Sibling studies: <span class="num">test research/</span> (501 tickers, daily) and
+    <span class="num">top 20 stocks/</span> (20 mega-caps, 1d/1h/5m). Both returned null results.
+  </footer>
+</div>

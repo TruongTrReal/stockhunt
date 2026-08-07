@@ -1,0 +1,480 @@
+{
+ "generated_at": "2026-08-06T03:21:06+00:00",
+ "research": [
+  {
+   "sheet": "crypto_15m",
+   "asset_class": "crypto",
+   "timeframe": "15m",
+   "folds": 4,
+   "oos_years": 3.5,
+   "best_rule": "CDL3STARSINSOUTH",
+   "best_ir": -0.585,
+   "is1_ir": -0.795,
+   "ranking_stability": 0.99,
+   "gates_cleared": 0,
+   "n_rankable": 241
+  },
+  {
+   "sheet": "crypto_1d",
+   "asset_class": "crypto",
+   "timeframe": "1d",
+   "folds": 6,
+   "oos_years": 5.9,
+   "best_rule": "SUM",
+   "best_ir": -0.048,
+   "is1_ir": -0.399,
+   "ranking_stability": -0.091,
+   "gates_cleared": 0,
+   "n_rankable": 242
+  },
+  {
+   "sheet": "crypto_1h",
+   "asset_class": "crypto",
+   "timeframe": "1h",
+   "folds": 4,
+   "oos_years": 3.6,
+   "best_rule": "MIDPOINT_1000",
+   "best_ir": -0.356,
+   "is1_ir": -0.823,
+   "ranking_stability": 0.882,
+   "gates_cleared": 0,
+   "n_rankable": 242
+  },
+  {
+   "sheet": "crypto_2h",
+   "asset_class": "crypto",
+   "timeframe": "2h",
+   "folds": 4,
+   "oos_years": 3.6,
+   "best_rule": "TSF_1000",
+   "best_ir": -0.265,
+   "is1_ir": -0.595,
+   "ranking_stability": 0.704,
+   "gates_cleared": 0,
+   "n_rankable": 242
+  },
+  {
+   "sheet": "crypto_4h",
+   "asset_class": "crypto",
+   "timeframe": "4h",
+   "folds": 4,
+   "oos_years": 3.6,
+   "best_rule": "T3_200",
+   "best_ir": -0.18,
+   "is1_ir": -0.523,
+   "ranking_stability": 0.292,
+   "gates_cleared": 0,
+   "n_rankable": 242
+  },
+  {
+   "sheet": "crypto_5m",
+   "asset_class": "crypto",
+   "timeframe": "5m",
+   "folds": 4,
+   "oos_years": 3.4,
+   "best_rule": "CDL3STARSINSOUTH",
+   "best_ir": -0.643,
+   "is1_ir": -0.784,
+   "ranking_stability": 0.996,
+   "gates_cleared": 0,
+   "n_rankable": 242
+  },
+  {
+   "sheet": "us_stocks_15m",
+   "asset_class": "us_stocks",
+   "timeframe": "15m",
+   "folds": 4,
+   "oos_years": 3.8,
+   "best_rule": "MAXINDEX",
+   "best_ir": -0.346,
+   "is1_ir": -0.716,
+   "ranking_stability": 0.428,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  },
+  {
+   "sheet": "us_stocks_1d",
+   "asset_class": "us_stocks",
+   "timeframe": "1d",
+   "folds": 54,
+   "oos_years": 41.0,
+   "best_rule": "MAXINDEX",
+   "best_ir": -0.224,
+   "is1_ir": -0.339,
+   "ranking_stability": 0.196,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  },
+  {
+   "sheet": "us_stocks_1h",
+   "asset_class": "us_stocks",
+   "timeframe": "1h",
+   "folds": 5,
+   "oos_years": 4.5,
+   "best_rule": "MININDEX",
+   "best_ir": -0.196,
+   "is1_ir": -0.585,
+   "ranking_stability": 0.134,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  },
+  {
+   "sheet": "us_stocks_2h",
+   "asset_class": "us_stocks",
+   "timeframe": "2h",
+   "folds": 5,
+   "oos_years": 4.1,
+   "best_rule": "MININDEX",
+   "best_ir": -0.26,
+   "is1_ir": -0.607,
+   "ranking_stability": 0.243,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  },
+  {
+   "sheet": "us_stocks_4h",
+   "asset_class": "us_stocks",
+   "timeframe": "4h",
+   "folds": 5,
+   "oos_years": 3.9,
+   "best_rule": "MAXINDEX",
+   "best_ir": -0.351,
+   "is1_ir": -0.572,
+   "ranking_stability": 0.318,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  },
+  {
+   "sheet": "us_stocks_5m",
+   "asset_class": "us_stocks",
+   "timeframe": "5m",
+   "folds": 4,
+   "oos_years": 3.6,
+   "best_rule": "TANH",
+   "best_ir": -0.815,
+   "is1_ir": -1.082,
+   "ranking_stability": 0.915,
+   "gates_cleared": 0,
+   "n_rankable": 246
+  }
+ ],
+ "gate_power": [
+  {
+   "sheet": "crypto_15m",
+   "oos_years": 3.5,
+   "t_gate_implies": 1.069,
+   "ceiling_5": 0.517,
+   "ceiling_96": 1.237,
+   "ceiling_327": 1.466,
+   "coherent": false
+  },
+  {
+   "sheet": "crypto_1d",
+   "oos_years": 5.9,
+   "t_gate_implies": 0.823,
+   "ceiling_5": 0.398,
+   "ceiling_96": 0.953,
+   "ceiling_327": 1.129,
+   "coherent": false
+  },
+  {
+   "sheet": "crypto_1h",
+   "oos_years": 3.6,
+   "t_gate_implies": 1.054,
+   "ceiling_5": 0.51,
+   "ceiling_96": 1.22,
+   "ceiling_327": 1.445,
+   "coherent": false
+  },
+  {
+   "sheet": "crypto_2h",
+   "oos_years": 3.6,
+   "t_gate_implies": 1.054,
+   "ceiling_5": 0.51,
+   "ceiling_96": 1.22,
+   "ceiling_327": 1.445,
+   "coherent": false
+  },
+  {
+   "sheet": "crypto_4h",
+   "oos_years": 3.6,
+   "t_gate_implies": 1.054,
+   "ceiling_5": 0.51,
+   "ceiling_96": 1.22,
+   "ceiling_327": 1.445,
+   "coherent": false
+  },
+  {
+   "sheet": "crypto_5m",
+   "oos_years": 3.4,
+   "t_gate_implies": 1.085,
+   "ceiling_5": 0.525,
+   "ceiling_96": 1.255,
+   "ceiling_327": 1.487,
+   "coherent": false
+  },
+  {
+   "sheet": "us_stocks_15m",
+   "oos_years": 3.8,
+   "t_gate_implies": 1.026,
+   "ceiling_5": 0.496,
+   "ceiling_96": 1.188,
+   "ceiling_327": 1.407,
+   "coherent": false
+  },
+  {
+   "sheet": "us_stocks_1d",
+   "oos_years": 41.0,
+   "t_gate_implies": 0.312,
+   "ceiling_5": 0.151,
+   "ceiling_96": 0.362,
+   "ceiling_327": 0.428,
+   "coherent": true
+  },
+  {
+   "sheet": "us_stocks_1h",
+   "oos_years": 4.5,
+   "t_gate_implies": 0.943,
+   "ceiling_5": 0.456,
+   "ceiling_96": 1.091,
+   "ceiling_327": 1.293,
+   "coherent": false
+  },
+  {
+   "sheet": "us_stocks_2h",
+   "oos_years": 4.1,
+   "t_gate_implies": 0.988,
+   "ceiling_5": 0.478,
+   "ceiling_96": 1.143,
+   "ceiling_327": 1.354,
+   "coherent": false
+  },
+  {
+   "sheet": "us_stocks_4h",
+   "oos_years": 3.9,
+   "t_gate_implies": 1.013,
+   "ceiling_5": 0.49,
+   "ceiling_96": 1.172,
+   "ceiling_327": 1.389,
+   "coherent": false
+  },
+  {
+   "sheet": "us_stocks_5m",
+   "oos_years": 3.6,
+   "t_gate_implies": 1.054,
+   "ceiling_5": 0.51,
+   "ceiling_96": 1.22,
+   "ceiling_327": 1.445,
+   "coherent": false
+  }
+ ],
+ "etf": [
+  {
+   "timeframe": "1d",
+   "best_rule": "HT_TRENDMODE",
+   "best_ir": -0.072,
+   "is1_ir": -0.662,
+   "gates_cleared": 0,
+   "n_rules": 232,
+   "buyhold": [
+    {
+     "symbol": "SOXL",
+     "cagr": 0.4835,
+     "sharpe": 0.89,
+     "max_drawdown": -0.9046
+    },
+    {
+     "symbol": "TQQQ",
+     "cagr": 0.4292,
+     "sharpe": 0.89,
+     "max_drawdown": -0.8157
+    },
+    {
+     "symbol": "SPY",
+     "cagr": 0.1422,
+     "sharpe": 0.86,
+     "max_drawdown": -0.3372
+    }
+   ]
+  },
+  {
+   "timeframe": "4h",
+   "best_rule": "MININDEX",
+   "best_ir": -0.181,
+   "is1_ir": -0.434,
+   "gates_cleared": 0,
+   "n_rules": 232,
+   "buyhold": [
+    {
+     "symbol": "SOXL",
+     "cagr": 0.873,
+     "sharpe": 1.13,
+     "max_drawdown": -0.879
+    },
+    {
+     "symbol": "TQQQ",
+     "cagr": 0.7318,
+     "sharpe": 1.24,
+     "max_drawdown": -0.5778
+    },
+    {
+     "symbol": "SPY",
+     "cagr": 0.1545,
+     "sharpe": 0.85,
+     "max_drawdown": -0.3454
+    }
+   ]
+  }
+ ],
+ "prereg": [
+  {
+   "rule": "volmanaged",
+   "ir": -0.368,
+   "prior": "Moreira/Muir 2017: inverse prior-month variance, capped 1.0",
+   "contaminated": true
+  },
+  {
+   "rule": "golden_cross",
+   "ir": -0.37,
+   "prior": "Long while the 50d SMA is above the 200d SMA",
+   "contaminated": false
+  },
+  {
+   "rule": "tsmom12",
+   "ir": -0.377,
+   "prior": "Moskowitz/Ooi/Pedersen 2012: long if trailing 12m return > 0",
+   "contaminated": false
+  },
+  {
+   "rule": "faber_gtaa",
+   "ir": -0.415,
+   "prior": "Faber 2007: long above the 10-month moving average",
+   "contaminated": true
+  },
+  {
+   "rule": "st_reversal",
+   "ir": -0.438,
+   "prior": "Jegadeesh 1990: long after a down week",
+   "contaminated": false
+  }
+ ],
+ "parity": [
+  {
+   "rule": "TEMA_200",
+   "min_window": 1000
+  },
+  {
+   "rule": "DEMA_200",
+   "min_window": 750
+  },
+  {
+   "rule": "EMA_200",
+   "min_window": 500
+  },
+  {
+   "rule": "HT_TRENDMODE",
+   "min_window": 250
+  },
+  {
+   "rule": "SMA_200",
+   "min_window": 250
+  },
+  {
+   "rule": "MA_200",
+   "min_window": 250
+  },
+  {
+   "rule": "ADXR",
+   "min_window": 250
+  },
+  {
+   "rule": "MIDPRICE_200",
+   "min_window": 250
+  },
+  {
+   "rule": "MACD",
+   "min_window": 120
+  },
+  {
+   "rule": "ADX",
+   "min_window": 120
+  },
+  {
+   "rule": "ATR",
+   "min_window": 120
+  },
+  {
+   "rule": "MININDEX",
+   "min_window": 120
+  },
+  {
+   "rule": "MAXINDEX",
+   "min_window": 120
+  },
+  {
+   "rule": "RSI",
+   "min_window": 120
+  },
+  {
+   "rule": "NATR",
+   "min_window": 120
+  }
+ ],
+ "prices": [
+  {
+   "symbol": "SOXL",
+   "close": 132.07,
+   "change_pct": -5.6,
+   "bar_date": "2026-08-05"
+  },
+  {
+   "symbol": "TQQQ",
+   "close": 72.84,
+   "change_pct": -2.65,
+   "bar_date": "2026-08-05"
+  },
+  {
+   "symbol": "SPY",
+   "close": 769.79,
+   "change_pct": -0.2,
+   "bar_date": "2026-08-05"
+  },
+  {
+   "symbol": "BTC/USD",
+   "close": 64665.23,
+   "change_pct": 0.87,
+   "bar_date": "2026-08-05"
+  },
+  {
+   "symbol": "ETH/USD",
+   "close": 1908.9,
+   "change_pct": 2.09,
+   "bar_date": "2026-08-05"
+  }
+ ],
+ "pipeline": {
+  "warmup_default": 1500,
+  "warmup_measured": 1000,
+  "universe_equity": [
+   "SPY",
+   "SOXL",
+   "TQQQ"
+  ],
+  "universe_crypto": [
+   "BTC/USD",
+   "ETH/USD",
+   "XRP/USD",
+   "BNB/USD",
+   "SOL/USD",
+   "DOGE/USD",
+   "ADA/USD",
+   "TRX/USD",
+   "AVAX/USD",
+   "LINK/USD"
+  ],
+  "timeframes": [
+   "1d",
+   "4h"
+  ]
+ }
+}

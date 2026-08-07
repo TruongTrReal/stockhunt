@@ -1,18 +1,69 @@
-# Price caches and signal tensors - 421MB, all regenerable from src/.
-# GitHub rejects files over 100MB and the tensors alone are ~150MB.
-data/
-!data/.gitkeep
+# Stockhunt repo-root ignores.
+#
+# The rule of thumb: track code, track findings, ignore anything a machine can
+# rebuild. Price caches (1.7 GB) come back from Twelve Data via td_loader.py;
+# the bulk sweep intermediates (~400 MB) come back by re-running the sweeps.
+# Summaries, meta and curve JSONs ARE tracked -- they are the research record.
 
-# The assembled report is 15MB of embedded JSON; it is published as a hosted
-# artifact instead. Uncomment to version it.
-report/index.html
-
-# Claude Code session state, not project content
-.claude/
-
+# --- environments ---
 .venv/
+# Per-engine environments for engine-bakeoff/ (see its README to recreate)
+.venv-bakeoff/
+# The paper trading engine runs on this one (nautilus_trader)
+.venv-nautilus/
+
+# --- Claude Code ---
+# Session state is not project content, but settings.json IS: it carries the
+# deny rules that lock "test research/" and "top 20 stocks/".
+.claude/*
+!.claude/settings.json
+
+# --- credentials, never commit ---
+.env.local
+*.env.local
+
+# --- python ---
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
 scratchpad/
 .DS_Store
+
+# --- price data: regenerable, ~1.7 GB ---
+/data/
+test research/data/
+top 20 stocks/data/
+backtest master/data/
+backtest engine/data/
+engine-bakeoff/data_td/
+# manifoldbt's Arrow store, rebuilt by run_manifoldbt.py on every run
+engine-bakeoff/_mbt_store/
+engine-bakeoff/_probe_store/
+
+# --- bulk sweep intermediates: regenerable, ~400 MB ---
+# Superseded manual backups from before the itemised fee model.
+*.oldfees
+# Per-fold and per-asset row dumps. The summaries beside them are tracked.
+**/results/*folds*.csv
+**/results/*schedule*.csv
+**/results/combo_per_asset_*.csv
+
+# --- run logs ---
+**/logs/
+*.log
+*.err
+
+# --- generated artifacts ---
+# Built by build_report.py from template.html + report.js + the payload.
+**/report/index.html
+report_payload.json
+# Built by the dashboard builder from the results CSVs.
+**/web/data.js
+**/web/live.json
+**/web/paper_curves.json
+**/web/curves/
+**/dist/dashboard.html
+
+# --- vendored binaries ---
+# Cloudflare Tunnel, 52 MB. Download from github.com/cloudflare/cloudflared.
+**/tools/cloudflared.exe

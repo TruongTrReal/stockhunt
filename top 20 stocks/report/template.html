@@ -1,0 +1,437 @@
+<title>TA-Lib Combos &#x00D7; Top 20 &#x2014; 1H & 5m Backtest Report</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:        #0E1116;
+    --surface:   #161B22;
+    --surface-2: #1C222B;
+    --border:    #2A313C;
+    --text:      #E9E6DD;
+    --text-muted:#8B93A0;
+    --accent:    #D9A441;
+    --accent-soft: rgba(217, 164, 65, 0.14);
+    --gain:      #3FB68C;
+    --loss:      #E0596B;
+    --fallback:  #6E7681;
+    --shadow: 0 1px 0 rgba(0,0,0,0.4);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:where(:not([data-theme="dark"])) {
+      color-scheme: light;
+      --bg:        #F7F5F0;
+      --surface:   #FFFFFF;
+      --surface-2: #EFEBE2;
+      --border:    #DDD6C7;
+      --text:      #1B1D1F;
+      --text-muted:#6B7178;
+      --accent:    #B8791F;
+      --accent-soft: rgba(184, 121, 31, 0.12);
+      --gain:      #1F8F68;
+      --loss:      #C23B4E;
+      --fallback:  #8B8F94;
+      --shadow: 0 1px 0 rgba(0,0,0,0.06);
+      --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg:        #F7F5F0;
+    --surface:   #FFFFFF;
+    --surface-2: #EFEBE2;
+    --border:    #DDD6C7;
+    --text:      #1B1D1F;
+    --text-muted:#6B7178;
+    --accent:    #B8791F;
+    --accent-soft: rgba(184, 121, 31, 0.12);
+    --gain:      #1F8F68;
+    --loss:      #C23B4E;
+    --fallback:  #8B8F94;
+    --shadow: 0 1px 0 rgba(0,0,0,0.06);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  a { color: var(--accent); }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 20px 64px;
+  }
+  @media (max-width: 480px) { .page { padding: 0 14px 48px; } }
+
+  /* ---------- Header ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  /* On narrow screens the meta chips (Window/Universe/Capital/Indicators)
+     wrap onto separate lines, making the header tall enough to eat most of
+     a phone viewport if it stays pinned - let it scroll away like normal
+     content instead. */
+  @media (max-width: 900px) {
+    header.top { position: static; backdrop-filter: none; }
+  }
+  .top-inner {
+    max-width: 1180px; margin: 0 auto; padding: 14px 20px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+  }
+  .meta-chips {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; color: var(--text-muted);
+  }
+  .meta-chips b { color: var(--text); font-weight: 600; }
+
+  .hero {
+    padding: 40px 0 8px;
+  }
+  .eyebrow {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 30px; font-weight: 600; margin: 0 0 12px; text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  @media (max-width: 480px) { h1 { font-size: 22px; } }
+  .lede {
+    max-width: 66ch; color: var(--text-muted); font-size: 16px; margin: 0 0 4px;
+  }
+  @media (max-width: 480px) { .lede { font-size: 14.5px; } }
+
+  .timeframe-bar {
+    display: flex; gap: 8px; margin-top: 24px; border-bottom: 1px solid var(--border); padding-bottom: 0;
+  }
+  .timeframe-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+    padding: 10px 16px; border: none; background: none; color: var(--text-muted);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .timeframe-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .timeframe-tab:hover { color: var(--text); }
+
+  section { margin-top: 48px; }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  h2 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600; margin: 0;
+  }
+  .section-note { font-size: 13px; color: var(--text-muted); }
+
+  /* ---------- Scoreboard ---------- */
+  .scoreboard {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+  }
+  @media (max-width: 900px) { .scoreboard { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .scoreboard { grid-template-columns: 1fr; } }
+  .score-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px; cursor: pointer; transition: border-color .15s ease;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .score-card:hover { border-color: var(--accent); }
+  .score-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .score-rank {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; color: var(--text-muted);
+  }
+  /* Single indicators are one short token (MAXINDEX); combo rows are a whole
+     expression and truncate to nothing useful on one line. Three lines, because
+     two clipped a combo and its hedged variant to the same visible prefix -
+     they rendered as identical cards. Height is reserved either way so the
+     cards in a row still line up. */
+  .score-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    line-height: 1.3; min-height: 3.9em;
+  }
+  .score-pnl {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 20px; font-weight: 600; color: var(--gain);
+  }
+  .score-spark { width: 100%; height: 28px; display: block; }
+  .score-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10.5px; color: var(--text-muted); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px;
+  }
+  .badge.fallback { color: var(--fallback); border-color: var(--fallback); }
+
+  .baseline-card {
+    margin-top: 10px; border: 1px dashed var(--border); border-radius: 6px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--text-muted) 5%, transparent);
+  }
+  .baseline-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .baseline-metrics { display: flex; gap: 20px; flex-wrap: wrap; font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace; font-size: 13px; }
+  .baseline-metrics b { color: var(--text); }
+  .baseline-card:hover { border-color: var(--accent); cursor: pointer; }
+
+  /* ---------- Chart ---------- */
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 18px 10px;
+  }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; padding-left: 4px; }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; color: var(--text-muted);
+  }
+  .legend-item.off { opacity: 0.35; }
+  .legend-swatch { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .legend-swatch.dashed { background: none; border-top: 2px dashed var(--text-muted); height: 0; }
+  svg.chart text { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace; }
+  .chart-tooltip {
+    position: absolute; pointer-events: none; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 30;
+    display: none; white-space: nowrap;
+  }
+  .chart-wrap { position: relative; }
+
+  /* ---------- Table ---------- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.leaderboard { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; }
+  table.leaderboard thead th {
+    position: sticky; top: 0; background: var(--surface-2); z-index: 2;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+    text-align: right; padding: 9px 10px; cursor: pointer; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  table.leaderboard thead th:first-child, table.leaderboard thead th:nth-child(2) { text-align: left; }
+  table.leaderboard thead th.sorted { color: var(--accent); }
+  table.leaderboard tbody td {
+    padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border);
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    white-space: nowrap;
+  }
+  table.leaderboard tbody td:first-child, table.leaderboard tbody td:nth-child(2) { text-align: left; }
+  table.leaderboard tbody tr { cursor: pointer; background: var(--surface); }
+  table.leaderboard tbody tr:hover { background: var(--surface-2); }
+  table.leaderboard tbody tr.active { background: var(--accent-soft); }
+  .gain { color: var(--gain); }
+  .loss { color: var(--loss); }
+  .rank-cell { color: var(--text-muted); }
+  .name-cell { font-weight: 600; }
+  .table-scroll { max-height: 560px; overflow-y: auto; }
+
+  /* ---------- Detail panel ---------- */
+  .detail-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+  }
+  .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  .detail-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 22px; font-weight: 600;
+    /* A combo name is far longer than a function name and must wrap rather
+       than push the rank badge off the card on a narrow viewport. */
+    overflow-wrap: anywhere; min-width: 0;
+  }
+  @media (max-width: 600px) { .detail-name { font-size: 17px; } }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+    background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    margin: 16px 0;
+  }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-tile { background: var(--surface); padding: 10px 12px; }
+  .stat-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 17px; font-weight: 600;
+  }
+  .tldr-inline {
+    font-size: 14px; color: var(--text-muted); max-width: 62ch; margin: 6px 0 4px;
+  }
+  .indicator-name-hover { cursor: help; border-bottom: 1px dotted var(--text-muted); }
+  .tldr-tooltip {
+    display: none; position: fixed; z-index: 50; max-width: 300px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .tldr-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--accent); margin-bottom: 4px;
+    letter-spacing: 0.03em;
+  }
+  .tldr-body { font-size: 13px; line-height: 1.4; color: var(--text); }
+  .ticker-stat-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; color: var(--text-muted); margin: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .stat-grid.ticker-stat-grid { grid-template-columns: repeat(9, 1fr); }
+  @media (max-width: 900px) { .stat-grid.ticker-stat-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .stat-grid.ticker-stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .ticker-stat-grid .stat-value { font-size: 15px; }
+
+  .fallback-notice {
+    font-size: 13px; color: var(--fallback); border: 1px solid var(--fallback);
+    border-radius: 6px; padding: 8px 12px; margin: 10px 0; background: color-mix(in srgb, var(--fallback) 8%, transparent);
+  }
+
+  .ticker-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 10px; }
+  .ticker-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; padding: 8px 12px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-muted); cursor: pointer;
+  }
+  .ticker-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .trades-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+  table.trades { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
+  table.trades th {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+    text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border);
+  }
+  table.trades th:first-child, table.trades th:nth-child(2) { text-align: left; }
+  table.trades td {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border);
+  }
+  table.trades td:first-child, table.trades td:nth-child(2) { text-align: left; }
+  .no-trades { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
+
+  /* ---------- Methodology ---------- */
+  .method {
+    border-top: 1px solid var(--border); margin-top: 64px; padding-top: 28px;
+    max-width: 72ch;
+  }
+  .method h3 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
+    margin: 24px 0 8px;
+  }
+  .method p { color: var(--text); margin: 0 0 12px; }
+  .method ul { margin: 0 0 12px; padding-left: 20px; }
+  .method li { margin-bottom: 6px; }
+  .method .caveat { color: var(--text-muted); font-size: 14px; }
+
+  footer.foot {
+    max-width: 72ch; margin-top: 28px; font-size: 12px; color: var(--text-muted);
+  }
+
+  ::selection { background: var(--accent-soft); }
+  [role="button"] { outline: none; }
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">talib &#x00D7; sp500 // backtest report</div>
+    <div class="meta-chips" id="meta-chips"></div>
+  </div>
+</header>
+
+<div class="page">
+  <div class="hero">
+    <p class="eyebrow" id="eyebrow-count">singles &middot; combos &middot; stocks</p>
+    <h1>Do indicator combos beat buy &amp; hold on 1-hour and 5-minute bars?</h1>
+    <p class="lede">231 TA-Lib rules on the 20 largest US stocks, plus every 2- and 3-way combination of the 20 best singles &mdash; 1,561 candidates per timeframe, resolved by majority vote. <b>Transaction costs are charged</b> at 5bps per unit of position change, and buy-&amp;-hold is never flattened overnight. Ranked by total dollar P&amp;L; the column that decides anything is excess Sharpe over buy-&amp;-hold. Read the methodology at the bottom before trusting any of this.</p>
+  </div>
+
+  <div class="timeframe-bar" id="timeframe-bar"></div>
+
+  <section id="scoreboard-section">
+    <div class="section-head">
+      <h2 id="scoreboard-title">Top 10 by total PnL</h2>
+      <span class="section-note">click a card to inspect</span>
+    </div>
+    <div class="scoreboard" id="scoreboard"></div>
+    <div class="baseline-card" id="baseline-card"></div>
+  </section>
+
+  <section id="chart-section">
+    <div class="section-head">
+      <h2 id="chart-title">Cumulative PnL &#x2014; top 8 vs. buy &amp; hold</h2>
+      <span class="section-note">portfolio-level, $10k/stock, summed across the universe</span>
+    </div>
+    <div class="chart-card">
+      <div class="chart-wrap" id="overlay-chart-wrap"></div>
+      <div class="chart-legend" id="overlay-legend"></div>
+    </div>
+  </section>
+
+  <section id="leaderboard-section">
+    <div class="section-head">
+      <h2 id="leaderboard-title">Full leaderboard</h2>
+      <span class="section-note">click any column to sort &middot; click a row for detail</span>
+    </div>
+    <div class="table-scroll">
+      <table class="leaderboard">
+        <thead><tr id="leaderboard-head"></tr></thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="detail-section">
+    <div class="section-head">
+      <h2>Indicator detail</h2>
+      <span class="section-note" id="detail-hint"></span>
+    </div>
+    <div class="detail-card" id="detail-card"></div>
+  </section>
+
+  <footer class="foot">
+    <p><b>Method.</b> Data: Twelve Data with <code>adjust=all</code> (split <i>and</i> dividend adjusted), cached intraday bars for the 20 largest US stocks. Indicators computed with TA-Lib 0.7.1 via the shared signal layer in <code>talib_signals.py</code>; backtest engine is bespoke &mdash; see <code>combo_sweep.py</code> in the project repo. Positions are 1/0/&minus;1 and shifted one bar before earning, so a signal computed on bar <i>t</i> only trades bar <i>t+1</i>. Net returns are floored at &minus;99.9% before compounding.</p>
+    <p><b>Costs.</b> Charged on |change in position| at 5bps per unit, so a flat&rarr;long entry costs one side and a long&rarr;short reversal costs two. Trade-level P&amp;L, profit factor and win rate are all net of both sides. Every row also carries Sharpe at 0/1/5/10bps in the underlying data &mdash; a gross-only result is not evidence, because a 5-minute rule can turn over hundreds of times a year.</p>
+    <p><b>Overnight.</b> On 5m every rule is forced flat at the last bar of each session, but <b>buy-&amp;-hold is not</b>. Flattening the benchmark would strip it of the overnight drift it genuinely earns and turn it into a different strategy &mdash; that single defect is what made an earlier 5-minute study appear to show 51 winning rules.</p>
+    <p><b>Multiple testing.</b> 1,561 candidates are ranked per timeframe. The best of 1,561 draws looks good by construction, so the meta chips carry the excess-Sharpe level the winner would need to clear to be distinguishable from the spread of the field. Neither timeframe comes close.</p>
+  </footer>
+</div>
+
+<script id="report-data" type="application/json">__REPORT_DATA_JSON__</script>
+<script>
+__REPORT_JS__
+</script>

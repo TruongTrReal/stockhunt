@@ -1,0 +1,3 @@
+engine,n_runs,setup_seconds,engine_seconds,total_seconds
+nautilus_inject,100,0.0,38.59110129857436,38.59110129857436
+nautilus_native,100,0.0,50.084869399433956,50.084869399433956

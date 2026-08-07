@@ -1,0 +1,696 @@
+<title>Where the edge isn't &mdash; 231 indicators, 3 timeframes, 20 stocks</title>
+
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --ground: #eceef1;
+    --surface: #f8f9fa;
+    --surface-sunk: #e3e7ec;
+    --ink: #161c22;
+    --ink-2: #46525d;
+    --ink-3: #6f7c88;
+    --rule: #cdd4dc;
+    --rule-soft: #dee3e9;
+
+    --tf-1d: #2f6f9f;
+    --tf-1h: #a8622f;
+    --tf-5m: #7a4aa8;
+    --miss: #a8443c;
+    --beat: #2f7d64;
+
+    --measure: 34rem;
+    --step--1: 0.8125rem;
+    --step-0: 1rem;
+    --step-1: 1.25rem;
+    --step-2: 1.75rem;
+    --step-3: 2.5rem;
+    --step-4: 3.75rem;
+
+    --serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #11161b;
+      --surface: #1a2128;
+      --surface-sunk: #0c1014;
+      --ink: #dde3e8;
+      --ink-2: #9aa7b2;
+      --ink-3: #6e7c88;
+      --rule: #2c3740;
+      --rule-soft: #232c34;
+      --tf-1d: #4d8fc4;
+      --tf-1h: #c47f38;
+      --tf-5m: #9268c9;
+      --miss: #cf6a5f;
+      --beat: #4d9d84;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #11161b;
+    --surface: #1a2128;
+    --surface-sunk: #0c1014;
+    --ink: #dde3e8;
+    --ink-2: #9aa7b2;
+    --ink-3: #6e7c88;
+    --rule: #2c3740;
+    --rule-soft: #232c34;
+    --tf-1d: #4d8fc4;
+    --tf-1h: #c47f38;
+    --tf-5m: #9268c9;
+    --miss: #cf6a5f;
+    --beat: #4d9d84;
+  }
+
+  :root[data-theme="light"] {
+    --ground: #eceef1;
+    --surface: #f8f9fa;
+    --surface-sunk: #e3e7ec;
+    --ink: #161c22;
+    --ink-2: #46525d;
+    --ink-3: #6f7c88;
+    --rule: #cdd4dc;
+    --rule-soft: #dee3e9;
+    --tf-1d: #2f6f9f;
+    --tf-1h: #a8622f;
+    --tf-5m: #7a4aa8;
+    --miss: #a8443c;
+    --beat: #2f7d64;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--step-0);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 74rem;
+    margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 4rem) clamp(1rem, 4vw, 3rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(3rem, 6vw, 5rem);
+  }
+
+  .measure { max-width: var(--measure); }
+
+  h1, h2, h3 { text-wrap: balance; line-height: 1.15; font-weight: 600; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  /* ---- masthead ------------------------------------------------------- */
+  .masthead { display: flex; flex-direction: column; gap: 1.5rem; }
+
+  .masthead h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.25rem, 6vw, var(--step-4));
+    letter-spacing: -0.02em;
+    max-width: 22ch;
+  }
+
+  .standfirst {
+    font-family: var(--serif);
+    font-size: var(--step-1);
+    line-height: 1.5;
+    color: var(--ink-2);
+    max-width: 46ch;
+  }
+
+  .verdict {
+    border-top: 2px solid var(--ink);
+    border-bottom: 1px solid var(--rule);
+    padding: 1.75rem 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1.75rem 2.5rem;
+  }
+
+  .stat { display: flex; flex-direction: column; gap: 0.35rem; }
+  .stat dt {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .stat dd {
+    font-family: var(--serif);
+    font-size: var(--step-3);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .stat .qual { font-family: var(--sans); font-size: var(--step--1); color: var(--ink-2); }
+
+  /* ---- prose ---------------------------------------------------------- */
+  .prose { display: flex; flex-direction: column; gap: 1rem; }
+  .prose h2 {
+    font-family: var(--serif);
+    font-size: var(--step-2);
+    margin-bottom: 0.25rem;
+  }
+  .prose p { max-width: var(--measure); color: var(--ink-2); }
+  .prose strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- panels --------------------------------------------------------- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: clamp(1.25rem, 3vw, 2rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .panel-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .panel-head h3 { font-family: var(--serif); font-size: var(--step-1); }
+  .panel-meta {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tf-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    letter-spacing: 0.06em;
+  }
+  .tf-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; flex: none; }
+
+  /* ---- charts --------------------------------------------------------- */
+  .chart-wrap { overflow-x: auto; }
+  svg { display: block; max-width: 100%; height: auto; }
+  .grid-line { stroke: var(--rule-soft); stroke-width: 1; }
+  .zero-line { stroke: var(--ink-2); stroke-width: 1.5; }
+  .axis-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    fill: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .series-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .series-dot { stroke: var(--surface); stroke-width: 2; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.25rem; }
+
+  /* ---- tables --------------------------------------------------------- */
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+  caption {
+    text-align: left;
+    color: var(--ink-3);
+    font-size: var(--step--1);
+    padding-bottom: 0.6rem;
+  }
+  th, td {
+    padding: 0.5rem 0.75rem 0.5rem 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--mono);
+    white-space: nowrap;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  th {
+    font-size: 0.6875rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    border-bottom-color: var(--rule);
+  }
+  th:first-child, td:first-child { text-align: left; font-family: var(--sans); }
+  tbody tr:hover { background: var(--surface-sunk); }
+
+  .rule-name { font-weight: 500; }
+  .flag {
+    font-family: var(--mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.05rem 0.3rem;
+    margin-left: 0.4rem;
+    vertical-align: 0.05em;
+  }
+
+  .bar-cell { width: 8rem; padding-right: 0; }
+  .bar-track {
+    position: relative;
+    height: 0.6rem;
+    background: var(--surface-sunk);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .bar-fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+
+  .neg { color: var(--miss); }
+  .pos { color: var(--beat); }
+
+  /* ---- tooltip -------------------------------------------------------- */
+  .tip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.5rem 0.7rem;
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    line-height: 1.5;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+    opacity: 0;
+    transition: opacity 120ms ease;
+    max-width: 16rem;
+  }
+  .tip[data-show="true"] { opacity: 1; }
+  .tip b { font-family: var(--sans); }
+
+  /* ---- footer --------------------------------------------------------- */
+  .method {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.5rem 2.5rem;
+    font-size: var(--step--1);
+    color: var(--ink-2);
+  }
+  .method h4 {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+    margin-bottom: 0.4rem;
+  }
+  .method ul { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+  .method code { font-family: var(--mono); color: var(--ink); }
+
+  .next { display: flex; flex-direction: column; gap: 0.9rem; }
+  .next li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.9rem;
+    align-items: start;
+    max-width: 52ch;
+    color: var(--ink-2);
+    list-style: none;
+  }
+  .next .marker {
+    font-family: var(--mono);
+    font-size: var(--step--1);
+    color: var(--ink-3);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 0.1rem 0.4rem;
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  }
+
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="eyebrow" id="dataline">TA-Lib sweep &middot; top 20 US mega-caps</p>
+    <h1>Three timeframes, 231 rules, and no edge worth trading</h1>
+    <p class="standfirst">
+      Every TA-Lib indicator variant, applied as a standalone long/flat/short rule to
+      twenty of the most liquid US equities, on daily, hourly and five-minute bars &mdash;
+      scored against simply buying and holding the same stock, after costs.
+    </p>
+
+    <dl class="verdict" id="verdict"></dl>
+  </header>
+
+  <section class="prose">
+    <h2>The result does not depend on which cost you believe</h2>
+    <p>
+      A rule only matters if it beats holding the stock. Ranking on raw Sharpe would
+      mostly rank how <em>long-biased</em> each rule is, which in a rising market flatters
+      anything that stays invested &mdash; so every figure here is <strong>excess over
+      buy-and-hold on the same ticker, over the same bars</strong>. Zero is parity. Above
+      zero is an edge.
+    </p>
+    <p>
+      The chart below tracks the single best rule at each cost level. If technical signal
+      existed and costs were merely eating it, the lines would start above zero and fall
+      through it. Instead they start at or below zero and go down &mdash; <strong>the signal is
+      not there to be eaten</strong>.
+    </p>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3>Best available edge, by trading cost</h3>
+      <div class="legend" id="decay-legend"></div>
+    </div>
+    <div class="chart-wrap"><svg id="decay-chart" role="img"
+      aria-label="Best excess Sharpe versus trading cost, one line per timeframe. All lines sit at or below zero."></svg></div>
+    <p class="panel-meta" id="decay-note"></p>
+  </section>
+
+  <section class="prose">
+    <h2>The leaderboards, in full</h2>
+    <p>
+      Ranked by average excess Sharpe across the twenty stocks at
+      <strong id="cost-headline"></strong> per unit of position change. Bars run left from
+      the zero line, so a longer bar is a worse rule. <em>Beat rate</em> is the share of
+      the twenty stocks where the rule actually finished ahead of buy-and-hold.
+    </p>
+  </section>
+
+  <div id="panels" style="display:flex; flex-direction:column; gap:2rem;"></div>
+
+  <section class="prose">
+    <h2>What this means for the machine-learning step</h2>
+    <p>
+      The useful part of a null result is that it narrows the search. These rules failed in
+      a specific way, and that shape is what the next stage should be built around.
+    </p>
+    <ul class="next">
+      <li><span class="marker">don't</span><span>Feed a model these 231 signals and ask it to
+        pick winners. There is nothing to pick &mdash; the best rule at every timeframe and every
+        cost level is at or below parity, so a selector trained on this space learns noise.</span></li>
+      <li><span class="marker">do</span><span>Treat the indicators as <em>features</em>, not
+        strategies. A rule that is flat on average can still carry conditional information;
+        that is a different question than the one tested here, and it is the one worth
+        asking a model.</span></li>
+      <li><span class="marker">do</span><span>Predict something other than direction.
+        Volatility, drawdown risk and position sizing are more learnable than sign, and they
+        are where a model can add value on top of a buy-and-hold core.</span></li>
+      <li><span class="marker">watch</span><span>Turnover is the binding constraint. Any
+        candidate that trades more than a few dozen times a year has to clear a cost bar that
+        killed everything on this page &mdash; check it before, not after, the modelling.</span></li>
+    </ul>
+  </section>
+
+  <footer class="method">
+    <div>
+      <h4>Method</h4>
+      <ul>
+        <li>Positions are <code>1 / 0 / -1</code>, shifted one bar before returns &mdash; no look-ahead.</li>
+        <li>Returns floored at <code>-99.9%</code> so a losing short can't flip equity negative.</li>
+        <li>$10,000 notional per stock per rule; equity compounds.</li>
+        <li>Annualisation measured from actual bar spacing, not a constant.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Data</h4>
+      <ul id="data-notes"></ul>
+    </div>
+    <div>
+      <h4>Caveats</h4>
+      <ul>
+        <li>Single-indicator rules only &mdash; combinations are a different search.</li>
+        <li>No shorting constraints, borrow costs, or slippage beyond the flat bps charge.</li>
+        <li>Twenty survivors of a rising decade: the universe is survivorship-biased upward,
+          which flatters buy-and-hold, the thing being beaten.</li>
+        <li>5-minute rules are flattened at each close, so they carry no overnight drift.</li>
+      </ul>
+    </div>
+  </footer>
+</div>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script id="report-data" type="application/json">__REPORT_DATA__</script>
+
+<script>
+(function () {
+  "use strict";
+
+  const DATA = JSON.parse(document.getElementById("report-data").textContent);
+  const TF_ORDER = ["1d", "1h", "5m"];
+  const TF_NAME = { "1d": "Daily", "1h": "Hourly", "5m": "5-minute" };
+  const tip = document.getElementById("tip");
+
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const tfColor = (tf) => css("--tf-" + tf);
+
+  const fmt = (v, digits = 2) =>
+    v === null || v === undefined || Number.isNaN(v) ? "\u2014" : v.toFixed(digits);
+  const pct = (v, digits = 1) =>
+    v === null || v === undefined || Number.isNaN(v) ? "\u2014" : (v * 100).toFixed(digits) + "%";
+  const signed = (v, digits = 3) =>
+    v === null || v === undefined || Number.isNaN(v) ? "\u2014" : (v >= 0 ? "+" : "") + v.toFixed(digits);
+
+  const present = TF_ORDER.filter((tf) => DATA.timeframes[tf]);
+
+  function showTip(html, event) {
+    tip.innerHTML = html;
+    tip.dataset.show = "true";
+    const pad = 14;
+    const rect = tip.getBoundingClientRect();
+    let x = event.clientX + pad;
+    let y = event.clientY + pad;
+    if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
+    if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
+    tip.style.left = x + "px";
+    tip.style.top = y + "px";
+  }
+  const hideTip = () => { tip.dataset.show = "false"; };
+
+  /* ---- masthead ------------------------------------------------------- */
+  function renderVerdict() {
+    const totalRules = present.reduce((n, tf) => Math.max(n, DATA.timeframes[tf].nRankable), 0);
+    const totalBeat = present.reduce((n, tf) => n + DATA.timeframes[tf].nBeat, 0);
+    const totalTests = present.reduce((n, tf) => n + DATA.timeframes[tf].nRankable, 0);
+
+    const items = [
+      ["Rules tested", totalRules, "per timeframe, ranked"],
+      ["Timeframes", present.length, present.map((t) => TF_NAME[t].toLowerCase()).join(" \u00b7 ")],
+      ["Stocks", DATA.universe.length, "US mega-caps"],
+      ["Beat buy-and-hold", totalBeat, "of " + totalTests.toLocaleString() + " rule-timeframes"],
+    ];
+
+    document.getElementById("verdict").innerHTML = items.map(([label, value, qual]) => `
+      <div class="stat">
+        <dt>${label}</dt>
+        <dd>${typeof value === "number" ? value.toLocaleString() : value}</dd>
+        <span class="qual">${qual}</span>
+      </div>`).join("");
+
+    document.getElementById("cost-headline").textContent = DATA.headlineCost + " bps";
+
+    const spans = present.map((tf) => {
+      const d = DATA.timeframes[tf];
+      return `${TF_NAME[tf]} from ${d.start} \u00b7 ${d.bars ? d.bars.toLocaleString() : "\u2014"} bars/stock`;
+    });
+    document.getElementById("dataline").textContent =
+      "TA-Lib sweep \u00b7 Twelve Data \u00b7 " + DATA.universe.length + " US mega-caps";
+    document.getElementById("data-notes").innerHTML =
+      spans.map((s) => `<li>${s}</li>`).join("") +
+      `<li>Split- and dividend-adjusted (<code>adjust=all</code>).</li>`;
+  }
+
+  /* ---- cost decay chart ------------------------------------------------ */
+  function renderDecay() {
+    const svg = document.getElementById("decay-chart");
+    const W = 860, H = 340;
+    const M = { top: 24, right: 96, bottom: 44, left: 56 };
+    const iw = W - M.left - M.right;
+    const ih = H - M.top - M.bottom;
+
+    const costs = DATA.costGrid;
+    const series = present.map((tf) => ({
+      tf,
+      points: DATA.timeframes[tf].costDecay.map((d) => ({
+        x: d.costBps, y: d.bestExcessSharpe, meta: d,
+      })),
+    }));
+
+    const ys = series.flatMap((s) => s.points.map((p) => p.y)).filter((v) => v !== null);
+    let yMin = Math.min(0, ...ys), yMax = Math.max(0, ...ys);
+    const padY = (yMax - yMin) * 0.18 || 0.1;
+    yMin -= padY; yMax += padY;
+
+    const xOf = (v) => M.left + (costs.length < 2 ? iw / 2 : (v - costs[0]) / (costs[costs.length - 1] - costs[0]) * iw);
+    const yOf = (v) => M.top + (yMax - v) / (yMax - yMin) * ih;
+
+    const ticks = 5;
+    let parts = [];
+
+    for (let i = 0; i <= ticks; i++) {
+      const v = yMin + (yMax - yMin) * (i / ticks);
+      const y = yOf(v);
+      parts.push(`<line class="grid-line" x1="${M.left}" x2="${M.left + iw}" y1="${y}" y2="${y}"/>`);
+      parts.push(`<text class="axis-label" x="${M.left - 10}" y="${y + 4}" text-anchor="end">${v.toFixed(2)}</text>`);
+    }
+    parts.push(`<line class="zero-line" x1="${M.left}" x2="${M.left + iw}" y1="${yOf(0)}" y2="${yOf(0)}"/>`);
+    // Sits above the left end of the zero line: the right edge is reserved for the
+    // series labels, and putting it there collided with the topmost one.
+    parts.push(`<text class="axis-label" x="${M.left + 6}" y="${yOf(0) - 7}"
+      style="font-weight:600">parity \u2014 buy &amp; hold</text>`);
+
+    costs.forEach((c) => {
+      parts.push(`<text class="axis-label" x="${xOf(c)}" y="${M.top + ih + 24}" text-anchor="middle">${c} bps</text>`);
+    });
+    parts.push(`<text class="axis-label" x="${M.left}" y="${H - 6}">cost charged per unit of position change \u2192</text>`);
+
+    series.forEach((s) => {
+      const color = tfColor(s.tf);
+      const pts = s.points.filter((p) => p.y !== null);
+      if (!pts.length) return;
+      const d = pts.map((p, i) => `${i ? "L" : "M"}${xOf(p.x)},${yOf(p.y)}`).join(" ");
+      parts.push(`<path class="series-line" d="${d}" stroke="${color}"/>`);
+      pts.forEach((p) => {
+        parts.push(`<circle class="series-dot" cx="${xOf(p.x)}" cy="${yOf(p.y)}" r="5" fill="${color}"
+          data-tf="${s.tf}" data-cost="${p.x}"/>`);
+      });
+      const last = pts[pts.length - 1];
+      parts.push(`<text class="axis-label" x="${xOf(last.x) + 12}" y="${yOf(last.y) + 4}"
+        fill="${color}" style="font-weight:600">${TF_NAME[s.tf]}</text>`);
+    });
+
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    svg.setAttribute("width", W);
+    svg.innerHTML = parts.join("");
+
+    svg.querySelectorAll("circle[data-tf]").forEach((node) => {
+      const tf = node.getAttribute("data-tf");
+      const cost = Number(node.getAttribute("data-cost"));
+      const meta = DATA.timeframes[tf].costDecay.find((d) => d.costBps === cost);
+      const handler = (e) => showTip(
+        `<b>${TF_NAME[tf]} @ ${cost} bps</b><br>` +
+        `best rule &nbsp;${meta.bestIndicator}<br>` +
+        `excess Sharpe &nbsp;${signed(meta.bestExcessSharpe)}<br>` +
+        `beat B&amp;H on &nbsp;${pct(meta.bestBeatRate, 0)} of stocks<br>` +
+        `rules above parity &nbsp;${meta.nBeat} / ${meta.nRankable}`, e);
+      node.addEventListener("mousemove", handler);
+      node.addEventListener("mouseenter", handler);
+      node.addEventListener("mouseleave", hideTip);
+    });
+
+    document.getElementById("decay-legend").innerHTML = present.map((tf) =>
+      `<span class="tf-chip"><span class="tf-swatch" style="background:${tfColor(tf)}"></span>${TF_NAME[tf]}</span>`
+    ).join("");
+
+    const zero = present.map((tf) => {
+      const at0 = DATA.timeframes[tf].costDecay.find((d) => d.costBps === 0);
+      return at0 ? `${TF_NAME[tf]} ${at0.nBeat}/${at0.nRankable}` : null;
+    }).filter(Boolean).join(" \u00b7 ");
+    document.getElementById("decay-note").textContent =
+      "Rules above parity at zero cost \u2014 " + zero + ". Hover any point for the rule behind it.";
+  }
+
+  /* ---- per-timeframe leaderboards -------------------------------------- */
+  function renderPanels() {
+    const host = document.getElementById("panels");
+    host.innerHTML = present.map((tf) => {
+      const d = DATA.timeframes[tf];
+      const color = tfColor(tf);
+      const worst = Math.min(...d.leaders.map((l) => l.avg_excess_sharpe ?? 0));
+      const span = Math.abs(worst) || 1;
+
+      const rows = d.leaders.map((l) => {
+        const ex = l.avg_excess_sharpe ?? 0;
+        const width = Math.min(100, Math.abs(ex) / span * 100);
+        const fromRight = ex < 0;
+        return `<tr>
+          <td class="rule-name">${l.indicator}${l.generic_fallback ? '<span class="flag" title="No textbook rule for this function; it falls back to value-vs-own-SMA">fallback</span>' : ""}</td>
+          <td class="bar-cell">
+            <div class="bar-track" title="excess Sharpe ${signed(ex)}">
+              <div class="bar-fill" style="background:${color}; ${fromRight ? "right:50%" : "left:50%"}; width:${width / 2}%"></div>
+            </div>
+          </td>
+          <td class="${ex >= 0 ? "pos" : "neg"}">${signed(ex)}</td>
+          <td>${fmt(l.avg_sharpe)}</td>
+          <td>${pct(l.avg_cagr)}</td>
+          <td>${pct(l.avg_max_drawdown)}</td>
+          <td>${pct(l.beat_buyhold_rate, 0)}</td>
+          <td>${pct(l.avg_exposure, 0)}</td>
+          <td>${fmt(l.avg_turnover, 1)}</td>
+        </tr>`;
+      }).join("");
+
+      const b = d.baseline;
+      const baseRow = b ? `<tr style="border-top:2px solid var(--rule)">
+          <td class="rule-name">Buy &amp; hold <span class="flag">benchmark</span></td>
+          <td class="bar-cell"></td>
+          <td>0.000</td>
+          <td>${fmt(b.avg_sharpe)}</td>
+          <td>${pct(b.avg_cagr)}</td>
+          <td>${pct(b.avg_max_drawdown)}</td>
+          <td>\u2014</td>
+          <td>${pct(b.avg_exposure, 0)}</td>
+          <td>0.0</td>
+        </tr>` : "";
+
+      return `<section class="panel">
+        <div class="panel-head">
+          <h3><span class="tf-chip"><span class="tf-swatch" style="background:${color}"></span></span>
+            ${TF_NAME[tf]} bars</h3>
+          <p class="panel-meta">${d.nBeat} of ${d.nRankable} rules beat buy-and-hold \u00b7
+            ${d.bars ? d.bars.toLocaleString() : "\u2014"} bars/stock since ${d.start}</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <caption>Top ${d.leaders.length} of ${d.nRankable} rankable rules at ${DATA.headlineCost} bps, best first.</caption>
+            <thead><tr>
+              <th scope="col">Rule</th>
+              <th scope="col"><span aria-hidden="true"></span></th>
+              <th scope="col">Excess Sharpe</th>
+              <th scope="col">Sharpe</th>
+              <th scope="col">CAGR</th>
+              <th scope="col">Max DD</th>
+              <th scope="col">Beat rate</th>
+              <th scope="col">Exposure</th>
+              <th scope="col">Turns/yr</th>
+            </tr></thead>
+            <tbody>${rows}${baseRow}</tbody>
+          </table>
+        </div>
+      </section>`;
+    }).join("");
+  }
+
+  function renderAll() {
+    renderVerdict();
+    renderDecay();
+    renderPanels();
+  }
+
+  renderAll();
+
+  // Re-render on theme change so SVG strokes pick up the new token values.
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  mq.addEventListener("change", renderAll);
+  new MutationObserver(renderAll).observe(document.documentElement, {
+    attributes: true, attributeFilter: ["data-theme"],
+  });
+})();
+</script>

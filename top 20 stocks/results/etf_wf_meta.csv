@@ -1,0 +1,2 @@
+timeframe,n_assets,n_rules,n_folds,years_oos,noise_ceiling,oos_start,oos_end,seconds
+4h,2,232,4,3.4458211853112166,1.4158354340008639,2023-02-10,2026-08-04,1.845956802368164

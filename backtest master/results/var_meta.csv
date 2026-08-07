@@ -1,0 +1,2 @@
+class,timeframe,n_assets,n_candidates,n_transforms,n_trials,n_folds,years_oos,noise_ceiling,oos_start,oos_end,seconds
+us_stocks,1d,20,12,8,96,54,41.008338988270324,0.36148944985440434,1973-01-02,2026-08-04,42.70452284812927

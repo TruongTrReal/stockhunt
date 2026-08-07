@@ -1,0 +1,19 @@
+# Signal layer: the whole point of the project.
+TA-Lib==0.7.1
+
+# Data layer. Twelve Data (via requests) is the primary source; yfinance is kept
+# for the legacy data/cache/ artifacts, which are NOT interchangeable with it —
+# see src/prices.py.
+requests==2.34.2
+yfinance==1.5.2
+
+# Execution layer: used to validate survivors under realistic fills and costs,
+# not for the sweep. See engine-bakeoff/ANALYSIS.md.
+nautilus_trader==1.230.0
+
+pandas==3.0.5
+numpy==2.5.1
+pyarrow==25.0.0
+lxml==6.1.1
+beautifulsoup4==4.15.0
+tqdm==4.70.0

@@ -1,0 +1,605 @@
+<title>Master Backtest — TA-Lib across crypto & US stocks</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:        #0E1116;
+    --surface:   #161B22;
+    --surface-2: #1C222B;
+    --border:    #2A313C;
+    --text:      #E9E6DD;
+    --text-muted:#8B93A0;
+    --accent:    #D9A441;
+    --accent-soft: rgba(217, 164, 65, 0.14);
+    --gain:      #3FB68C;
+    --loss:      #E0596B;
+    --fallback:  #6E7681;
+    --shadow: 0 1px 0 rgba(0,0,0,0.4);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:where(:not([data-theme="dark"])) {
+      color-scheme: light;
+      --bg:        #F7F5F0;
+      --surface:   #FFFFFF;
+      --surface-2: #EFEBE2;
+      --border:    #DDD6C7;
+      --text:      #1B1D1F;
+      --text-muted:#6B7178;
+      --accent:    #B8791F;
+      --accent-soft: rgba(184, 121, 31, 0.12);
+      --gain:      #1F8F68;
+      --loss:      #C23B4E;
+      --fallback:  #8B8F94;
+      --shadow: 0 1px 0 rgba(0,0,0,0.06);
+      --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg:        #F7F5F0;
+    --surface:   #FFFFFF;
+    --surface-2: #EFEBE2;
+    --border:    #DDD6C7;
+    --text:      #1B1D1F;
+    --text-muted:#6B7178;
+    --accent:    #B8791F;
+    --accent-soft: rgba(184, 121, 31, 0.12);
+    --gain:      #1F8F68;
+    --loss:      #C23B4E;
+    --fallback:  #8B8F94;
+    --shadow: 0 1px 0 rgba(0,0,0,0.06);
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  a { color: var(--accent); }
+
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 20px 64px;
+  }
+  @media (max-width: 480px) { .page { padding: 0 14px 48px; } }
+
+  /* ---------- Header ---------- */
+  header.top {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  /* On narrow screens the meta chips (Window/Universe/Capital/Indicators)
+     wrap onto separate lines, making the header tall enough to eat most of
+     a phone viewport if it stays pinned - let it scroll away like normal
+     content instead. */
+  @media (max-width: 900px) {
+    header.top { position: static; backdrop-filter: none; }
+  }
+  .top-inner {
+    max-width: 1180px; margin: 0 auto; padding: 14px 20px;
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--accent); font-weight: 600;
+  }
+  .meta-chips {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; color: var(--text-muted);
+  }
+  .meta-chips b { color: var(--text); font-weight: 600; }
+
+  .hero {
+    padding: 40px 0 8px;
+  }
+  .eyebrow {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 10px;
+  }
+  h1 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 30px; font-weight: 600; margin: 0 0 12px; text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  @media (max-width: 480px) { h1 { font-size: 22px; } }
+  .lede {
+    max-width: 66ch; color: var(--text-muted); font-size: 16px; margin: 0 0 4px;
+  }
+  @media (max-width: 480px) { .lede { font-size: 14.5px; } }
+
+  .timeframe-bar {
+    display: flex; gap: 8px; margin-top: 24px; border-bottom: 1px solid var(--border); padding-bottom: 0;
+    flex-wrap: wrap;
+  }
+  .timeframe-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+    padding: 10px 16px; border: none; background: none; color: var(--text-muted);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .timeframe-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .timeframe-tab:hover { color: var(--text); }
+
+  /* Asset class and cost level are the two dimensions this study adds over the
+     S&P-only sweep. Class is a hard split (different universes, different cost
+     reality); cost is a slider through the same data, so they get different
+     weights: class reads as primary tabs, cost as a quieter pill row. */
+  .class-bar { display: flex; gap: 8px; margin-top: 26px; flex-wrap: wrap; align-items: center; }
+  .class-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13.5px; font-weight: 600; padding: 8px 16px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+    cursor: pointer;
+  }
+  .class-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .class-tab:hover { color: var(--text); }
+  .class-count { font-size: 11.5px; color: var(--text-muted); font-weight: 400; }
+
+  .cost-bar { display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap; align-items: baseline; }
+  .cost-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+    margin-right: 4px;
+  }
+  .cost-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: none; color: var(--text-muted); cursor: pointer;
+  }
+  .cost-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  /* ASCII only: build_report.py escapes the template to numeric character
+     references, and CSS content does not decode those — a raw "·" here would
+     render as the literal text "&#183;". */
+  .cost-tab.headline::after { content: " (headline)"; opacity: 0.7; }
+
+  /* Gate state: four pass/fail marks, always with a letter as well as a colour. */
+  .gates { display: inline-flex; gap: 3px; vertical-align: middle; }
+  .gate-pip {
+    width: 16px; height: 16px; border-radius: 3px; display: inline-grid; place-items: center;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 9.5px; font-weight: 700; color: var(--bg);
+  }
+  .gate-pip.pass { background: var(--gain); }
+  .gate-pip.fail { background: var(--loss); }
+  .gate-pip.none { background: var(--fallback); opacity: 0.45; }
+
+  section { margin-top: 48px; }
+  .section-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  h2 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600; margin: 0;
+  }
+  .section-note { font-size: 13px; color: var(--text-muted); }
+
+  /* ---------- Scoreboard ---------- */
+  .scoreboard {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+  }
+  @media (max-width: 900px) { .scoreboard { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 480px) { .scoreboard { grid-template-columns: 1fr; } }
+  .score-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px; cursor: pointer; transition: border-color .15s ease;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .score-card:hover { border-color: var(--accent); }
+  .score-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .score-rank {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; color: var(--text-muted);
+  }
+  /* Single indicators are one short token (MAXINDEX); combo rows are a whole
+     expression and truncate to nothing useful on one line. Three lines, because
+     two clipped a combo and its hedged variant to the same visible prefix -
+     they rendered as identical cards. Height is reserved either way so the
+     cards in a row still line up. */
+  .score-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; color: var(--text);
+    overflow: hidden; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+    line-height: 1.3; min-height: 3.9em;
+  }
+  .score-pnl {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 20px; font-weight: 600; color: var(--gain);
+  }
+  .score-spark { width: 100%; height: 28px; display: block; }
+  .score-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10.5px; color: var(--text-muted); border: 1px solid var(--border);
+    border-radius: 3px; padding: 1px 5px;
+  }
+  .badge.fallback { color: var(--fallback); border-color: var(--fallback); }
+
+  .baseline-card {
+    margin-top: 10px; border: 1px dashed var(--border); border-radius: 6px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--text-muted) 5%, transparent);
+  }
+  .baseline-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .baseline-metrics { display: flex; gap: 20px; flex-wrap: wrap; font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace; font-size: 13px; }
+  .baseline-metrics b { color: var(--text); }
+  .baseline-card:hover { border-color: var(--accent); cursor: pointer; }
+
+  /* ---------- Chart ---------- */
+  .chart-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 18px 10px;
+  }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; padding-left: 4px; }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; color: var(--text-muted);
+  }
+  .legend-item.off { opacity: 0.35; }
+  .legend-swatch { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+  .legend-swatch.dashed { background: none; border-top: 2px dashed var(--text-muted); height: 0; }
+  svg.chart text { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace; }
+  .chart-tooltip {
+    position: absolute; pointer-events: none; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11.5px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 30;
+    display: none; white-space: nowrap;
+  }
+  .chart-wrap { position: relative; }
+
+  /* ---------- Table ---------- */
+  .table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.leaderboard { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 920px; }
+  table.leaderboard thead th {
+    position: sticky; top: 0; background: var(--surface-2); z-index: 2;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+    text-align: right; padding: 9px 10px; cursor: pointer; white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  table.leaderboard thead th:first-child, table.leaderboard thead th:nth-child(2) { text-align: left; }
+  table.leaderboard thead th.sorted { color: var(--accent); }
+  table.leaderboard tbody td {
+    padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--border);
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    white-space: nowrap;
+  }
+  table.leaderboard tbody td:first-child, table.leaderboard tbody td:nth-child(2) { text-align: left; }
+  table.leaderboard tbody tr { cursor: pointer; background: var(--surface); }
+  table.leaderboard tbody tr:hover { background: var(--surface-2); }
+  table.leaderboard tbody tr.active { background: var(--accent-soft); }
+  .gain { color: var(--gain); }
+  .loss { color: var(--loss); }
+  .rank-cell { color: var(--text-muted); }
+  .name-cell { font-weight: 600; }
+  .table-scroll { max-height: 560px; overflow-y: auto; }
+
+  /* ---------- Detail panel ---------- */
+  .detail-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+  }
+  .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  .detail-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 22px; font-weight: 600;
+    /* A combo name is far longer than a function name and must wrap rather
+       than push the rank badge off the card on a narrow viewport. */
+    overflow-wrap: anywhere; min-width: 0;
+  }
+  @media (max-width: 600px) { .detail-name { font-size: 17px; } }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px;
+    background: var(--border); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    margin: 16px 0;
+  }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .stat-tile { background: var(--surface); padding: 10px 12px; }
+  .stat-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 17px; font-weight: 600;
+  }
+  .tldr-inline {
+    font-size: 14px; color: var(--text-muted); max-width: 62ch; margin: 6px 0 4px;
+  }
+  .indicator-name-hover { cursor: help; border-bottom: 1px dotted var(--text-muted); }
+  .tldr-tooltip {
+    display: none; position: fixed; z-index: 50; max-width: 300px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .tldr-name {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--accent); margin-bottom: 4px;
+    letter-spacing: 0.03em;
+  }
+  .tldr-body { font-size: 13px; line-height: 1.4; color: var(--text); }
+  .ticker-stat-label {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; color: var(--text-muted); margin: 4px 0 6px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .stat-grid.ticker-stat-grid { grid-template-columns: repeat(9, 1fr); }
+  @media (max-width: 900px) { .stat-grid.ticker-stat-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 480px) { .stat-grid.ticker-stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  .ticker-stat-grid .stat-value { font-size: 15px; }
+
+  .fallback-notice {
+    font-size: 13px; color: var(--fallback); border: 1px solid var(--fallback);
+    border-radius: 6px; padding: 8px 12px; margin: 10px 0; background: color-mix(in srgb, var(--fallback) 8%, transparent);
+  }
+
+  .ticker-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 10px; }
+  .ticker-tab {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12.5px; padding: 8px 12px; border-radius: 5px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text-muted); cursor: pointer;
+  }
+  .ticker-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .trades-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+  table.trades { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 560px; }
+  table.trades th {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+    text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border);
+  }
+  table.trades th:first-child, table.trades th:nth-child(2) { text-align: left; }
+  table.trades td {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--border);
+  }
+  table.trades td:first-child, table.trades td:nth-child(2) { text-align: left; }
+  .no-trades { color: var(--text-muted); font-size: 13px; padding: 12px 0; }
+
+  /* ---------- Methodology ---------- */
+  .method {
+    border-top: 1px solid var(--border); margin-top: 64px; padding-top: 28px;
+    max-width: 72ch;
+  }
+  .method h3 {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent);
+    margin: 24px 0 8px;
+  }
+  .method p { color: var(--text); margin: 0 0 12px; }
+  .method ul { margin: 0 0 12px; padding-left: 20px; }
+  .method li { margin-bottom: 6px; }
+  .method .caveat { color: var(--text-muted); font-size: 14px; }
+  .method .mono { font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace; }
+  .ir-formula {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 14px; font-size: 13px; overflow-x: auto; white-space: nowrap;
+  }
+  /* The live worked example: the same rule judged both ways, pulled from the panel
+     currently on screen so it can never drift from the data above it. */
+  .why-ir {
+    border: 1px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 14px 16px; margin: 14px 0; background: var(--surface);
+  }
+  .why-ir .hd {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .why-ir table { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 6px; }
+  .why-ir td { padding: 3px 10px 3px 0; }
+  .why-ir td.k { color: var(--text-muted); white-space: nowrap; }
+  .why-ir .num {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Gate explainer: one block per gate, targets pulled live from the payload so the
+     prose and the pass/fail logic cannot drift apart. */
+  .gate-doc {
+    display: grid; grid-template-columns: 34px 1fr; gap: 14px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 16px; margin: 10px 0; background: var(--surface);
+  }
+  @media (max-width: 600px) { .gate-doc { grid-template-columns: 1fr; } }
+  .gate-doc .badge-lg {
+    width: 30px; height: 30px; border-radius: 5px; display: grid; place-items: center;
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 15px; font-weight: 700; color: var(--bg); background: var(--accent);
+  }
+  .gate-doc .gname {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 13.5px; font-weight: 600; color: var(--text); margin-bottom: 2px;
+  }
+  .gate-doc .gask { font-size: 14px; margin: 4px 0 8px; }
+  .gate-doc dl { margin: 0; font-size: 13.5px; }
+  .gate-doc dt {
+    font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase;
+    color: var(--text-muted); margin-top: 7px;
+  }
+  .gate-doc dd { margin: 1px 0 0; color: var(--text); }
+  .gate-doc .tgt { color: var(--gain); font-weight: 600; }
+  .gate-doc .bug { color: var(--loss); }
+
+  footer.foot {
+    max-width: 72ch; margin-top: 28px; font-size: 12px; color: var(--text-muted);
+  }
+
+  ::selection { background: var(--accent-soft); }
+  [role="button"] { outline: none; }
+  [role="button"]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">master backtest // crypto &amp; us stocks</div>
+    <div class="meta-chips" id="meta-chips"></div>
+  </div>
+</header>
+
+<div class="page">
+  <div class="hero">
+    <p class="eyebrow" id="eyebrow-count">indicators &middot; assets &middot; one rule each</p>
+    <h1>Does any TA-Lib rule beat buy-and-hold across crypto and US stocks?</h1>
+    <p class="lede">Every applicable TA-Lib function &mdash; moving averages tested at several periods each, plus combinations of them &mdash; turned into a single long/flat/short rule and backtested independently on 10 crypto pairs and 20 US mega-caps, at seven timeframes from daily down to one minute. Ranked by information ratio against buy-and-hold on the same asset, and judged against four acceptance gates. Read the methodology at the bottom before trusting any of this.</p>
+  </div>
+
+  <div class="class-bar" id="class-bar"></div>
+  <div class="timeframe-bar" id="timeframe-bar"></div>
+  <div class="cost-bar" id="cost-bar"></div>
+
+  <section id="scoreboard-section">
+    <div class="section-head">
+      <h2 id="scoreboard-title">Top 10 by total PnL</h2>
+      <span class="section-note">click a card to inspect</span>
+    </div>
+    <div class="scoreboard" id="scoreboard"></div>
+    <div class="baseline-card" id="baseline-card"></div>
+  </section>
+
+  <section id="chart-section">
+    <div class="section-head">
+      <h2 id="chart-title">Cumulative PnL — top 8 vs. buy &amp; hold</h2>
+      <span class="section-note" id="chart-note">portfolio-level, $10k/asset, summed across the universe</span>
+    </div>
+    <div class="chart-card">
+      <div class="chart-wrap" id="overlay-chart-wrap"></div>
+      <div class="chart-legend" id="overlay-legend"></div>
+    </div>
+  </section>
+
+  <section id="leaderboard-section">
+    <div class="section-head">
+      <h2 id="leaderboard-title">Full leaderboard</h2>
+      <span class="section-note">click any column to sort &middot; click a row for detail</span>
+    </div>
+    <div class="table-scroll">
+      <table class="leaderboard">
+        <thead><tr id="leaderboard-head"></tr></thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="detail-section">
+    <div class="section-head">
+      <h2>Indicator detail</h2>
+      <span class="section-note" id="detail-hint"></span>
+    </div>
+    <div class="detail-card" id="detail-card"></div>
+  </section>
+
+  <section class="method" id="method-section">
+    <h2 style="font-size:12.5px">Methodology</h2>
+
+    <h3>Why this is ranked by information ratio, not by profit</h3>
+    <p>Every rule here is scored on <b>information ratio against buy-and-hold on the
+    same asset</b> &mdash; not on dollars earned, not on raw Sharpe. Those two reward
+    something that looks like skill and is not.</p>
+    <p class="ir-formula mono">IR = mean(r &minus; r<sub>buy&amp;hold</sub>) &divide;
+    std(r &minus; r<sub>buy&amp;hold</sub>) &times; &radic;(periods per year)</p>
+    <p>Read it as <b>average lead &divide; how much that lead wobbles</b>. Two rules can
+    finish equally far ahead; the one that got there steadily is skilled, the one that
+    got there in a single lucky year is not. Dividing by the wobble separates them.
+    Doing nothing different from the benchmark scores exactly zero.</p>
+
+    <div id="why-ir-live"></div>
+
+    <h3>What profit cannot tell you</h3>
+    <ul>
+      <li><b>It rewards exposure, not accuracy.</b> In a rising market a rule that is
+      simply long more often earns more, with no predictive ability whatsoever. Dollars
+      cannot distinguish <i>was in the market</i> from <i>was right</i>.</li>
+      <li><b>It is dominated by the largest winner.</b> Pooled dollars across a universe
+      are carried by whichever asset trended hardest, drowning out the verdict on every
+      other name. IR averages per asset, so each one gets an equal vote &mdash; which is
+      what makes the breadth gate possible at all.</li>
+      <li><b>It has no risk term.</b> Same profit, wildly different paths, identical
+      ranking.</li>
+      <li><b>It has no benchmark.</b> A large number sounds good until you learn what
+      holding would have paid for free. IR bakes the comparison in: negative means it
+      lost.</li>
+      <li><b>It is not comparable across timeframes or asset classes.</b> IR is
+      annualised and unit-free, so the same value means the same thing everywhere.</li>
+    </ul>
+    <p class="caveat">This project has already been caught by exactly that trap: an
+    earlier sweep in the same repo produced &ldquo;winners&rdquo; that turned out to be
+    long-bias in a rising market, because it ranked on dollar PnL and raw Sharpe. The
+    scoreboard cards still <i>display</i> dollars, but nothing is ordered by them.</p>
+
+    <h3>The four gates</h3>
+    <p><b>Ranking is not the same as passing.</b> The leaderboard orders candidates by
+    IR, but a candidate only counts as an <i>edge</i> if it clears <b>all four gates at
+    once</b> &mdash; out of sample, at the real fee schedule. Each gate kills a different
+    way of being fooled, which is why one strong number is never enough.</p>
+
+    <div id="gates-explained"></div>
+
+    <p class="caveat"><b>Notice that each gate has a &ldquo;too good&rdquo; band.</b> A
+    result can fail by being too strong: an IR above 2, perfect breadth, or a t above 6
+    on a sample this short is far more likely to be a look-ahead leak, an accounting
+    error or a stale-data artifact than a discovery. Every one of those has happened in
+    this repo. Treat a sudden winner as a bug until the parity harness and the
+    multiplicity correction have both been re-checked.</p>
+
+    <h3>Why the gates are this hard</h3>
+    <p>The governing constraint is <span class="mono">t = IR &times; &radic;years</span>,
+    and it is unforgiving. On an 11-year sample &radic;11 &asymp; 3.3, so even a genuinely
+    good IR of 0.5 reaches only t &asymp; 1.7 &mdash; below the bar. <b>A system can be
+    real and still not provable on the history that exists.</b></p>
+    <p>Two consequences follow, and neither is optional:</p>
+    <ul>
+      <li><b>A finer timeframe buys no significance.</b> t scales with the square root of
+      the sample <i>length</i>, not the bar count. Running the same six years at one
+      minute instead of daily gives 390&times; the bars and an identical &radic;years.</li>
+      <li><b>Searching harder raises the bar rather than lowering it.</b> With hundreds of
+      candidates the best one is an extreme-value statistic, so the noise ceiling &mdash;
+      the IR the best of N <i>worthless</i> rules reaches by luck &mdash; is quoted
+      beside every leaderboard maximum, along with the Bonferroni-corrected t threshold
+      that candidate count implies.</li>
+    </ul>
+    <p class="caveat">Only two levers actually move these gates, and neither is
+    &ldquo;try more indicators&rdquo;: <b>more history</b> (t scales with &radic;years)
+    and <b>lower turnover</b> (fee headroom scales inversely with it).</p>
+  </section>
+
+  <footer class="foot">
+    Data: Twelve Data <code>time_series</code> with <code>adjust=all</code>, cached per timeframe &mdash; never mixed with the yfinance caches used by the earlier studies. Indicators computed with TA-Lib 0.7.1 via the shared <code>talib_signals.py</code>. The sweep runs on a vectorised engine, cross-checked every run against a share-level reference simulation and NautilusTrader 1.230.0; survivors are re-run in Nautilus with whole-share rounding, commissions and slippage. See <code>PLAN.md</code> in the project repo.
+  </footer>
+</div>
+
+<script id="report-data" type="application/json">__REPORT_DATA_JSON__</script>
+<script>
+__REPORT_JS__
+</script>
