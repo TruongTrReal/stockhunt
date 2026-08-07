@@ -5,7 +5,7 @@ tag in `index.html` is the whole migration.
 
 What is real here and what is not:
 
-* **Backtest** — every figure comes from `backtest master/results/wf_summary_*.csv` and
+* **Backtest** — every figure comes from `backtest engine/results/wf_summary_*.csv` and
   `wf_per_asset_*.csv`, which are the walk-forward out-of-sample sweeps. Nothing is
   synthesised.
 * **Equity curves** — not persisted by the sweep, so rule detail pages omit the chart
@@ -29,8 +29,8 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 FWD = HERE.parent
 REPO = FWD.parent
-BM = REPO / "backtest master" / "results"
-sys.path.insert(0, str(REPO / "backtest master"))
+BM = REPO / "backtest engine" / "results"
+sys.path.insert(0, str(REPO / "backtest engine"))
 import config as bt                                    # noqa: E402
 
 HEADLINE = {"us_stocks": "retail", "crypto": "binance"}

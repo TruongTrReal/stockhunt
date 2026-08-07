@@ -6,7 +6,7 @@ executed is not working code, it is untested code, and the first time it runs wo
 been against a live feed at a real bar close with nobody watching.
 
 Here the same strategy class, the same signal layer and the same rebalance logic run
-against `backtest master/data/cache_*/SYMBOL.parquet` inside a `BacktestEngine`. The
+against `backtest engine/data/cache_*/SYMBOL.parquet` inside a `BacktestEngine`. The
 event flow is identical to paper trading — bar in, signal, order, fill, position, P&L —
 with the clock driven by the data instead of the wall. If it fills here it will fill live.
 
@@ -54,14 +54,14 @@ BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
 def cache_dirs(timeframe: str) -> list:
     """Everywhere in the repo that cached bars for this timeframe might live.
 
-    Two studies, two layouts. `backtest master/` splits by asset class
+    Two studies, two layouts. `backtest engine/` splits by asset class
     (`cache_us_stocks_1d`, `cache_crypto_1d`) and holds the 20 mega-caps plus the 10
     crypto pairs. `top 20 stocks/` is flat (`cache_1d`) and is the **only** place SOXL and
     TQQQ exist — MK's two leveraged ETFs were added to that study, not to the master
     sweep. Searching both is what lets this run over the forward-test universe rather
     than only the research one.
     """
-    bm, t20 = fwd_config.BACKTEST_MASTER / "data", fwd_config.REPO / "top 20 stocks" / "data"
+    bm, t20 = fwd_config.BACKTEST_ENGINE / "data", fwd_config.REPO / "top 20 stocks" / "data"
     return [bm / f"cache_us_stocks_{timeframe}", bm / f"cache_crypto_{timeframe}",
             t20 / f"cache_{timeframe}"]
 
@@ -98,7 +98,7 @@ def make_instrument(symbol: str):
     """A fractional-quantity instrument, deliberately.
 
     A real `Equity` has `size_precision=0` and would round every order to whole shares.
-    That is realistic, and `../backtest master/validate.py` is where it belongs. Here the
+    That is realistic, and `../backtest engine/validate.py` is where it belongs. Here the
     question is whether the order path works at all, and whole-share rounding on a
     $100k account can silently zero out a small rebalance and look like "no fills".
     """

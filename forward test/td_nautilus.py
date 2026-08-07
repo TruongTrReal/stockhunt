@@ -1,7 +1,7 @@
 """Twelve Data as a Nautilus live data client, plus the instruments to trade against.
 
 This is the piece that makes `backtest -> paper -> live` one code path instead of three
-codebases. Nautilus already runs the backtest (`../backtest master/engines/nautilus.py`);
+codebases. Nautilus already runs the backtest (`../backtest engine/engines/nautilus.py`);
 here the same engine is fed live bars from the same vendor the research used, and paired
 with `SandboxExecutionClient` — real prices in, simulated fills out. Going live later
 swaps the execution client and touches nothing else.
@@ -147,7 +147,7 @@ def crypto_instrument(pair: str, venue: str) -> CurrencyPair:
         size_precision=6,
         price_increment=Price.from_str("0.01"),
         size_increment=Quantity.from_str("0.000001"),
-        # Stated explicitly to match `../backtest master/engines/nautilus.py`, so the paper
+        # Stated explicitly to match `../backtest engine/engines/nautilus.py`, so the paper
         # instrument and the parity instrument are the same shape. These were NOT the cause
         # of the one-increment fills — that was zero bar volume starving the L1 book, see
         # `_volume` — but leaving them implicit invites the same investigation twice.

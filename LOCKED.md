@@ -30,7 +30,7 @@ Freezing does not mean unused. These paths are live read-only dependencies:
 
 ## The one dependency that was cut
 
-`backtest master/` used to put `test research/src/` on `sys.path` so it could
+`backtest engine/` used to put `test research/src/` on `sys.path` so it could
 `import talib_signals` — the shared 231-rule signal layer. That made a frozen
 folder a runtime dependency of live code.
 

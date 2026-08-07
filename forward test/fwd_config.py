@@ -1,8 +1,8 @@
 """Forward-test configuration and the sys.path wiring that makes sharing possible.
 
-Named `fwd_config` and NOT `config` on purpose. `../backtest master/` puts itself on
+Named `fwd_config` and NOT `config` on purpose. `../backtest engine/` puts itself on
 sys.path and its modules import each other by bare name, so a `config.py` sitting in this
-directory would shadow `backtest master/config.py` the moment anything ran from here —
+directory would shadow `backtest engine/config.py` the moment anything ran from here —
 `signals.py` would do `from config import CLASSES` and silently get the wrong file.
 """
 
@@ -13,13 +13,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-BACKTEST_MASTER = REPO / "backtest master"
+BACKTEST_ENGINE = REPO / "backtest engine"
 
-# Order matters. `backtest master/config.py` prepends `../test research/src` to sys.path
+# Order matters. `backtest engine/config.py` prepends `../test research/src` to sys.path
 # on import, which is the only reason `talib_signals` resolves anywhere in this repo.
 # So: put that directory on the path, import its config, and the rest follows.
-if str(BACKTEST_MASTER) not in sys.path:
-    sys.path.insert(0, str(BACKTEST_MASTER))
+if str(BACKTEST_ENGINE) not in sys.path:
+    sys.path.insert(0, str(BACKTEST_ENGINE))
 
 import config as bt_config          # noqa: E402  (side effect: wires talib_signals)
 

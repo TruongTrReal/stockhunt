@@ -35,7 +35,7 @@ import fwd_config
 import run_paper
 
 import sys
-sys.path.insert(0, str(fwd_config.BACKTEST_MASTER))
+sys.path.insert(0, str(fwd_config.BACKTEST_ENGINE))
 from config import scenarios                              # noqa: E402
 from engines import vector                                # noqa: E402
 import signals                                            # noqa: E402

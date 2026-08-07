@@ -71,7 +71,7 @@ def instrument_for(symbol: str):
     return td_nautilus.equity_instrument(symbol, EQUITY_VENUE)
 
 
-RESULTS = fwd_config.BACKTEST_MASTER / "results"
+RESULTS = fwd_config.BACKTEST_ENGINE / "results"
 HEADLINE = {"us_stocks": "retail", "crypto": "binance"}
 
 

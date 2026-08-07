@@ -652,7 +652,7 @@ function paintCombos(host, grp, sh) {
   if (!sh.combos || !sh.combos.length) {
     host.innerHTML = `<div class="note">No walk-forward combinations have been scored for
       this sheet yet. Run <code>python combo_wf.py --tf ${sh.timeframe}</code> in
-      <code>backtest master/</code>.</div>`;
+      <code>backtest engine/</code>.</div>`;
     return;
   }
   const best = sh.combos[0], bestSingle = sh.rows[0];
@@ -973,7 +973,7 @@ async function paintCurves(cls, tf, r) {
     host.innerHTML = `<p class="sec-note">Equity curves unavailable${
       data && data.__error ? ` (${esc(data.__error)})` : ""}. Generate them with
       <code>python curves.py --class ${cls === "stocks" ? "us_stocks" : "crypto"} --tf ${tf}</code>
-      in <code>backtest master/</code>, then re-run <code>build_web_data.py</code>.</p>`;
+      in <code>backtest engine/</code>, then re-run <code>build_web_data.py</code>.</p>`;
     return;
   }
   const c = data[r.rule];

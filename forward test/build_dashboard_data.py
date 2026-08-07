@@ -16,7 +16,7 @@ import pandas as pd
 import fwd_config
 import td_live
 
-BM = fwd_config.BACKTEST_MASTER
+BM = fwd_config.BACKTEST_ENGINE
 TOP20 = fwd_config.REPO / "top 20 stocks"
 
 HEADLINE = {"us_stocks": "retail", "crypto": "binance"}
