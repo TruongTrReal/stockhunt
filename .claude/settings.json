@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(test research/**)",
+      "Write(test research/**)",
+      "NotebookEdit(test research/**)",
+      "Edit(top 20 stocks/**)",
+      "Write(top 20 stocks/**)",
+      "NotebookEdit(top 20 stocks/**)",
+      "Bash(rm *test research*)",
+      "Bash(rm *top 20 stocks*)",
+      "Bash(mv *test research*)",
+      "Bash(mv *top 20 stocks*)",
+      "Bash(git mv *test research*)",
+      "Bash(git mv *top 20 stocks*)",
+      "Bash(git rm *test research*)",
+      "Bash(git rm *top 20 stocks*)"
+    ]
+  }
+}
