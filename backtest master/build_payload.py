@@ -20,8 +20,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, DATA_DIR, GATES,
-                    HEADLINE_SCENARIO, MIN_BARS, RESULTS_DIR, TIMEFRAMES,
+from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, GATES,
+                    HEADLINE_SCENARIO, MIN_BARS, REPORT_DIR, RESULTS_DIR, TIMEFRAMES,
                     scenarios)
 from engines import vector
 import metrics
@@ -30,7 +30,7 @@ import td_loader
 
 from talib_signals import describe_signal
 
-PAYLOAD_PATH = DATA_DIR / "report_payload.json"
+PAYLOAD_PATH = REPORT_DIR / "report_payload.json"
 
 # Buy-and-hold pays nothing anywhere in this project.
 FREE = {"key": "gross", "commission_bps": 0.0, "half_spread_bps": 0.0,
@@ -545,7 +545,7 @@ def main() -> None:
     # Sanitise here, not only in build_report: a payload on disk that cannot be
     # serialised is a trap for anything else that reads it.
     payload = _sanitize(payload)
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
     PAYLOAD_PATH.write_text(
         json.dumps(payload, separators=(",", ":"), allow_nan=False), encoding="utf-8")
     mb = PAYLOAD_PATH.stat().st_size / 1e6

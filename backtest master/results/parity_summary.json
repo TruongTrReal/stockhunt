@@ -1,16 +1,9 @@
 {
-  "vector-nautilus": {
-    "cells": 32,
-    "failures": 7,
-    "max_rel_diff": 0.35527261186238357,
-    "median_rel_diff": 2.6586441939681695e-05,
-    "windowed": 16
-  },
   "vector-reference": {
-    "cells": 128,
-    "failures": 1,
-    "max_rel_diff": 1.0001134000344158,
-    "median_rel_diff": 5.6705705383784515e-15,
+    "cells": 256,
+    "failures": 0,
+    "max_rel_diff": 6.970742430484692e-12,
+    "median_rel_diff": 1.8302503302909302e-14,
     "windowed": 0
   }
 }

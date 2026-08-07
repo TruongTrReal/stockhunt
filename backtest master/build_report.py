@@ -33,8 +33,10 @@ def _sanitize(obj):
 
 HERE = Path(__file__).resolve().parent
 REPORT_DIR = HERE / "report"
-DATA_DIR = HERE / "data"
-PAYLOAD_PATH = DATA_DIR / "report_payload.json"
+# The payload is a build artifact, so it lives beside the template that consumes it.
+# It used to sit in `data/`, which is now the repo-wide price cache and holds no
+# per-study output at all.
+PAYLOAD_PATH = REPORT_DIR / "report_payload.json"
 OUT_PATH = REPORT_DIR / "index.html"
 
 TEMPLATE_PLACEHOLDER = "__REPORT_DATA_JSON__"
@@ -117,7 +119,7 @@ def main() -> None:
     if "--demo" in sys.argv:
         import make_demo_payload
         payload = make_demo_payload.build()
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
         PAYLOAD_PATH.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
         print(f"demo payload -> {PAYLOAD_PATH}")
     else:

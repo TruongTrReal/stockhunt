@@ -1,15 +1,2 @@
 class,timeframe,n_assets,n_rules_run,n_rules_skipped,skipped_rules,n_bars_min,n_bars_max,start,end,source,seconds
-us_stocks,1d,20,232,0,[],3415,6684,2000-01-03 00:00:00,2026-07-31 00:00:00,"Twelve Data time_series, adjust=all",11.208816766738892
-us_stocks,4h,20,232,0,[],3695,3777,2019-06-21 08:00:00,2026-07-31 13:30:00,"Twelve Data time_series, adjust=all",9.507931232452393
-us_stocks,2h,20,232,0,[],7102,7197,2019-06-21 10:00:00,2026-07-31 15:30:00,"Twelve Data time_series, adjust=all",11.767704248428345
-us_stocks,1h,20,232,0,[],13240,13264,2019-01-08 09:00:00,2026-07-31 15:30:00,"Twelve Data time_series, adjust=all",15.919065475463867
-us_stocks,15m,20,232,0,[],44731,45804,2019-09-17 01:30:00,2026-07-31 15:45:00,"Twelve Data time_series, adjust=all",42.45172739028931
-us_stocks,5m,20,232,0,[],127820,128172,2020-01-09 09:30:00,2026-08-03 09:50:00,"Twelve Data time_series, adjust=all",139.14097023010254
-us_stocks,1m,20,232,0,[],598694,620413,2020-03-25 09:30:00,2026-08-03 12:56:00,"Twelve Data time_series, adjust=all",1402.0117192268372
-crypto,1d,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",2049,3262,2017-08-29 00:00:00,2026-08-03 00:00:00,"Twelve Data time_series, adjust=all",4.439432859420776
-crypto,4h,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",10705,14392,2020-01-07 00:00:00,2026-08-03 16:00:00,"Twelve Data time_series, adjust=all",7.714034795761108
-crypto,2h,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",21404,28771,2020-01-07 00:00:00,2026-08-03 16:00:00,"Twelve Data time_series, adjust=all",11.791489362716675
-crypto,1h,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",42793,57517,2020-01-07 00:00:00,2026-08-03 17:00:00,"Twelve Data time_series, adjust=all",22.765137195587158
-crypto,15m,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",171096,225700,2020-02-20 00:00:00,2026-08-03 17:30:00,"Twelve Data time_series, adjust=all",208.39355969429016
-crypto,5m,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",513141,666640,2020-03-26 00:00:00,2026-08-03 18:15:00,"Twelve Data time_series, adjust=all",626.9682760238647
-crypto,1m,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",2557357,3303909,2020-04-08 00:00:00,2026-08-03 21:27:00,"Twelve Data time_series, adjust=all",3683.8459837436676
+crypto,1d,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",2049,3262,2017-08-29 00:00:00,2026-08-03 00:00:00,"Twelve Data time_series, adjust=all",6.463485479354858

@@ -128,7 +128,7 @@ diagnosis. They are just not what anything is ranked on.
 ```
 config.py        universe, timeframe specs, per-class cost grids, paths, sys.path -> test research/src
    |
-td_loader.py     Twelve Data -> data/cache_<tf>/<SYMBOL>.parquet     (network, cached, paginated)
+td_loader.py     Twelve Data -> ../data/<class>/<tf>/<SYMBOL>.parquet (network, cached, paginated)
    |
 engines/         vector.py  |  reference.py  |  nautilus.py          (three implementations)
    |

@@ -22,7 +22,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
-DATA_DIR = HERE / "data"
+# Price data is repo-wide, not per-study: the paper desk and the dashboard read the same
+# bars this engine sweeps, and three copies of the same Twelve Data pull is how the
+# earlier studies ended up 80MB apart on identical numbers.
+DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = HERE / "results"
 REPORT_DIR = HERE / "report"
 ENV_FILE = REPO_ROOT / ".env.local"
@@ -334,8 +337,14 @@ def rule_needs_volume(rule: str, volume_funcs: frozenset[str]) -> bool:
     return any(rule == v or rule.startswith(v + "_") for v in volume_funcs)
 
 
+# Directory name per asset class under `DATA_DIR`. The keys are this project's internal
+# class names; the values are what the shared `data/` tree is organised by, so a human
+# browsing it sees `data/stocks/1d/` rather than `data/cache_us_stocks_1d/`.
+CLASS_DIR = {"us_stocks": "stocks", "crypto": "crypto", "us_etfs": "etfs"}
+
+
 def cache_dir(asset_class: str, timeframe: str) -> Path:
-    return DATA_DIR / f"cache_{asset_class}_{timeframe}"
+    return DATA_DIR / CLASS_DIR[asset_class] / timeframe
 
 
 def safe_symbol(symbol: str) -> str:

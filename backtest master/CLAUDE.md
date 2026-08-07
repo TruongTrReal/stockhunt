@@ -49,7 +49,7 @@ python gate_calibration.py                # are the four gates coherent on this 
 python combo_wf.py --tf 1d 4h             # stage 2b: walk-forward pairs (use this)
 python combo_sweep.py                     # stage 2/3: single-split pairs (legacy)
 python validate.py                        # Nautilus on survivors (if any)
-python build_payload.py                   # results -> data/report_payload.json
+python build_payload.py                   # results -> report/report_payload.json
 python build_report.py                    # -> report/index.html
 python build_report.py --demo             # synthetic payload, layout check only
 ```
@@ -59,7 +59,7 @@ python build_report.py --demo             # synthetic payload, layout check only
 ```
 config.py        universes, 7 timeframes, per-class cost grids, gates, sys.path
    |
-td_loader.py     Twelve Data -> data/cache_<class>_<tf>/<SYMBOL>.parquet
+td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs>/<tf>/<SYMBOL>.parquet
 check_data.py    OHLC integrity scan and repair
    |
 signals.py       the ONE way a rule name becomes a position series
@@ -78,7 +78,7 @@ combo_sweep.py   stage 2/3: pairs of train-shortlisted singles, 4 operators (leg
 metrics.py       IR, the four gates, breakeven, leave-one-out
    |
 validate.py      Nautilus on survivors: whole shares, commission, slippage
-build_payload.py results -> data/report_payload.json
+build_payload.py results -> report/report_payload.json
 build_report.py  template.html + report.js + payload -> report/index.html
 ```
 
@@ -150,7 +150,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   years from 23.6 to 41.0, which cut the noise ceiling from +0.48 to +0.36 and is the
   single reason the gates are testable at all. History is the only lever on the ceiling —
   `metrics.se_ir` falls as 1/sqrt(years) and ignores how many assets or bars those years
-  hold. The pre-2000 cache is preserved at `data/cache_us_stocks_1d.bak-2000/`.
+  hold. The pre-2000 cache is preserved at `../data/_archive/stocks_1d_pre2000/`.
 
 - **A negative IR does not mean a rule is worthless, and a leaderboard without exposure
   controls cannot tell you which.** Against a rising benchmark, IR is close to a linear
@@ -214,7 +214,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   across the whole grid instead.
 - **Background jobs get killed at 10 minutes** by the harness timeout. Long fetches and
   sweeps must be launched detached (`Start-Process ... -WindowStyle Hidden`) with output
-  redirected to `data/*.log`.
+  redirected to `logs/*.log`.
 - `report/index.html` is generated. Edit `template.html`, `report.js` or
   `build_payload.py` — never `index.html`, which is overwritten every build.
 - **The report is forced to pure ASCII** by `build_report.py`, with different escaping

@@ -1,5 +1,3 @@
-data/
-__pycache__/
-*.pyc
-.env.local
-report/index.html
+# Price caches moved to the repo-wide ../data/ and are ignored there.
+# Everything else this folder generates is covered by the root .gitignore:
+# logs/, report/index.html, report/report_payload.json, __pycache__/.
