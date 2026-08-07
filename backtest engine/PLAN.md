@@ -136,11 +136,14 @@ parity.py        samples cells, runs all three, FAILS the build on disagreement 
    |
 sweep.py         stage 1: 231 singles x 30 assets x 7 tf x 4 costs
    |
-shortlist.py     top-40 singles per (class, tf) ranked on TRAIN IR only
+(shortlisting)   top-40 singles per (class, tf) ranked on TRAIN IR only
+                 NOTE: never became its own module - it lives in combo_sweep.py:79
+                 and walk-forward optimization/variants.py:135
    |
 combo_sweep.py   stage 2: pairs over the shortlist; stage 3: operators over stage-2 survivors
    |
-gates.py         the four gates + leave-one-out -> pass/fail per candidate
+(gating)         the four gates + leave-one-out -> pass/fail per candidate
+                 NOTE: never became its own module - it is metrics.apply_gates
    |
 validate.py      Nautilus on survivors: real Equity instrument, whole-share rounding,
    |             commission + slippage models
@@ -185,7 +188,7 @@ were windowed. A windowed parity check is still a real check; claiming it was fu
 Carried from the two prior studies because each one has already cost a result:
 
 - **Shortlist on train only.** Sorting by a test column and reading the top rows is selection on
-  test and it manufactures winners. `shortlist.py` never sees the test period.
+  test and it manufactures winners. The shortlisting step never sees the test period.
 - **Multiplicity is reported, not hidden.** Every leaderboard shows the candidate count it was
   selected from and the Bonferroni-corrected t threshold that count implies.
 - **Positions are 1/0/−1, `shift(1)` before multiplying returns.** Signal on bar *t*'s close trades

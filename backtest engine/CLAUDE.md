@@ -40,18 +40,25 @@ python td_loader.py --class crypto --tf 1d
 python check_data.py --fix                # OHLC integrity scan + repair
 python parity.py --n 3                    # three-engine cross-check (gate on this)
 python sweep.py --class us_stocks         # stage 1: singles
-python walkforward.py --class us_stocks --tf 1d   # stage 1b: rolling re-optimisation
-python variants.py --tf 1d 4h             # stage 1c: transforms on the IS shortlist
-python prereg.py --tf 1d 4h --freeze      # stage 1d: 5 pre-registered published rules
-python strat_wf.py --tf 1d 4h             # stage 1e: 26 published strategies + WFO
-python strat_wf.py --list                 # ...print the catalog and exit
-python gate_calibration.py                # are the four gates coherent on this sample?
-python combo_wf.py --tf 1d 4h             # stage 2b: walk-forward pairs (use this)
 python combo_sweep.py                     # stage 2/3: single-split pairs (legacy)
 python validate.py                        # Nautilus on survivors (if any)
 python build_payload.py                   # results -> report/report_payload.json
 python build_report.py                    # -> report/index.html
 python build_report.py --demo             # synthetic payload, layout check only
+```
+
+Everything that prices **selection** moved to `../walk-forward optimization/` — stages 1b
+through 2b, and `curves.py`. That is where the headline numbers come from:
+
+```powershell
+cd "../walk-forward optimization"
+python walkforward.py --class us_stocks --tf 1d   # stage 1b: THE headline (quote IS#1)
+python variants.py --tf 1d 4h                     # stage 1c
+python prereg.py --tf 1d 4h --freeze              # stage 1d
+python strat_wf.py --tf 1d 4h                     # stage 1e
+python gate_calibration.py                        # are the gates provable on this sample?
+python combo_wf.py --tf 1d 4h                     # stage 2b
+python curves.py --tf 1d 4h                       # curves for the dashboard
 ```
 
 ## Architecture
@@ -70,14 +77,12 @@ engines/         vector.py | reference.py | nautilus.py
 parity.py        samples cells, runs all three, FAILS on disagreement
    |
 sweep.py         stage 1: 231 singles x assets x timeframes x costs
-walkforward.py   stage 1b: rolling re-optimisation + the IS#1 selection rule
-variants.py      stage 1c: 8 transforms on the IS-shortlisted leaders
-prereg.py        stage 1d: 5 published rules, no free parameters, no selection
-strat_wf.py      stage 1e: the ../strategies/ catalog, 117 cells, + exposure controls
-gate_calibration.py  power check: is a gate below its own noise ceiling?
-combo_wf.py      stage 2b: walk-forward pairs + leg-correlation diagnosis
 combo_sweep.py   stage 2/3: pairs of train-shortlisted singles, 4 operators (legacy split)
 metrics.py       IR, the four gates, breakeven, leave-one-out
+   |
+   +--> ../walk-forward optimization/   stages 1b-2b: everything that prices SELECTION
+   |                                    walkforward, variants, prereg, strat_wf,
+   |                                    combo_wf, gate_calibration, curves
    |
 validate.py      Nautilus on survivors: whole shares, commission, slippage
 build_payload.py results -> report/report_payload.json
@@ -112,9 +117,11 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   flat and differ badly for shorts — a static -1 short through four +10% bars ends at
   0.536x, a re-sized one at 0.9^4 = 0.656x. Any new engine must match this or parity
   will (correctly) fail.
-- **Cost grids are per asset class.** Stocks 0/1/5/10bps headline 5; crypto 0/5/10/20
-  headline 10, because major-exchange taker fees run ~10bps a side. Charging crypto an
-  equity grid manufactures survivors.
+- **Cost grids are per asset class**, and itemised: `commission_bps`, `half_spread_bps`,
+  `sell_fee_bps` and `borrow_annual` per scenario, in `config.FEE_SCENARIOS`. Equities run
+  `gross / retail / wide / pessimistic` (headline `retail`); crypto runs
+  `gross / binance / kraken / coinbase` (headline `binance`), because major-exchange taker
+  fees are ~10bps a side. Charging crypto an equity grid manufactures survivors.
 - **The baseline is never charged and never flattened.** Flattening the benchmark turns
   it into a different strategy — precisely what made the old 5m "beat" an artifact.
 - **Shortlisting happens on train-period IR only.** Sorting by a test column and reading
@@ -142,7 +149,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   trials is +0.95 to +1.26 — so the stated 0.50 gate sits *below* what luck produces and
   cannot be passed meaningfully. Relaxing such a gate makes it easier and more worthless
   simultaneously; the coherent moves are more years or fewer trials.
-- **On equities, read `long_frac` before believing any IR improvement.** `combo_wf.py`
+- **On equities, read `long_frac` before believing any IR improvement.** `../walk-forward optimization/combo_wf.py`
   found the best daily combination at IR -0.057 against -0.224 for the best single — and
   it is long **96%** of the time. `MININDEX~MAXINDEX|or` is long **100%**: it is literally
   buy-and-hold. Across all 140 combinations `corr(IR, long_frac) = 0.881` on 1d and 0.692
@@ -162,7 +169,7 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
 
 - **A negative IR does not mean a rule is worthless, and a leaderboard without exposure
   controls cannot tell you which.** Against a rising benchmark, IR is close to a linear
-  function of time-in-market: `strat_wf.py` measures it directly with six signal-free
+  function of time-in-market: `../walk-forward optimization/strat_wf.py` measures it directly with six signal-free
   controls (`ALWAYS_FLAT`, seeded block-random rules at 25/50/75/90%, `ALWAYS_LONG`) and
   on us_stocks 1d the curve runs -0.68 at zero exposure to 0.00 at full exposure. Rank on
   `ir_vs_random` — the row's IR minus that curve at its *own* exposure — before believing
@@ -177,7 +184,8 @@ CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
   is a mean of per-asset *total* returns and is near-meaningless when SOXL compounds 230x
   and SPY 6.4x — annualise first, average second.
 - **`np.nanmedian(whole_series)` is look-ahead, and it is in this repo.**
-  `prereg.volmanaged`, `variants._vol_scale` and any Pruitt-style adaptive lookback
+  `prereg.volmanaged`, `variants._vol_scale` (both now in `../walk-forward optimization/`)
+  and any Pruitt-style adaptive lookback
   normalise current volatility against the median of the *entire* series. It is one
   scalar rather than a per-bar signal, but it is still future data: truncating the series
   changed 11 of 93 cells' *past* positions. `strategies.catalog._causal_median` uses an expanding

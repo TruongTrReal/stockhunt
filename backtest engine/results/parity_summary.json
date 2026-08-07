@@ -1,9 +1,9 @@
 {
   "vector-reference": {
-    "cells": 256,
-    "failures": 0,
-    "max_rel_diff": 6.970742430484692e-12,
-    "median_rel_diff": 1.8302503302909302e-14,
+    "cells": 320,
+    "failures": 3,
+    "max_rel_diff": 1.002325203252033,
+    "median_rel_diff": 1.2663635368140133e-14,
     "windowed": 0
   }
 }
