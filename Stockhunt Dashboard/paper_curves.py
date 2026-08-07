@@ -30,19 +30,36 @@ import json
 import numpy as np
 import pandas as pd
 
-import backtest_paper as bp
-import fwd_config
-import run_paper
+import dash_config
 
-import sys
-sys.path.insert(0, str(fwd_config.BACKTEST_ENGINE))
+# `paper_config` supplies the universe, the warm-up constant and `top_rules`; the engine
+# supplies the fee model and the vectorised backtest. Deliberately NOT `run_paper` or
+# `backtest_paper` -- both import nautilus_trader at module scope, and this is a page
+# builder that has no business dragging a live trading stack in behind it.
+import sys                                                # noqa: E402
+sys.path.insert(0, str(dash_config.PAPER))
+import paper_config                                        # noqa: E402
 from config import scenarios                              # noqa: E402
 from engines import vector                                # noqa: E402
-import signals                                            # noqa: E402
+import signals                                             # noqa: E402
+import td_loader                                           # noqa: E402
+
+
+def load_bars(symbol: str, timeframe: str):
+    """Cached bars for one cell, from the shared ../data/ tree."""
+    for asset_class in ("us_stocks", "crypto", "us_etfs"):
+        try:
+            got = td_loader.load(asset_class, timeframe, [symbol])
+        except (KeyError, FileNotFoundError):
+            continue
+        df = got.get(symbol)
+        if df is not None and len(df):
+            return df
+    raise FileNotFoundError(f"no cached {timeframe} bars for {symbol}")
 
 HEADLINE = {"us_stocks": "retail", "crypto": "binance"}
 POINTS = 180                 # what a panel-width chart resolves
-WARMUP = fwd_config.DEFAULT_WINDOW_BARS
+WARMUP = paper_config.DEFAULT_WINDOW_BARS
 
 
 def windows(index: pd.DatetimeIndex) -> dict:
@@ -78,21 +95,21 @@ def curve(net: np.ndarray, index: pd.DatetimeIndex, start) -> tuple[list, list, 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--top", type=int, default=5)
-    ap.add_argument("--timeframes", nargs="+", default=fwd_config.FORWARD_TIMEFRAMES)
+    ap.add_argument("--timeframes", nargs="+", default=paper_config.FORWARD_TIMEFRAMES)
     args = ap.parse_args()
 
-    universe = {"us_stocks": fwd_config.EQUITY_SYMBOLS,
-                "crypto": fwd_config.CRYPTO_SYMBOLS}
+    universe = {"us_stocks": paper_config.EQUITY_SYMBOLS,
+                "crypto": paper_config.CRYPTO_SYMBOLS}
     out = {}
     for tf in args.timeframes:
         for cls, symbols in universe.items():
             fee = next(f for f in scenarios(cls) if f["key"] == HEADLINE[cls])
-            for rule in run_paper.top_rules(cls, args.top, tf):
+            for rule in paper_config.top_rules(cls, args.top, tf):
                 key = f"{'crypto' if cls == 'crypto' else 'equity'}|{tf}|{rule}"
                 assets, frames, bframes = {}, {}, {}
                 for symbol in symbols:
                     try:
-                        df = bp.load_bars(symbol, tf)
+                        df = load_bars(symbol, tf)
                     except FileNotFoundError:
                         continue
                     if len(df) < WARMUP // 2:
@@ -145,7 +162,7 @@ def main() -> None:
                       f"3M {sys_entry.get('3m', {}).get('pnl_pct')} vs "
                       f"{sys_entry.get('3m', {}).get('bench_pnl_pct')}")
 
-    p = fwd_config.HERE / "web" / "paper_curves.json"
+    p = dash_config.WEB / "paper_curves.json"
     p.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     print(f"\nwrote {p}  ({p.stat().st_size / 1e6:.1f} MB, {len(out)} systems)")
 

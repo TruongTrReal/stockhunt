@@ -1,13 +1,15 @@
-"""Generate `web/data.js` from the real research results.
+"""Build the dashboard payload: one document, both emitters.
 
-Replaces `demo_data.js`. Same shape, so the views need no changes — swapping the script
-tag in `index.html` is the whole migration.
+`build_dashboard.py` turns this into either `web/data.js` (the served SPA) or a
+self-contained `dist/dashboard.html`. Both read the same payload, which is the point --
+they used to be two independent builders over two different subsets of the results, and
+drifted a day apart in practice.
 
 What is real here and what is not:
 
-* **Backtest** — every figure comes from `backtest engine/results/wf_summary_*.csv` and
-  `wf_per_asset_*.csv`, which are the walk-forward out-of-sample sweeps. Nothing is
-  synthesised.
+* **Backtest** — every figure comes from `walk-forward optimization/results/
+  wf_summary_*.csv` and `wf_per_asset_*.csv`, which are the walk-forward out-of-sample
+  sweeps. Nothing is synthesised.
 * **Equity curves** — not persisted by the sweep, so rule detail pages omit the chart
   rather than draw an invented one. Adding them means writing the stitched net-return
   series per rule, which is a change to `walkforward.py`, not to this file.
@@ -26,18 +28,15 @@ from statistics import NormalDist
 
 import pandas as pd
 
-HERE = Path(__file__).resolve().parent
-FWD = HERE.parent
-REPO = FWD.parent
-BM = REPO / "backtest engine" / "results"
-sys.path.insert(0, str(REPO / "backtest engine"))
-import config as bt                                    # noqa: E402
+import dash_config
+from dash_config import (BRIEF_EQUITIES, GROUPS, HEADLINE, TIMEFRAMES, TOP_N,
+                         WFO_RESULTS)
 
-HEADLINE = {"us_stocks": "retail", "crypto": "binance"}
-GROUPS = [("stocks", "us_stocks", "Top 20 US mega-caps", bt.US_STOCKS),
-          ("crypto", "crypto", "Top 10 crypto by market cap", bt.CRYPTO)]
-TIMEFRAMES = ["1d", "4h"]
-TOP_N = 15                       # leaderboard depth; the tail is all worse, not different
+HERE = dash_config.HERE
+WEB = dash_config.WEB
+# Kept as `BM` because ~20 call sites below read it; it now points at the walk-forward
+# results rather than the engine's, which is where wf_summary_* moved.
+BM = WFO_RESULTS
 
 
 def drop_selection_rows(h: pd.DataFrame) -> pd.DataFrame:
@@ -206,7 +205,7 @@ def copy_curves() -> dict:
     leaderboard could render — to draw a chart most of them never open. The detail view
     fetches its sheet on demand instead, so the landing page stays small.
     """
-    out = HERE / "curves"
+    out = WEB / "curves"
     out.mkdir(exist_ok=True)
     index = {}
     for key, cls, _label, _u in GROUPS:
@@ -222,23 +221,41 @@ def copy_curves() -> dict:
     return index
 
 
+def _curves_index_only() -> dict:
+    """The same index `copy_curves` returns, without writing anything into `web/`.
+
+    The single-file build embeds the curve JSONs directly, so it wants the index but has
+    no use for the copies -- and must not touch the served site's files as a side effect
+    of building something else.
+    """
+    index = {}
+    for key, cls, _label, _u in GROUPS:
+        for tf in TIMEFRAMES:
+            src = BM / f"curves_{cls}_{tf}.json"
+            if not src.exists():
+                continue
+            index[f"{key}_{tf}"] = {"file": f"curves/{key}_{tf}.json",
+                                    "bytes": src.stat().st_size,
+                                    "rules": list(json.loads(src.read_text(encoding="utf-8")))}
+    return index
+
+
 # Three groups, because they answer three different questions and lumping 330 strategies
 # into one list hides that. The mega-caps are the only equity leg that can confirm the
 # research (same universe it was ranked on); the ETFs are a transfer test onto instruments
 # the study never held; crypto is its own asset class with its own sheet and cost grid.
-BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
 PAPER_GROUPS = [
     {"key": "megacap", "label": "20 US mega-caps",
      "note": "The same universe the equity rules were ranked on — the only like-for-like "
              "forward test here.",
-     "symbols": list(bt.US_STOCKS)},
+     "symbols": list(dash_config.bt_config.US_STOCKS)},
     {"key": "etf", "label": "SPY · SOXL · TQQQ",
      "note": "MK's brief. A transfer test: the research never held an ETF, and the two 3x "
              "funds decay against their index in chop.",
      "symbols": BRIEF_EQUITIES},
     {"key": "crypto", "label": "Top 10 crypto",
      "note": "Ranked on the crypto sheet, which has its own rules and its own cost grid.",
-     "symbols": list(bt.CRYPTO)},
+     "symbols": list(dash_config.bt_config.CRYPTO)},
 ]
 
 
@@ -251,7 +268,7 @@ def group_of(symbol: str, cls: str) -> str:
 
 def paper_state() -> dict:
     """Whatever the live node has written. Absent until it has actually traded."""
-    p = FWD / "results" / "paper_state.json"
+    p = dash_config.PAPER_RESULTS / "paper_state.json"
     if not p.exists():
         return {"strategies": [], "venue": {"name": "Nautilus sandbox",
                                             "balance": 100000, "equity": 100000},
@@ -266,7 +283,156 @@ def paper_state() -> dict:
     return state
 
 
-def main() -> None:
+
+
+# ---------------------------------------------------------------------------------------
+# Snapshot sections
+#
+# These came from `build_dashboard_data.py`, which fed the single-file board while
+# `build_web_data.py` fed the served site. Two builders over two different subsets of the
+# same CSVs meant the two outputs disagreed by a day in practice; they are one payload now.
+# ---------------------------------------------------------------------------------------
+
+def _read(path):
+    try:
+        return pd.read_csv(path)
+    except Exception:
+        return pd.DataFrame()
+
+
+def research_sheets() -> list[dict]:
+    """One row per (class, timeframe): best fixed rule, honest IS#1, gates, ceiling."""
+    out = []
+    meta = _read(BM / "wf_meta.csv")
+    for _, m in meta.iterrows():
+        tag = f"{m['class']}_{m['timeframe']}"
+        s = _read(BM / f"wf_summary_{tag}.csv")
+        if s.empty:
+            continue
+        scen = HEADLINE[m["class"]]
+        h = s[(s.scenario == scen) & s.rankable & ~s.is_baseline]
+        if h.empty:
+            continue
+        is1 = h[h.wf_mode == "is1_selection"]["ir_net"]
+        fixed = h[h.wf_mode == "fixed"]
+        best = fixed.nlargest(1, "ir_net").iloc[0] if not fixed.empty else None
+        out.append({
+            "sheet": tag,
+            "asset_class": m["class"],
+            "timeframe": m["timeframe"],
+            "folds": int(m["n_folds"]),
+            "oos_years": round(float(h["years"].median()), 1),
+            "best_rule": None if best is None else str(best["rule"]),
+            "best_ir": None if best is None else round(float(best["ir_net"]), 3),
+            "is1_ir": round(float(is1.iloc[0]), 3) if len(is1) else None,
+            "ranking_stability": round(float(m["ranking_stability_spearman"]), 3)
+            if pd.notna(m.get("ranking_stability_spearman")) else None,
+            "gates_cleared": int((h["gates_passed"] == 4).sum()),
+            "n_rankable": int(len(h)),
+        })
+    return sorted(out, key=lambda r: (r["asset_class"], r["timeframe"]))
+
+
+def gate_power() -> list[dict]:
+    """Whether each sheet can even prove the IR gate, per search size."""
+    import numpy as np
+    from statistics import NormalDist
+
+    def ceiling(n, years):
+        if n < 2 or years <= 0:
+            return None
+        return NormalDist().inv_cdf(1.0 - 1.0 / (n + 1)) / (years ** 0.5)
+
+    rows = []
+    for r in research_sheets():
+        y = r["oos_years"]
+        rows.append({
+            "sheet": r["sheet"], "oos_years": y,
+            "t_gate_implies": round(2.0 / (y ** 0.5), 3),
+            "ceiling_5": round(ceiling(5, y), 3),
+            "ceiling_96": round(ceiling(96, y), 3),
+            "ceiling_327": round(ceiling(327, y), 3),
+            "coherent": bool(0.50 >= ceiling(327, y)),
+        })
+    return rows
+
+
+def etf_sheets() -> list[dict]:
+    out = []
+    for tf in ("1d", "4h"):
+        s = _read(dash_config.TOP20_RESULTS / f"etf_wf_summary_{tf}.csv")
+        bh = _read(dash_config.TOP20_RESULTS / f"etf_buyhold_{tf}.csv")
+        if s.empty:
+            continue
+        h = s[(s.cost_bps == 5.0) & ~s.is_baseline]
+        best = h.nlargest(1, "ir_net").iloc[0] if not h.empty else None
+        is1 = h[h.rule == "IS#1"]["ir_net"]
+        out.append({
+            "timeframe": tf,
+            "best_rule": None if best is None else str(best["rule"]),
+            "best_ir": None if best is None else round(float(best["ir_net"]), 3),
+            "is1_ir": round(float(is1.iloc[0]), 3) if len(is1) else None,
+            "gates_cleared": int((h["gates_passed"] == 4).sum()),
+            "n_rules": int(len(h)),
+            "buyhold": [{"symbol": r["symbol"], "cagr": round(float(r["cagr"]), 4),
+                         "sharpe": round(float(r["sharpe"]), 2),
+                         "max_drawdown": round(float(r["max_drawdown"]), 4)}
+                        for _, r in bh.iterrows()],
+        })
+    return out
+
+
+def prereg() -> list[dict]:
+    s = _read(BM / "prereg_us_stocks_1d.csv")
+    if s.empty:
+        return []
+    h = s[s.scenario == "retail"]
+    return [{"rule": str(r["rule"]), "ir": round(float(r["ir_net"]), 3),
+             "prior": str(r.get("prior", "")), "contaminated": bool(r.get("contaminated"))}
+            for _, r in h.sort_values("ir_net", ascending=False).iterrows()]
+
+
+def parity() -> list[dict]:
+    s = _read(dash_config.PAPER_RESULTS / "parity_live_1d.csv")
+    if s.empty:
+        return []
+    agg = s.groupby("rule")["min_window"].max().sort_values(ascending=False)
+    return [{"rule": str(k), "min_window": int(v) if pd.notna(v) else None}
+            for k, v in agg.items()]
+
+
+def live_prices() -> list[dict]:
+    """A price snapshot, taken at build time.
+
+    The only network call in the dashboard, and it is optional -- `--offline` skips it.
+    A published single-file build cannot fetch anything at view time, so a stamped
+    snapshot is the honest version of "latest price" there.
+    """
+    import td_live                      # paper-desk module; imported lazily so the
+    rows = []                           # backtest sections build without a network path
+    for sym in BRIEF_EQUITIES + ["BTC/USD", "ETH/USD"]:
+        try:
+            df = td_live.fetch_bars(sym, "1d", n=2)
+            last, prev = df.iloc[-1], df.iloc[-2]
+            rows.append({
+                "symbol": sym,
+                "close": round(float(last["Close"]), 4),
+                "change_pct": round(float(last["Close"] / prev["Close"] - 1) * 100, 2),
+                "bar_date": str(df.index[-1].date()),
+            })
+        except Exception as exc:
+            rows.append({"symbol": sym, "error": str(exc)[:80]})
+    return rows
+
+
+def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
+    """The whole payload, for either emitter.
+
+    `copy_curve_files` mirrors the WFO stage's curve JSONs into `web/curves/` and is only
+    wanted for the served build. `offline` skips the one network call (the price snapshot),
+    which matters when rebuilding without an API key or when Twelve Data is down -- the
+    rest of the payload comes off local CSVs and must not be held hostage to that.
+    """
     backtest = {}
     for key, cls, label, universe in GROUPS:
         sheets = [s for s in (build_sheet(cls, tf, universe) for tf in TIMEFRAMES) if s]
@@ -275,7 +441,7 @@ def main() -> None:
                              "universe": universe, "sheets": sheets}
 
     paper = paper_state()
-    curves_index = copy_curves()
+    curves_index = copy_curves() if copy_curve_files else _curves_index_only()
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "feed": paper["feed"], "venue": paper["venue"],
@@ -298,14 +464,22 @@ def main() -> None:
         },
         "backtest": backtest,
         "curves": curves_index,
+        # The sections the single-file board used to carry alone.
+        "summary": {
+            "sheets": research_sheets(),
+            "gate_power": gate_power(),
+            "etf_sheets": etf_sheets(),
+            "prereg": prereg(),
+            "parity": parity(),
+            "prices": [] if offline else live_prices(),
+        },
     }
+    return payload
 
-    out = HERE / "data.js"
-    out.write_text("/* GENERATED by build_web_data.py — do not edit. */\n"
-                   "window.DEMO = false;\nwindow.DASH = "
-                   + json.dumps(payload, separators=(",", ":")) + ";\n",
-                   encoding="utf-8")
-    print(f"wrote {out}")
+
+def report(payload: dict) -> None:
+    """One line per sheet, so a build that quietly lost a sheet is visible."""
+    backtest = payload["backtest"]
     for key, g in backtest.items():
         for s in g["sheets"]:
             best = s["rows"][0] if s["rows"] else {}
@@ -318,8 +492,12 @@ def main() -> None:
             print(f"  {'':7s} {'':3s} {s['n_combos']:3d} combos  corr(IR,long) "
                   f"{s['combo_corr']}  best {cb.get('rule','—'):<30} "
                   f"IR {cb.get('ir_net')}  long {cb.get('long_frac')}")
+    s = payload["summary"]
     print(f"  paper strategies: {len(payload['strategies'])}")
+    print(f"  summary sections: {len(s['sheets'])} sheets, {len(s['etf_sheets'])} ETF, "
+          f"{len(s['prereg'])} prereg, {len(s['parity'])} parity, "
+          f"{len(s['prices'])} prices")
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit("payload.py is a library — run build_dashboard.py instead.")

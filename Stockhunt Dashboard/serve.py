@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import mimetypes
 from pathlib import Path
 
@@ -35,9 +36,9 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-import fwd_config
+import dash_config
 
-WEB = fwd_config.HERE / "web"
+WEB = dash_config.WEB
 WS_PATH = "/ws"
 POLL_EVERY = 1.0
 
@@ -47,6 +48,23 @@ POLL_EVERY = 1.0
 ALLOWED = {"", "/", "/index.html", "/app.js", "/app.css", "/data.js",
            "/live.json", "/paper_curves.json"}
 ALLOWED_PREFIXES = ("/curves/",)
+
+
+class _DropNonGet(logging.Filter):
+    """Silence the traceback a bare `HEAD /` produces.
+
+    `websockets` rejects any method other than GET while parsing the request line, which
+    is before `process_request` runs -- so this cannot be answered properly from
+    `http_handler`, only muted. Uptime checkers and link previewers send HEAD constantly,
+    and each one was logging a full traceback into serve.err. The connection is still
+    refused; only the noise goes away.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "expected GET" not in record.getMessage()
+
+
+logging.getLogger("websockets.server").addFilter(_DropNonGet())
 
 
 def _resolve(path: str) -> Path | None:

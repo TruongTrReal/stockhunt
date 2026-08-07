@@ -71,48 +71,14 @@ def instrument_for(symbol: str):
     return td_nautilus.equity_instrument(symbol, EQUITY_VENUE)
 
 
-# The sheets this desk selects from are walk-forward output, so they live with the
-# walk-forward stage, not with the engine that produced the single-split leaderboards.
-RESULTS = paper_config.WFO / "results"
+RESULTS = paper_config.WFO_RESULTS
 HEADLINE = paper_config.HEADLINE
 
 
-def top_rules(asset_class: str, n: int, timeframe: str = "1d") -> list[str]:
-    """The n best rules on a sheet, by walk-forward out-of-sample IR.
-
-    Read from `wf_summary_*.csv` rather than hard-coded, so the paper desk always reflects
-    the current sweep instead of a list that silently goes stale the next time the research
-    is re-run. Restricted to `wf_mode == "fixed"`: the re-selected rows (`IS#1`, the
-    `[WF]` families) are a different rule in every fold and have no single definition to
-    trade live.
-
-    **Ranking is not passing.** Nothing on either sheet clears a single acceptance gate,
-    and on equities the best rule has positive IR on 15% of assets. These are the least-bad
-    candidates, which is not the same as good ones; they are here to exercise the pipeline.
-    """
-    import pandas as pd
-    p = RESULTS / f"wf_summary_{asset_class}_{timeframe}.csv"
-    if not p.exists():
-        raise SystemExit(f"no sweep results at {p} — run walkforward.py first")
-    df = pd.read_csv(p)
-    h = df[(df.scenario == HEADLINE[asset_class]) & df.rankable & ~df.is_baseline]
-    h = h[(h.wf_mode == "fixed") & ~h.rule.astype(str).str.startswith("IS#1")]
-    out: list[str] = []
-    for r in h.nlargest(n * 3, "ir_net").itertuples():
-        # MA_50 and SMA_50 are the same series (TA-Lib's MA defaults to a simple average)
-        # and score identically. Trading both would double the exposure to one idea while
-        # looking like diversification.
-        if any(_same_idea(r.rule, k) for k in out):
-            continue
-        out.append(str(r.rule))
-        if len(out) == n:
-            break
-    return out
-
-
-def _same_idea(a: str, b: str) -> bool:
-    norm = lambda s: s.replace("SMA_", "MA_")
-    return norm(a) == norm(b)
+# `top_rules` and `_same_idea` live in paper_config so the dashboard can select the same
+# rules without importing this module, which would drag nautilus_trader in with it.
+top_rules = paper_config.top_rules
+_same_idea = paper_config._same_idea
 
 
 def build_node(plan: list[tuple], allow_short: bool, log_level: str,
