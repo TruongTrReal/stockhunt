@@ -76,8 +76,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
 from config import (CLASSES, HEADLINE_SCENARIO, MIN_BARS, MIN_IR_COVERAGE,
-                    RESULTS_DIR, TIMEFRAMES, WF_MIN_FOLDS, scenarios)
+                    TIMEFRAMES, WF_MIN_FOLDS, scenarios)
 from engines import vector
 import metrics
 import td_loader

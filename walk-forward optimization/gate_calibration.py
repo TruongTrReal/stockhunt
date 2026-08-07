@@ -24,12 +24,10 @@ Run::
 
 from __future__ import annotations
 
-import glob
-import os
-
 import numpy as np
 import pandas as pd
 
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
 from config import GATES, HEADLINE_SCENARIO
 import metrics
 
@@ -43,8 +41,8 @@ def gate_min(key: str) -> float:
 def sheet_years() -> dict[str, float]:
     """Median out-of-sample years per sheet, taken from whatever stage last ran."""
     years: dict[str, float] = {}
-    for path in sorted(glob.glob("results/wf_summary_*.csv")):
-        tag = os.path.basename(path)[len("wf_summary_"):-4]
+    for path in sorted(RESULTS_DIR.glob("wf_summary_*.csv")):
+        tag = path.stem[len("wf_summary_"):]
         df = pd.read_csv(path)
         scen = HEADLINE_SCENARIO[df["class"].iloc[0]]
         sub = df[(df.scenario == scen) & df.rankable]
@@ -56,11 +54,11 @@ def sheet_years() -> dict[str, float]:
 def best_observed() -> dict[str, float]:
     """Best out-of-sample IR actually achieved per sheet, across every stage."""
     best: dict[str, float] = {}
-    for pattern, _ in (("results/wf_summary_*.csv", "wf"),
-                       ("results/var_summary_*.csv", "var"),
-                       ("results/prereg_*.csv", "prereg")):
-        for path in sorted(glob.glob(pattern)):
-            base = os.path.basename(path)
+    for pattern, _ in (("wf_summary_*.csv", "wf"),
+                       ("var_summary_*.csv", "var"),
+                       ("prereg_*.csv", "prereg")):
+        for path in sorted(RESULTS_DIR.glob(pattern)):
+            base = path.name
             if base.startswith("prereg_meta"):
                 continue
             tag = base.split("_", 1)[1][:-4] if base.startswith("prereg_") else \

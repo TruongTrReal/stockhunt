@@ -30,7 +30,7 @@ import argparse
 import threading
 from datetime import datetime, timezone
 
-import fwd_config
+import paper_config
 import live_ws
 import paper_state
 import td_live
@@ -58,7 +58,7 @@ CRYPTO_VENUE = "BINANCE"
 # fraction of a percent either way, which is tracking error rather than distortion.
 CAPITAL_PER_SYSTEM = 10_000.0
 
-BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
+BAR_SPEC = paper_config.BAR_SPEC
 
 
 def is_crypto(symbol: str) -> bool:
@@ -71,8 +71,10 @@ def instrument_for(symbol: str):
     return td_nautilus.equity_instrument(symbol, EQUITY_VENUE)
 
 
-RESULTS = fwd_config.BACKTEST_ENGINE / "results"
-HEADLINE = {"us_stocks": "retail", "crypto": "binance"}
+# The sheets this desk selects from are walk-forward output, so they live with the
+# walk-forward stage, not with the engine that produced the single-split leaderboards.
+RESULTS = paper_config.WFO / "results"
+HEADLINE = paper_config.HEADLINE
 
 
 def top_rules(asset_class: str, n: int, timeframe: str = "1d") -> list[str]:
@@ -160,7 +162,7 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
                 "bar_type": bar_type,
                 "rule": rule,
                 "allow_short": allow_short,
-                "window_bars": fwd_config.DEFAULT_WINDOW_BARS,
+                "window_bars": paper_config.DEFAULT_WINDOW_BARS,
                 "capital": capital_for[str(inst.id.venue)],
                 # Display and provenance only — never consulted in a trading decision.
                 "display_symbol": symbol,
@@ -174,10 +176,10 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     config = TradingNodeConfig(
         trader_id="FWD-001",
         logging=LoggingConfig(log_level=log_level,
-                              log_directory=str(fwd_config.LOG_DIR)),
+                              log_directory=str(paper_config.LOG_DIR)),
         data_clients={
             "TWELVEDATA": td_nautilus.TwelveDataDataClientConfig(
-                window_bars=fwd_config.DEFAULT_WINDOW_BARS),
+                window_bars=paper_config.DEFAULT_WINDOW_BARS),
         },
         exec_clients={
             # `base_currency` is set for the equity venue and deliberately NOT for the
@@ -316,8 +318,8 @@ def build_plan(args) -> list[tuple]:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--symbols", nargs="+",
-                    default=fwd_config.EQUITY_SYMBOLS + fwd_config.CRYPTO_SYMBOLS)
-    ap.add_argument("--timeframes", nargs="+", default=fwd_config.FORWARD_TIMEFRAMES,
+                    default=paper_config.EQUITY_SYMBOLS + paper_config.CRYPTO_SYMBOLS)
+    ap.add_argument("--timeframes", nargs="+", default=paper_config.FORWARD_TIMEFRAMES,
                     choices=list(BAR_SPEC))
     ap.add_argument("--rule", default="SMA_200")
     ap.add_argument("--top", type=int, default=0,
@@ -356,7 +358,7 @@ def main() -> None:
                                    args.capital)
     print(f"built node: {len(plan)} strategies over {len(instruments)} instruments, "
           f"timeframes {'+'.join(args.timeframes)}, "
-          f"warmup {fwd_config.DEFAULT_WINDOW_BARS} bars")
+          f"warmup {paper_config.DEFAULT_WINDOW_BARS} bars")
     by: dict[tuple, list[str]] = {}
     for s, r, tf in plan:
         by.setdefault((tf, r), []).append(s)

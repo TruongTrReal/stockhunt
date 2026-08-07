@@ -9,7 +9,7 @@ with a simple average of the first `timeperiod` bars and then decays that seed f
 
 So N is a *correctness* parameter, not a performance knob. Pick it too small and the live
 system trades a different signal from the one that was tested, silently, and the forward
-test measures nothing. `fwd_config.DEFAULT_WINDOW_BARS` is a default, not a claim; this
+test measures nothing. `paper_config.DEFAULT_WINDOW_BARS` is a default, not a claim; this
 module measures what each rule actually needs.
 
 Method: for each rule and each candidate window N, recompute the position at a sample of
@@ -31,7 +31,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
-import fwd_config                                # noqa: F401  (wires sys.path)
+import paper_config                                # noqa: F401  (wires sys.path)
+import config
 from strategies.talib_signals import generate_position
 
 # Windows to try, smallest first. 4000 is "effectively the whole daily series" for the
@@ -105,21 +106,20 @@ def main() -> None:
     ap.add_argument("--rules", nargs="+", default=DEFAULT_RULES)
     args = ap.parse_args()
 
-    # The ETF cache lives with the study that fetched it.
-    import sys
-    from pathlib import Path
-    top20 = Path(fwd_config.REPO) / "top 20 stocks"
-    if str(top20) not in sys.path:
-        sys.path.insert(0, str(top20))
-    cache = top20 / "data" / f"cache_{args.tf}"
-
+    # The ETFs used to live only in `top 20 stocks/`, which is now frozen. They are in
+    # the shared cache as their own class, so this reads them the same way everything
+    # else does.
+    import td_loader
     frames = {}
-    for sym in args.symbols:
-        p = cache / f"{sym}.parquet"
-        if p.exists():
-            frames[sym] = pd.read_parquet(p)
+    for asset_class in ("us_etfs", "us_stocks", "crypto"):
+        try:
+            got = td_loader.load(asset_class, args.tf, [s for s in args.symbols
+                                                        if s not in frames])
+        except (KeyError, FileNotFoundError):
+            continue
+        frames.update({k: v for k, v in got.items() if len(v)})
     if not frames:
-        print(f"no cached {args.tf} data under {cache}")
+        print(f"no cached {args.tf} data for {args.symbols} under {config.DATA_DIR}")
         return
 
     all_rows = []
@@ -136,7 +136,7 @@ def main() -> None:
         all_rows += rows
 
     out = pd.DataFrame(all_rows)
-    dest = fwd_config.RESULTS_DIR / f"parity_live_{args.tf}.csv"
+    dest = paper_config.RESULTS_DIR / f"parity_live_{args.tf}.csv"
     out.to_csv(dest, index=False)
 
     bad = out[~out["converges"].fillna(False)]

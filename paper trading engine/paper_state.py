@@ -32,9 +32,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import fwd_config
+import paper_config
 
-STATE_PATH = fwd_config.RESULTS_DIR / "paper_state.json"
+STATE_PATH = paper_config.RESULTS_DIR / "paper_state.json"
 
 # Curves are sampled per bar and the dashboard draws them ~90px wide; more than this is
 # invisible detail that grows the file the browser has to parse on every load.
@@ -162,11 +162,16 @@ def snapshot() -> dict:
             "strategies": strategies}
 
 
-# The dashboard is a static page served from `web/`, so it cannot read anything outside
-# that directory. Mirroring the state there is what makes the site live: the page polls
-# this file and repaints, instead of showing whatever was baked into `data.js` the last
-# time someone ran the build by hand.
-MIRROR_PATH = fwd_config.HERE / "web" / "live.json"
+# The dashboard is a static page served from its own `web/` directory, so it cannot read
+# anything outside that directory. Mirroring the state there is what makes the site live:
+# the page polls this file and repaints, instead of showing whatever was baked into
+# `data.js` the last time someone ran the build by hand.
+#
+# The destination comes from `paper_config.PUBLISH_DIR` rather than being computed here,
+# because this is the only write the desk makes outside its own folder and that coupling
+# belongs somewhere visible. `PUBLISH_DIR` is None when publishing is switched off.
+MIRROR_PATH = (paper_config.PUBLISH_DIR / "live.json"
+               if paper_config.PUBLISH_DIR is not None else None)
 
 
 def _write(path: Path) -> Path:

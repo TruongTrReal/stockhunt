@@ -57,8 +57,9 @@ import numpy as np
 import pandas as pd
 import talib
 
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
 from config import (CLASSES, HEADLINE_SCENARIO, MIN_BARS, MIN_IR_COVERAGE,
-                    RESULTS_DIR, scenarios)
+                    scenarios)
 from engines import vector
 import metrics
 import td_loader

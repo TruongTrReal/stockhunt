@@ -1,27 +1,32 @@
-"""Forward-test configuration and the sys.path wiring that makes sharing possible.
+"""Paper-desk configuration and the sys.path wiring that makes sharing possible.
 
-Named `fwd_config` and NOT `config` on purpose. `../backtest engine/` puts itself on
+Named `paper_config` and NOT `config` on purpose. `../backtest engine/` puts itself on
 sys.path and its modules import each other by bare name, so a `config.py` sitting in this
 directory would shadow `backtest engine/config.py` the moment anything ran from here —
-`signals.py` would do `from config import CLASSES` and silently get the wrong file.
+`signals.py` would do `from config import CLASSES` and silently get the wrong file. The
+walk-forward stage avoids the same trap by calling its file `wfo_paths.py`.
+
+Order matters. Putting the engine on the path makes its `config` importable, and that
+module in turn puts the **repo root** on the path, which is the only reason
+`strategies.talib_signals` resolves. Three hops, in that order.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 BACKTEST_ENGINE = REPO / "backtest engine"
+WFO = REPO / "walk-forward optimization"
+DASHBOARD = REPO / "Stockhunt Dashboard"
 
-# Order matters. `backtest engine/config.py` prepends `../test research/src` to sys.path
-# on import, which is the only reason `talib_signals` resolves anywhere in this repo.
-# So: put that directory on the path, import its config, and the rest follows.
 if str(BACKTEST_ENGINE) not in sys.path:
     sys.path.insert(0, str(BACKTEST_ENGINE))
 
-import config as bt_config          # noqa: E402  (side effect: wires talib_signals)
+import config as bt_config          # noqa: E402  (side effect: wires strategies)
 
 CLASSES = bt_config.CLASSES
 TIMEFRAMES = bt_config.TIMEFRAMES
@@ -31,6 +36,31 @@ RESULTS_DIR = HERE / "results"
 LOG_DIR = HERE / "logs"
 for _d in (RESULTS_DIR, LOG_DIR):
     _d.mkdir(exist_ok=True)
+
+# Where the desk publishes live state for the dashboard to read.
+#
+# This is the one place the trading engine writes outside its own folder, and it is
+# declared here rather than buried in `paper_state.py` so the coupling is visible and
+# overridable. Set STOCKHUNT_PUBLISH_DIR to redirect it, or to an empty string to
+# publish nothing at all — the desk keeps trading either way, since nothing downstream
+# of this file can place an order.
+_publish = os.environ.get("STOCKHUNT_PUBLISH_DIR")
+if _publish is None:
+    PUBLISH_DIR = DASHBOARD / "web"
+elif _publish.strip():
+    PUBLISH_DIR = Path(_publish)
+else:
+    PUBLISH_DIR = None
+
+# The cost scenario each class is quoted at. Taken from the engine rather than restated,
+# because a desk trading against numbers produced under a different fee assumption than
+# the leaderboard it selected from is a silent, invisible mismatch.
+HEADLINE = bt_config.HEADLINE_SCENARIO
+
+# Nautilus bar specs for the timeframes this desk trades. Both `run_paper.py` (live) and
+# `backtest_paper.py` (the same strategy on cached bars) need it, and they must agree or
+# the smoke test stops testing the live path.
+BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
 
 # --------------------------------------------------------------- forward-test universe
 #

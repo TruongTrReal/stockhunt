@@ -34,7 +34,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from config import (BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS, RESULTS_DIR,
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
+from config import (BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
                     scenarios)
 from engines import vector
 import signals

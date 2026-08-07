@@ -33,7 +33,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-import fwd_config
+import paper_config
 
 BASE_URL = "https://api.twelvedata.com"
 OUTPUT_SIZE = 5000
@@ -48,7 +48,7 @@ def api_key() -> str:
     key = os.environ.get("TWELVEDATA_API_KEY")
     if key:
         return key.strip()
-    env = fwd_config.REPO / ".env.local"
+    env = paper_config.REPO / ".env.local"
     if env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
             if line.strip().startswith("TWELVEDATA_API_KEY="):
@@ -151,12 +151,12 @@ def build_data_client(*args, **kwargs):
 
 def _smoke() -> None:
     """Prove the vendor path end to end without touching Nautilus."""
-    print(f"warmup window in use: {fwd_config.DEFAULT_WINDOW_BARS} bars "
-          f"(measured worst case {fwd_config.MEASURED_WINDOW_BARS})")
-    for tf in fwd_config.FORWARD_TIMEFRAMES:
+    print(f"warmup window in use: {paper_config.DEFAULT_WINDOW_BARS} bars "
+          f"(measured worst case {paper_config.MEASURED_WINDOW_BARS})")
+    for tf in paper_config.FORWARD_TIMEFRAMES:
         for sym in ["SOXL", "TQQQ", "BTC/USD"]:
             try:
-                df = fetch_bars(sym, tf, n=fwd_config.DEFAULT_WINDOW_BARS)
+                df = fetch_bars(sym, tf, n=paper_config.DEFAULT_WINDOW_BARS)
                 raw = fetch_bars(sym, tf, n=5, drop_forming=False)
                 dropped = len(raw) and (len(df) == 0 or raw.index[-1] > df.index[-1])
                 print(f"  {sym:9s} {tf:3s} {len(df):5d} closed bars | "

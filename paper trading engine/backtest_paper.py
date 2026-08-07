@@ -6,9 +6,10 @@ executed is not working code, it is untested code, and the first time it runs wo
 been against a live feed at a real bar close with nobody watching.
 
 Here the same strategy class, the same signal layer and the same rebalance logic run
-against `backtest engine/data/cache_*/SYMBOL.parquet` inside a `BacktestEngine`. The
-event flow is identical to paper trading — bar in, signal, order, fill, position, P&L —
-with the clock driven by the data instead of the wall. If it fills here it will fill live.
+against the shared `../data/` cache inside a `BacktestEngine`, loaded through the same
+`td_loader` the sweeps use. The event flow is identical to paper trading — bar in,
+signal, order, fill, position, P&L — with the clock driven by the data instead of the
+wall. If it fills here it will fill live.
 
 It also answers MK's second ask directly: the top rules, running on NautilusTrader.
 
@@ -32,9 +33,12 @@ from decimal import Decimal
 import numpy as np
 import pandas as pd
 
-import fwd_config
+import paper_config                  # noqa: F401  (wires sys.path)
 import paper_state
 from strategy import TalibRuleConfig, TalibRuleStrategy
+
+import config
+import td_loader
 
 from nautilus_trader.backtest.engine import BacktestEngine
 from nautilus_trader.config import BacktestEngineConfig, LoggingConfig
@@ -50,48 +54,41 @@ PRICE_PRECISION = 6
 SIZE_PRECISION = 6
 CAPITAL = 100_000.0
 
-BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
-def cache_dirs(timeframe: str) -> list:
-    """Everywhere in the repo that cached bars for this timeframe might live.
-
-    Two studies, two layouts. `backtest engine/` splits by asset class
-    (`cache_us_stocks_1d`, `cache_crypto_1d`) and holds the 20 mega-caps plus the 10
-    crypto pairs. `top 20 stocks/` is flat (`cache_1d`) and is the **only** place SOXL and
-    TQQQ exist — MK's two leveraged ETFs were added to that study, not to the master
-    sweep. Searching both is what lets this run over the forward-test universe rather
-    than only the research one.
-    """
-    bm, t20 = fwd_config.BACKTEST_ENGINE / "data", fwd_config.REPO / "top 20 stocks" / "data"
-    return [bm / f"cache_us_stocks_{timeframe}", bm / f"cache_crypto_{timeframe}",
-            t20 / f"cache_{timeframe}"]
+BAR_SPEC = paper_config.BAR_SPEC
 
 
 def safe(symbol: str) -> str:
-    """A Nautilus `Symbol`: no separators at all. `BTC/USD` -> `BTCUSD`."""
+    """A Nautilus `Symbol`: no separators at all. `BTC/USD` -> `BTCUSD`.
+
+    Deliberately not `config.safe_symbol`, which yields `BTC_USD` for the cache filename.
+    A Nautilus Symbol cannot carry a separator; a filename can.
+    """
     return symbol.replace("/", "").replace("-", "")
 
 
-def filenames(symbol: str) -> list[str]:
-    """Cache filename candidates. Not the same convention as `safe()` — the loaders write
-    `BTC_USD.parquet`, keeping the pair separator as an underscore, while a Nautilus
-    Symbol cannot carry one. Both spellings are tried so neither study's layout has to
-    change to be readable from here."""
-    return [f"{symbol.replace('/', '_')}.parquet", f"{safe(symbol)}.parquet"]
-
-
 def load_bars(symbol: str, timeframe: str) -> pd.DataFrame:
-    """Cached OHLCV for one cell, from whichever study holds it."""
-    for d in cache_dirs(timeframe):
-        for name in filenames(symbol):
-            p = d / name
-            if p.exists():
-                df = pd.read_parquet(p)
-                df.index = pd.to_datetime(df.index, utc=True)
-                return df.sort_index()
-    looked = "\n    ".join(str(d) for d in cache_dirs(timeframe))
+    """Cached OHLCV for one cell, via the engine's loader.
+
+    This used to walk a hand-written list of cache directories and try two filename
+    spellings in each, because the caches were split across two studies with different
+    layouts. They are now one shared `../data/` tree behind `td_loader.load`, which is
+    also the loader every sweep uses — so the paper desk and the backtest can no longer
+    disagree about which bars a symbol has.
+    """
+    for asset_class in ("us_stocks", "crypto", "us_etfs"):
+        try:
+            bars = td_loader.load(asset_class, timeframe, [symbol])
+        except (KeyError, FileNotFoundError):
+            continue
+        df = bars.get(symbol)
+        if df is not None and len(df):
+            df = df.copy()
+            df.index = pd.to_datetime(df.index, utc=True)
+            return df.sort_index()
     raise FileNotFoundError(
-        f"no cached {timeframe} bars for {symbol} (tried {', '.join(filenames(symbol))}). "
-        f"Looked in:\n    {looked}")
+        f"no cached {timeframe} bars for {symbol}. Looked under "
+        f"{config.DATA_DIR} in stocks/, crypto/ and etfs/. "
+        f"Fetch with: python td_loader.py --class <class> --tf {timeframe}")
 
 
 def make_instrument(symbol: str):
@@ -157,11 +154,11 @@ def run_cell(symbol: str, timeframe: str, rule: str, bars_limit: int | None,
     # default is 250 and is a correctness floor there, where the vendor can be asked for
     # more history. Here the slice is whatever was requested, and refusing to trade would
     # report "no fills" for a reason that has nothing to do with the order path.
-    warmup = min(fwd_config.MIN_WARMUP_BARS, max(len(df) // 4, 30))
+    warmup = min(paper_config.MIN_WARMUP_BARS, max(len(df) // 4, 30))
     strat = TalibRuleStrategy(config=TalibRuleConfig(
         order_id_tag=f"{safe(symbol)}-{timeframe}",
         instrument_id=inst.id, bar_type=bar_type, rule=rule,
-        allow_short=allow_short, window_bars=fwd_config.DEFAULT_WINDOW_BARS,
+        allow_short=allow_short, window_bars=paper_config.DEFAULT_WINDOW_BARS,
         min_warmup_bars=warmup,
         asset_class="crypto" if "/" in symbol else "equity",
         timeframe=timeframe, export_state=write_state, display_symbol=symbol,

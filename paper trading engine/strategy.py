@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
-import fwd_config
+import paper_config
 import paper_state
 
 from nautilus_trader.config import StrategyConfig
@@ -61,8 +61,8 @@ class TalibRuleConfig(StrategyConfig, frozen=True):
     bar_type: BarType
     rule: str = "SMA_200"
     target_fraction: float = 0.95      # leave headroom so a rounded order still fits
-    window_bars: int = fwd_config.DEFAULT_WINDOW_BARS
-    min_warmup_bars: int = fwd_config.MIN_WARMUP_BARS
+    window_bars: int = paper_config.DEFAULT_WINDOW_BARS
+    min_warmup_bars: int = paper_config.MIN_WARMUP_BARS
     allow_short: bool = False
     # Relative drift that justifies re-sizing a position the rule did not ask to change.
     # 0.20 lets a held long run 20% away from its nominal size before being trimmed —
@@ -126,12 +126,12 @@ class TalibRuleStrategy(Strategy):
             return
         self.log.info(
             f"rule={self.config.rule} window={self.config.window_bars} "
-            f"(measured worst case {fwd_config.MEASURED_WINDOW_BARS}) "
+            f"(measured worst case {paper_config.MEASURED_WINDOW_BARS}) "
             f"allow_short={self.config.allow_short}")
-        if self.config.window_bars < fwd_config.MEASURED_WINDOW_BARS:
+        if self.config.window_bars < paper_config.MEASURED_WINDOW_BARS:
             self.log.warning(
                 f"window_bars={self.config.window_bars} is BELOW the measured "
-                f"{fwd_config.MEASURED_WINDOW_BARS}: a recursive rule may not reproduce "
+                f"{paper_config.MEASURED_WINDOW_BARS}: a recursive rule may not reproduce "
                 f"the backtest. Re-run parity_live.py before trusting these results.")
         # `request_bars` requires an explicit start. The Twelve Data client answers from
         # `limit` rather than the range, but a real vendor adapter would honour it — so
@@ -267,10 +267,10 @@ class TalibRuleStrategy(Strategy):
         if n < self.config.min_warmup_bars:
             self.log.info(f"warming up: {n}/{self.config.min_warmup_bars}")
             return
-        if n < fwd_config.MEASURED_WINDOW_BARS and not self._warned_window:
+        if n < paper_config.MEASURED_WINDOW_BARS and not self._warned_window:
             self._warned_window = True
             self.log.warning(
-                f"buffer {n} < measured window {fwd_config.MEASURED_WINDOW_BARS}: "
+                f"buffer {n} < measured window {paper_config.MEASURED_WINDOW_BARS}: "
                 f"signals may differ from the backtest until it fills")
 
         signal = self._signal()

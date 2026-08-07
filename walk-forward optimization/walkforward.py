@@ -59,8 +59,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
 from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, HEADLINE_SCENARIO,
-                    MIN_BARS, MIN_IR_COVERAGE, RESULTS_DIR, TIMEFRAMES,
+                    MIN_BARS, MIN_IR_COVERAGE, TIMEFRAMES,
                     WF_IS_YEARS, WF_MIN_FOLDS, WF_MIN_IS_BARS, WF_MIN_OOS_BARS,
                     WF_OOS_YEARS, WF_STEP_YEARS, scenarios)
 from engines import vector

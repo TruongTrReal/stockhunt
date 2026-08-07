@@ -43,8 +43,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
 from config import (BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
-                    MIN_IR_COVERAGE, RESULTS_DIR, scenarios)
+                    MIN_IR_COVERAGE, scenarios)
 from engines import vector
 import metrics
 import signals

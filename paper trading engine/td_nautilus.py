@@ -38,7 +38,7 @@ from decimal import Decimal
 
 import pandas as pd
 
-import fwd_config
+import paper_config
 import td_live
 
 from nautilus_trader.cache.cache import Cache
@@ -173,7 +173,7 @@ def vendor_symbol(instrument_id: InstrumentId) -> str:
     if s.endswith("USD") and len(s) > 3 and s not in ("USD",):
         head = s[:-3]
         if head.isalpha() and head.upper() == head and len(head) <= 5 and "/" not in s:
-            for pair in fwd_config.CRYPTO_SYMBOLS:
+            for pair in paper_config.CRYPTO_SYMBOLS:
                 if pair.replace("/", "") == s:
                     return pair
     return s
@@ -199,9 +199,9 @@ def _interval_delta(timeframe: str) -> timedelta:
 
 class TwelveDataDataClientConfig(LiveDataClientConfig, frozen=True):
     """`window_bars` is the warmup handed to a strategy on request; it must be at least
-    `fwd_config.MEASURED_WINDOW_BARS` or a recursive rule will not match the backtest."""
+    `paper_config.MEASURED_WINDOW_BARS` or a recursive rule will not match the backtest."""
 
-    window_bars: int = fwd_config.DEFAULT_WINDOW_BARS
+    window_bars: int = paper_config.DEFAULT_WINDOW_BARS
 
 
 class TwelveDataLiveClient(LiveMarketDataClient):
@@ -218,7 +218,7 @@ class TwelveDataLiveClient(LiveMarketDataClient):
             config=config,
         )
         self._window = int(getattr(config, "window_bars",
-                                   fwd_config.DEFAULT_WINDOW_BARS))
+                                   paper_config.DEFAULT_WINDOW_BARS))
         self._poll_tasks: dict[BarType, asyncio.Task] = {}
         self._last_open: dict[BarType, pd.Timestamp] = {}
         self._warmup_cache: dict[tuple, tuple[float, pd.DataFrame]] = {}
