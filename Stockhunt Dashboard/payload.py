@@ -408,8 +408,15 @@ def live_prices() -> list[dict]:
     A published single-file build cannot fetch anything at view time, so a stamped
     snapshot is the honest version of "latest price" there.
     """
-    import td_live                      # paper-desk module; imported lazily so the
-    rows = []                           # backtest sections build without a network path
+    # `td_live` belongs to the paper desk. Imported here rather than at module scope, and
+    # with the path insert kept local, so the backtest sections build with no network path
+    # and `--offline` never touches the desk's directory at all.
+    import sys
+    if str(dash_config.PAPER) not in sys.path:
+        sys.path.insert(0, str(dash_config.PAPER))
+    import td_live
+
+    rows = []
     for sym in BRIEF_EQUITIES + ["BTC/USD", "ETH/USD"]:
         try:
             df = td_live.fetch_bars(sym, "1d", n=2)
