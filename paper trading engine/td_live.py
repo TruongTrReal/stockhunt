@@ -99,6 +99,36 @@ def latest_closed_bar(symbol: str, timeframe: str) -> pd.Series | None:
     return df.iloc[-1] if len(df) else None
 
 
+def return_between(symbol: str, timeframe: str, start: datetime) -> float | None:
+    """Percent move in `symbol` from the last bar at or before `start` to the latest close.
+
+    This is what buy-and-hold did while the paper desk was stopped. The strategy earned 0
+    over that window because it held nothing; the benchmark did not, and pretending
+    otherwise would flatter every strategy through a drawdown it simply was not present
+    for. Returns None when the window cannot be measured — the caller stores that as an
+    unknown gap rather than as a zero.
+    """
+    _, span = INTERVALS[timeframe]
+    elapsed = datetime.now(timezone.utc) - start
+    bars = int(elapsed / span) + 5
+    if bars < 2:
+        return None
+    df = fetch_bars(symbol, timeframe, n=min(bars, 5000))
+    if df is None or len(df) < 2:
+        return None
+    idx = df.index
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    prior = df[idx <= start]
+    if prior.empty:
+        return None
+    first = float(prior["Close"].iloc[-1])
+    last = float(df["Close"].iloc[-1])
+    if first <= 0:
+        return None
+    return round((last / first - 1.0) * 100.0, 6)
+
+
 def is_market_open(symbol: str) -> bool | None:
     """Vendor's own session flag. None when it does not report one (e.g. crypto)."""
     r = requests.get(f"{BASE_URL}/quote", timeout=30,

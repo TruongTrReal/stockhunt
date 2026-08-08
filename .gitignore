@@ -48,6 +48,12 @@ engine-bakeoff/_probe_store/
 **/results/*schedule*.csv
 **/results/combo_per_asset_*.csv
 
+# --- the paper-trading record ---
+# paper.db itself IS tracked: it is the forward-test record and the whole point of the
+# store is that it is not lost. Only SQLite's transient sidecars are ignored.
+*.db-wal
+*.db-shm
+
 # --- run logs ---
 **/logs/
 *.log

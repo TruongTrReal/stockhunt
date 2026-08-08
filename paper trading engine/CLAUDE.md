@@ -28,6 +28,7 @@ P&L accrues. **Do not read the P&L as evidence of anything.**
 
 ```
 paper_config.py   sys.path bootstrap, universe, warm-up constants, top_rules()
+store.py          results/paper.db - the record. fills, curve, sessions, gaps
 run_paper.py      the desk: builds the TradingNode, starts LiveHub, runs
 strategy.py       TalibRuleStrategy - one rule, traded to a target exposure
 paper_state.py    the registry; serialises results/paper_state.json and publishes live.json
@@ -36,6 +37,7 @@ td_nautilus.py    TwelveDataLiveClient + instrument factories
 live_ws.py        LiveHub: upstream tick socket -> paper_state.mark() -> browser socket
 backtest_paper.py the same strategy through a BacktestEngine on cached bars
 parity_live.py    measures the rolling window each rule needs to match the full series
+test_store.py     end-to-end check that a restart resumes instead of resetting
 ```
 
 ## Commands
@@ -76,9 +78,50 @@ trailing window reproducing the full-series position exactly on 200/200 recent b
 `DEFAULT_WINDOW_BARS = 1500` is that worst case plus 50% headroom. 750 was the old default
 and was wrong for TEMA_200. Re-run `parity_live.py` after adding any rule.
 
+## The record survives restarts
+
+`results/paper.db` (SQLite, WAL) is the source of truth; `paper_state.json` is a
+projection rendered from it. Before this existed the JSON was the only copy and nothing
+ever read it back, so every start began empty and the forward record restarted at zero —
+a forward test that resets on restart is a series of unrelated day-one snapshots.
+
+**Events, not state.** The tables hold what happened — `fills`, `curve`, `sessions`,
+`gaps`. A state blob cannot be merged across restarts without guessing; an append-only log
+can, and it also answers later questions ("what did this rule do in March") without having
+kept a special-purpose file for it.
+
+**Idempotent by construction.** Nautilus replays warm-up bars on restart and the strategy
+re-emits fills it already reported. Every insert is `INSERT OR IGNORE` against a natural
+key — `(sid, ts, side, qty, price)` for fills, `(sid, ts)` for curve points, where `ts` is
+the **bar's** time, not the wall clock. Correctness does not depend on the caller
+remembering what it already sent. Verified live: three restarts, fills stayed at 200.
+
+**Identity is `sid = "{symbol}-{tf}-{rule}"`.** Stable across restarts, which is what lets
+history reattach. Renaming a rule starts a new record, correctly — it is a different
+system.
+
+**Gaps are measured, never smoothed.** While the desk is down the strategy holds nothing,
+so its return over the gap is genuinely 0. The benchmark's is not, and chaining both at 0
+would flatter the strategy through every drawdown it was not present for. So the actual
+benchmark move across each gap is fetched (`td_live.return_between`) and stored; when it
+cannot be fetched the gap keeps `bench_pct = NULL` and is counted in `unknown_gaps` rather
+than quietly becoming zero. A gap shorter than one bar closed no bar, so it is 0.0 by
+measurement, not assumption.
+
+One lookup per `(symbol, timeframe, gap start)`, memoised — 330 systems over 33 symbols all
+ask the same question, and doing it per strategy made startup 330 sequential API calls.
+
+`paper_curve` is now the **chained lifetime** series, so the dashboard shows the record
+since inception rather than since the last restart. `curve_breaks` carries the indices
+where the desk was down; `app.js` does not yet break the line there, so the chart currently
+draws straight through a gap it has the data to mark.
+
 ## What this folder writes, and where
 
-- `results/paper_state.json` — the desk's own state, the source of truth.
+- `results/paper.db` — **the record.** Everything else can be rebuilt from it. This is the
+  one file in the repo worth backing up; it is tracked in git for that reason, while its
+  `-wal`/`-shm` sidecars are transient and ignored.
+- `results/paper_state.json` — a projection of the database, for the dashboard.
 - `paper_config.PUBLISH_DIR / "live.json"` — a mirror, for the dashboard. This is the
   **only** write outside this folder. It is declared in `paper_config.py` rather than
   computed in `paper_state.py` so the coupling is visible; set `STOCKHUNT_PUBLISH_DIR` to

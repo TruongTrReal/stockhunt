@@ -1,15 +1,15 @@
 {
- "generated_at": "2026-08-08 10:04 UTC",
+ "generated_at": "2026-08-08 10:21 UTC",
  "feed": {
   "source": "Twelve Data",
   "plan": "pro",
   "status": "ok",
-  "last_bar": "2026-08-08 10:04 UTC"
+  "last_bar": "2026-08-08 10:21 UTC"
  },
  "venue": {
   "name": "Nautilus sandbox",
   "balance": 3300000.0,
-  "equity": 3300384.67
+  "equity": 3300724.91
  },
  "strategies": [
   {
@@ -38,14 +38,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -56,7 +56,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on ADA/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-1d-trima_50",
@@ -84,14 +88,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -102,7 +106,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on ADA/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-1d-tsf_1000",
@@ -140,7 +148,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on ADA/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-1d-linearreg_1000",
@@ -178,7 +190,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on ADA/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-1d-ma_50",
@@ -206,14 +222,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -224,7 +240,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on ADA/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "avaxusd-1d-sum",
@@ -262,7 +282,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on AVAX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-1d-trima_50",
@@ -300,7 +324,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on AVAX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-1d-tsf_1000",
@@ -338,7 +366,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on AVAX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-1d-linearreg_1000",
@@ -376,7 +408,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on AVAX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-1d-ma_50",
@@ -414,7 +450,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on AVAX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "bnbusd-1d-sum",
@@ -442,14 +482,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.358,
+   "paper_pnl_pct": 0.441,
    "paper_trades": 1,
    "position_units": 16.031861,
    "entry": 592.57,
    "capital": 10000.0,
    "cash": 500.0001,
    "units": 16.031861,
-   "equity": 10035.75,
+   "equity": 10044.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -460,7 +500,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on BNB/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-1d-trima_50",
@@ -488,14 +532,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.358,
+   "paper_pnl_pct": 0.441,
    "paper_trades": 1,
    "position_units": 16.031861,
    "entry": 592.57,
    "capital": 10000.0,
    "cash": 500.0001,
    "units": 16.031861,
-   "equity": 10035.75,
+   "equity": 10044.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -506,7 +550,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on BNB/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-1d-tsf_1000",
@@ -544,7 +592,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on BNB/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-1d-linearreg_1000",
@@ -582,7 +634,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on BNB/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-1d-ma_50",
@@ -610,14 +666,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.358,
+   "paper_pnl_pct": 0.441,
    "paper_trades": 1,
    "position_units": 16.031861,
    "entry": 592.57,
    "capital": 10000.0,
    "cash": 500.0001,
    "units": 16.031861,
-   "equity": 10035.75,
+   "equity": 10044.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -628,7 +684,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on BNB/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "btcusd-1d-sum",
@@ -656,14 +716,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.104,
+   "paper_pnl_pct": 0.11,
    "paper_trades": 1,
    "position_units": 0.146327,
    "entry": 64923.19,
    "capital": 10000.0,
    "cash": 499.9844,
    "units": 0.146327,
-   "equity": 10010.41,
+   "equity": 10011.01,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -674,7 +734,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on BTC/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-1d-trima_50",
@@ -702,14 +766,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.104,
+   "paper_pnl_pct": 0.11,
    "paper_trades": 1,
    "position_units": 0.146327,
    "entry": 64923.19,
    "capital": 10000.0,
    "cash": 499.9844,
    "units": 0.146327,
-   "equity": 10010.41,
+   "equity": 10011.01,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -720,7 +784,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on BTC/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-1d-tsf_1000",
@@ -758,7 +826,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on BTC/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-1d-linearreg_1000",
@@ -796,7 +868,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on BTC/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-1d-ma_50",
@@ -824,14 +900,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.104,
+   "paper_pnl_pct": 0.11,
    "paper_trades": 1,
    "position_units": 0.146327,
    "entry": 64923.19,
    "capital": 10000.0,
    "cash": 499.9844,
    "units": 0.146327,
-   "equity": 10010.41,
+   "equity": 10011.01,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -842,7 +918,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on BTC/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "dogeusd-1d-sum",
@@ -880,7 +960,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on DOGE/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-1d-trima_50",
@@ -918,7 +1002,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on DOGE/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-1d-tsf_1000",
@@ -956,7 +1044,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on DOGE/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-1d-linearreg_1000",
@@ -994,7 +1086,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on DOGE/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-1d-ma_50",
@@ -1032,7 +1128,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on DOGE/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "ethusd-1d-sum",
@@ -1060,14 +1160,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.255,
+   "paper_pnl_pct": 0.315,
    "paper_trades": 1,
    "position_units": 4.962961,
    "entry": 1914.18,
    "capital": 10000.0,
    "cash": 499.9993,
    "units": 4.962961,
-   "equity": 10025.46,
+   "equity": 10031.51,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1078,7 +1178,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on ETH/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-1d-trima_50",
@@ -1106,14 +1210,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.255,
+   "paper_pnl_pct": 0.315,
    "paper_trades": 1,
    "position_units": 4.962961,
    "entry": 1914.18,
    "capital": 10000.0,
    "cash": 499.9993,
    "units": 4.962961,
-   "equity": 10025.46,
+   "equity": 10031.51,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1124,7 +1228,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on ETH/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-1d-tsf_1000",
@@ -1162,7 +1270,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on ETH/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-1d-linearreg_1000",
@@ -1200,7 +1312,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on ETH/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-1d-ma_50",
@@ -1228,14 +1344,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.255,
+   "paper_pnl_pct": 0.315,
    "paper_trades": 1,
    "position_units": 4.962961,
    "entry": 1914.18,
    "capital": 10000.0,
    "cash": 499.9993,
    "units": 4.962961,
-   "equity": 10025.46,
+   "equity": 10031.51,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1246,7 +1362,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on ETH/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "linkusd-1d-sum",
@@ -1274,14 +1394,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 1.415,
+   "paper_pnl_pct": 1.52,
    "paper_trades": 1,
    "position_units": 1159.95116,
    "entry": 8.19,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1159.95116,
-   "equity": 10141.51,
+   "equity": 10151.95,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1292,7 +1412,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on LINK/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-1d-trima_50",
@@ -1320,14 +1444,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 1.415,
+   "paper_pnl_pct": 1.52,
    "paper_trades": 1,
    "position_units": 1159.95116,
    "entry": 8.19,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1159.95116,
-   "equity": 10141.51,
+   "equity": 10151.95,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1338,7 +1462,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on LINK/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-1d-tsf_1000",
@@ -1376,7 +1504,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on LINK/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-1d-linearreg_1000",
@@ -1414,7 +1546,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on LINK/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-1d-ma_50",
@@ -1442,14 +1578,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 1.415,
+   "paper_pnl_pct": 1.52,
    "paper_trades": 1,
    "position_units": 1159.95116,
    "entry": 8.19,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1159.95116,
-   "equity": 10141.51,
+   "equity": 10151.95,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1460,7 +1596,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on LINK/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "solusd-1d-sum",
@@ -1498,7 +1638,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on SOL/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-1d-trima_50",
@@ -1536,7 +1680,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on SOL/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-1d-tsf_1000",
@@ -1574,7 +1722,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on SOL/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-1d-linearreg_1000",
@@ -1612,7 +1764,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on SOL/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-1d-ma_50",
@@ -1650,7 +1806,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on SOL/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "trxusd-1d-sum",
@@ -1678,14 +1838,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1696,7 +1856,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on TRX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-1d-trima_50",
@@ -1724,14 +1888,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1742,7 +1906,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on TRX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-1d-tsf_1000",
@@ -1780,7 +1948,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on TRX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-1d-linearreg_1000",
@@ -1818,7 +1990,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on TRX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-1d-ma_50",
@@ -1846,14 +2022,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -1864,7 +2040,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on TRX/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "xrpusd-1d-sum",
@@ -1902,7 +2082,11 @@
    ],
    "turnover": 0.0,
    "note": "SUM on XRP/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-1d-trima_50",
@@ -1940,7 +2124,11 @@
    ],
    "turnover": 0.0,
    "note": "TRIMA_50 on XRP/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-1d-tsf_1000",
@@ -1978,7 +2166,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on XRP/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-1d-linearreg_1000",
@@ -2016,7 +2208,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_1000 on XRP/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-1d-ma_50",
@@ -2054,7 +2250,11 @@
    ],
    "turnover": 0.0,
    "note": "MA_50 on XRP/USD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "adausd-4h-t3_200",
@@ -2082,14 +2282,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2100,7 +2300,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on ADA/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-4h-midpoint_200",
@@ -2128,14 +2332,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2146,7 +2350,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on ADA/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-4h-dema_1000",
@@ -2184,7 +2392,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on ADA/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-4h-tsf_1000",
@@ -2212,14 +2424,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2230,7 +2442,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on ADA/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "adausd-4h-linearreg_intercept_200",
@@ -2258,14 +2474,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.523,
+   "paper_pnl_pct": -0.238,
    "paper_trades": 1,
    "position_units": 47500.0,
    "entry": 0.2,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 47500.0,
-   "equity": 9947.75,
+   "equity": 9976.25,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2276,7 +2492,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on ADA/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.1989
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.1995
   },
   {
    "id": "avaxusd-4h-t3_200",
@@ -2304,14 +2524,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.495,
+   "paper_pnl_pct": 0.058,
    "paper_trades": 1,
    "position_units": 1457.055215,
    "entry": 6.52,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1457.055215,
-   "equity": 10049.54,
+   "equity": 10005.83,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2322,7 +2542,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on AVAX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-4h-midpoint_200",
@@ -2360,7 +2584,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on AVAX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-4h-dema_1000",
@@ -2398,7 +2626,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on AVAX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-4h-tsf_1000",
@@ -2426,14 +2658,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.495,
+   "paper_pnl_pct": 0.058,
    "paper_trades": 1,
    "position_units": 1457.055215,
    "entry": 6.52,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1457.055215,
-   "equity": 10049.54,
+   "equity": 10005.83,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2444,7 +2676,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on AVAX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "avaxusd-4h-linearreg_intercept_200",
@@ -2482,7 +2718,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on AVAX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 6.554
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 6.524
   },
   {
    "id": "bnbusd-4h-t3_200",
@@ -2510,14 +2750,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.045,
+   "paper_pnl_pct": 0.128,
    "paper_trades": 1,
    "position_units": 15.979277,
    "entry": 594.52,
    "capital": 10000.0,
    "cash": 500.0002,
    "units": 15.979277,
-   "equity": 10004.47,
+   "equity": 10012.78,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2528,7 +2768,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on BNB/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-4h-midpoint_200",
@@ -2556,14 +2800,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.045,
+   "paper_pnl_pct": 0.128,
    "paper_trades": 1,
    "position_units": 15.979277,
    "entry": 594.52,
    "capital": 10000.0,
    "cash": 500.0002,
    "units": 15.979277,
-   "equity": 10004.47,
+   "equity": 10012.78,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2574,7 +2818,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on BNB/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-4h-dema_1000",
@@ -2612,7 +2860,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on BNB/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-4h-tsf_1000",
@@ -2640,14 +2892,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.045,
+   "paper_pnl_pct": 0.128,
    "paper_trades": 1,
    "position_units": 15.979277,
    "entry": 594.52,
    "capital": 10000.0,
    "cash": 500.0002,
    "units": 15.979277,
-   "equity": 10004.47,
+   "equity": 10012.78,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2658,7 +2910,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on BNB/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "bnbusd-4h-linearreg_intercept_200",
@@ -2686,14 +2942,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.045,
+   "paper_pnl_pct": 0.128,
    "paper_trades": 1,
    "position_units": 15.979277,
    "entry": 594.52,
    "capital": 10000.0,
    "cash": 500.0002,
    "units": 15.979277,
-   "equity": 10004.47,
+   "equity": 10012.78,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2704,7 +2960,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on BNB/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 594.8
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 595.32
   },
   {
    "id": "btcusd-4h-t3_200",
@@ -2732,14 +2992,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.05,
+   "paper_pnl_pct": 0.056,
    "paper_trades": 1,
    "position_units": 0.146244,
    "entry": 64960.0,
    "capital": 10000.0,
    "cash": 499.9898,
    "units": 0.146244,
-   "equity": 10005.02,
+   "equity": 10005.62,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2750,7 +3010,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on BTC/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-4h-midpoint_200",
@@ -2778,14 +3042,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.05,
+   "paper_pnl_pct": 0.056,
    "paper_trades": 1,
    "position_units": 0.146244,
    "entry": 64960.0,
    "capital": 10000.0,
    "cash": 499.9898,
    "units": 0.146244,
-   "equity": 10005.02,
+   "equity": 10005.62,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2796,7 +3060,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on BTC/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-4h-dema_1000",
@@ -2834,7 +3102,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on BTC/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-4h-tsf_1000",
@@ -2862,14 +3134,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.05,
+   "paper_pnl_pct": 0.056,
    "paper_trades": 1,
    "position_units": 0.146244,
    "entry": 64960.0,
    "capital": 10000.0,
    "cash": 499.9898,
    "units": 0.146244,
-   "equity": 10005.02,
+   "equity": 10005.62,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2880,7 +3152,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on BTC/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "btcusd-4h-linearreg_intercept_200",
@@ -2908,14 +3184,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.05,
+   "paper_pnl_pct": 0.056,
    "paper_trades": 1,
    "position_units": 0.146244,
    "entry": 64960.0,
    "capital": 10000.0,
    "cash": 499.9898,
    "units": 0.146244,
-   "equity": 10005.02,
+   "equity": 10005.62,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2926,7 +3202,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on BTC/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 64994.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 64998.45
   },
   {
    "id": "dogeusd-4h-t3_200",
@@ -2954,14 +3234,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.556,
+   "paper_pnl_pct": 0.448,
    "paper_trades": 1,
    "position_units": 135714.285714,
    "entry": 0.07,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 135714.285714,
-   "equity": 10055.64,
+   "equity": 10044.79,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -2972,7 +3252,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on DOGE/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-4h-midpoint_200",
@@ -3010,7 +3294,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on DOGE/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-4h-dema_1000",
@@ -3048,7 +3336,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on DOGE/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-4h-tsf_1000",
@@ -3086,7 +3378,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on DOGE/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "dogeusd-4h-linearreg_intercept_200",
@@ -3124,7 +3420,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on DOGE/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.07041
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.07033
   },
   {
    "id": "ethusd-4h-t3_200",
@@ -3152,14 +3452,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.208,
+   "paper_pnl_pct": 0.269,
    "paper_trades": 1,
    "position_units": 4.960551,
    "entry": 1915.11,
    "capital": 10000.0,
    "cash": 499.9992,
    "units": 4.960551,
-   "equity": 10020.83,
+   "equity": 10026.89,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3170,7 +3470,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on ETH/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-4h-midpoint_200",
@@ -3198,14 +3502,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.208,
+   "paper_pnl_pct": 0.269,
    "paper_trades": 1,
    "position_units": 4.960551,
    "entry": 1915.11,
    "capital": 10000.0,
    "cash": 499.9992,
    "units": 4.960551,
-   "equity": 10020.83,
+   "equity": 10026.89,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3216,7 +3520,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on ETH/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-4h-dema_1000",
@@ -3254,7 +3562,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on ETH/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-4h-tsf_1000",
@@ -3282,14 +3594,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.208,
+   "paper_pnl_pct": 0.269,
    "paper_trades": 1,
    "position_units": 4.960551,
    "entry": 1915.11,
    "capital": 10000.0,
    "cash": 499.9992,
    "units": 4.960551,
-   "equity": 10020.83,
+   "equity": 10026.89,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3300,7 +3612,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on ETH/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "ethusd-4h-linearreg_intercept_200",
@@ -3328,14 +3644,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.208,
+   "paper_pnl_pct": 0.269,
    "paper_trades": 1,
    "position_units": 4.960551,
    "entry": 1915.11,
    "capital": 10000.0,
    "cash": 499.9992,
    "units": 4.960551,
-   "equity": 10020.83,
+   "equity": 10026.89,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3346,7 +3662,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on ETH/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 1919.31
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1920.53
   },
   {
    "id": "linkusd-4h-t3_200",
@@ -3374,14 +3694,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.598,
+   "paper_pnl_pct": 0.702,
    "paper_trades": 1,
    "position_units": 1150.121065,
    "entry": 8.26,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1150.121065,
-   "equity": 10059.81,
+   "equity": 10070.16,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3392,7 +3712,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on LINK/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-4h-midpoint_200",
@@ -3420,14 +3744,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.598,
+   "paper_pnl_pct": 0.702,
    "paper_trades": 1,
    "position_units": 1150.121065,
    "entry": 8.26,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1150.121065,
-   "equity": 10059.81,
+   "equity": 10070.16,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3438,7 +3762,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on LINK/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-4h-dema_1000",
@@ -3476,7 +3804,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on LINK/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-4h-tsf_1000",
@@ -3504,14 +3836,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.598,
+   "paper_pnl_pct": 0.702,
    "paper_trades": 1,
    "position_units": 1150.121065,
    "entry": 8.26,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1150.121065,
-   "equity": 10059.81,
+   "equity": 10070.16,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3522,7 +3854,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on LINK/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "linkusd-4h-linearreg_intercept_200",
@@ -3550,14 +3886,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.598,
+   "paper_pnl_pct": 0.702,
    "paper_trades": 1,
    "position_units": 1150.121065,
    "entry": 8.26,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 1150.121065,
-   "equity": 10059.81,
+   "equity": 10070.16,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3568,7 +3904,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on LINK/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 8.312
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 8.321
   },
   {
    "id": "solusd-4h-t3_200",
@@ -3596,14 +3936,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.165,
+   "paper_pnl_pct": 0.127,
    "paper_trades": 1,
    "position_units": 126.971398,
    "entry": 74.82,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 126.971398,
-   "equity": 10016.51,
+   "equity": 10012.7,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3614,7 +3954,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on SOL/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-4h-midpoint_200",
@@ -3652,7 +3996,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on SOL/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-4h-dema_1000",
@@ -3690,7 +4038,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on SOL/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-4h-tsf_1000",
@@ -3718,14 +4070,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": 0.165,
+   "paper_pnl_pct": 0.127,
    "paper_trades": 1,
    "position_units": 126.971398,
    "entry": 74.82,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 126.971398,
-   "equity": 10016.51,
+   "equity": 10012.7,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3736,7 +4088,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on SOL/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "solusd-4h-linearreg_intercept_200",
@@ -3774,7 +4130,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on SOL/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 74.95
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 74.92
   },
   {
    "id": "trxusd-4h-t3_200",
@@ -3802,14 +4162,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3820,7 +4180,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on TRX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-4h-midpoint_200",
@@ -3848,14 +4212,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3866,7 +4230,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on TRX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-4h-dema_1000",
@@ -3904,7 +4272,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on TRX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-4h-tsf_1000",
@@ -3942,7 +4314,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on TRX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "trxusd-4h-linearreg_intercept_200",
@@ -3970,14 +4346,14 @@
    "status": "running",
    "since": "2026-08-08",
    "days": 0,
-   "paper_pnl_pct": -0.374,
+   "paper_pnl_pct": -0.259,
    "paper_trades": 1,
    "position_units": 28787.878788,
    "entry": 0.33,
    "capital": 10000.0,
    "cash": 500.0,
    "units": 28787.878788,
-   "equity": 9962.58,
+   "equity": 9974.09,
    "bt_ir": null,
    "bt_years": null,
    "bt_gates": [
@@ -3988,7 +4364,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on TRX/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 0.3287
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 0.3291
   },
   {
    "id": "xrpusd-4h-t3_200",
@@ -4026,7 +4406,11 @@
    ],
    "turnover": 0.0,
    "note": "T3_200 on XRP/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-4h-midpoint_200",
@@ -4064,7 +4448,11 @@
    ],
    "turnover": 0.0,
    "note": "MIDPOINT_200 on XRP/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-4h-dema_1000",
@@ -4102,7 +4490,11 @@
    ],
    "turnover": 0.0,
    "note": "DEMA_1000 on XRP/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-4h-tsf_1000",
@@ -4140,7 +4532,11 @@
    ],
    "turnover": 0.0,
    "note": "TSF_1000 on XRP/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "xrpusd-4h-linearreg_intercept_200",
@@ -4178,7 +4574,11 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_INTERCEPT_200 on XRP/USD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
-   "mark_price": 1.0362
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
+   "mark_price": 1.0364
   },
   {
    "id": "aapl-1d-maxindex",
@@ -4224,6 +4624,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on AAPL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -4270,6 +4674,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on AAPL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -4316,6 +4724,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on AAPL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -4362,6 +4774,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on AAPL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -4400,6 +4816,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on AAPL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -4446,6 +4866,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on ABBV 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -4492,6 +4916,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on ABBV 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -4538,6 +4966,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on ABBV 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -4584,6 +5016,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on ABBV 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -4622,6 +5058,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on ABBV 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -4668,6 +5108,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on AMZN 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -4714,6 +5158,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on AMZN 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -4760,6 +5208,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on AMZN 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -4798,6 +5250,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on AMZN 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -4844,6 +5300,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on AMZN 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -4890,6 +5350,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on CVX 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -4936,6 +5400,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on CVX 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -4974,6 +5442,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on CVX 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -5012,6 +5484,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on CVX 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -5058,6 +5534,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on CVX 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -5104,6 +5584,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on GOOGL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -5150,6 +5634,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on GOOGL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -5196,6 +5684,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on GOOGL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -5234,6 +5726,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on GOOGL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -5272,6 +5768,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on GOOGL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -5310,6 +5810,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on HD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -5356,6 +5860,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on HD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -5402,6 +5910,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on HD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -5448,6 +5960,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on HD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -5494,6 +6010,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on HD 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -5532,6 +6052,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on JNJ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -5570,6 +6094,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on JNJ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -5616,6 +6144,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on JNJ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -5662,6 +6194,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on JNJ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -5708,6 +6244,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on JNJ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -5754,6 +6294,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on JPM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -5800,6 +6344,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on JPM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -5846,6 +6394,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on JPM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -5884,6 +6436,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on JPM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -5930,6 +6486,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on JPM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -5976,6 +6536,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on KO 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -6022,6 +6586,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on KO 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -6068,6 +6636,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on KO 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -6114,6 +6686,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on KO 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -6160,6 +6736,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on KO 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -6206,6 +6786,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on MA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -6252,6 +6836,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on MA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -6298,6 +6886,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on MA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -6336,6 +6928,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on MA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -6374,6 +6970,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on MA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -6420,6 +7020,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on META 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -6466,6 +7070,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on META 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -6512,6 +7120,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on META 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -6558,6 +7170,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on META 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -6596,6 +7212,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on META 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -6642,6 +7262,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on MSFT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -6688,6 +7312,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on MSFT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -6734,6 +7362,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on MSFT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -6772,6 +7404,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on MSFT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -6818,6 +7454,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on MSFT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -6864,6 +7504,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on NVDA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -6910,6 +7554,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on NVDA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -6956,6 +7604,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on NVDA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -6994,6 +7646,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on NVDA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -7040,6 +7696,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on NVDA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -7086,6 +7746,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on PEP 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -7124,6 +7788,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on PEP 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -7170,6 +7838,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on PEP 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -7216,6 +7888,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on PEP 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -7262,6 +7938,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on PEP 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -7300,6 +7980,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on PG 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -7338,6 +8022,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on PG 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -7384,6 +8072,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on PG 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -7422,6 +8114,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on PG 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -7460,6 +8156,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on PG 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -7506,6 +8206,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on SOXL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -7552,6 +8256,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on SOXL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -7598,6 +8306,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on SOXL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -7636,6 +8348,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on SOXL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -7682,6 +8398,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on SOXL 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -7728,6 +8448,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on SPY 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -7774,6 +8498,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on SPY 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -7820,6 +8548,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on SPY 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -7858,6 +8590,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on SPY 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -7896,6 +8632,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on SPY 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -7942,6 +8682,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on TQQQ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -7988,6 +8732,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on TQQQ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -8034,6 +8782,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on TQQQ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -8072,6 +8824,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on TQQQ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -8110,6 +8866,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on TQQQ 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -8156,6 +8916,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on TSLA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -8202,6 +8966,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on TSLA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -8248,6 +9016,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on TSLA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -8286,6 +9058,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on TSLA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -8324,6 +9100,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on TSLA 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -8370,6 +9150,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on UNH 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -8416,6 +9200,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on UNH 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -8462,6 +9250,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on UNH 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -8508,6 +9300,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on UNH 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -8546,6 +9342,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on UNH 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -8592,6 +9392,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on V 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -8638,6 +9442,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on V 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -8684,6 +9492,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on V 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -8722,6 +9534,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on V 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -8760,6 +9576,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on V 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -8806,6 +9626,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on WMT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -8844,6 +9668,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on WMT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -8890,6 +9718,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on WMT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -8936,6 +9768,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on WMT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -8982,6 +9818,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on WMT 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -9028,6 +9868,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on XOM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -9074,6 +9918,10 @@
    ],
    "turnover": 0.0,
    "note": "HT_TRENDMODE on XOM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -9112,6 +9960,10 @@
    ],
    "turnover": 0.0,
    "note": "MININDEX on XOM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -9158,6 +10010,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_9 on XOM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -9196,6 +10052,10 @@
    ],
    "turnover": 0.0,
    "note": "CDLDOJI on XOM 1d, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 1d bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -9242,6 +10102,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on AAPL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -9280,6 +10144,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on AAPL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -9318,6 +10186,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on AAPL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -9364,6 +10236,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on AAPL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -9402,6 +10278,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on AAPL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 313.29999
   },
   {
@@ -9448,6 +10328,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on ABBV 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -9486,6 +10370,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on ABBV 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -9524,6 +10412,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on ABBV 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -9570,6 +10462,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on ABBV 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -9608,6 +10504,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on ABBV 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 245.89
   },
   {
@@ -9654,6 +10554,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on AMZN 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -9700,6 +10604,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on AMZN 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -9746,6 +10654,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on AMZN 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -9792,6 +10704,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on AMZN 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -9838,6 +10754,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on AMZN 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 274.44
   },
   {
@@ -9884,6 +10804,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on CVX 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -9922,6 +10846,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on CVX 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -9960,6 +10888,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on CVX 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -9998,6 +10930,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on CVX 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -10036,6 +10972,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on CVX 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 186.55
   },
   {
@@ -10082,6 +11022,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on GOOGL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -10120,6 +11064,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on GOOGL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -10166,6 +11114,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on GOOGL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -10212,6 +11164,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on GOOGL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -10258,6 +11214,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on GOOGL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 354.25
   },
   {
@@ -10304,6 +11264,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on HD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -10350,6 +11314,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on HD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -10396,6 +11364,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on HD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -10442,6 +11414,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on HD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -10488,6 +11464,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on HD 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 355.59
   },
   {
@@ -10526,6 +11506,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on JNJ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -10572,6 +11556,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on JNJ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -10610,6 +11598,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on JNJ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -10648,6 +11640,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on JNJ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -10686,6 +11682,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on JNJ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 259.23001
   },
   {
@@ -10732,6 +11732,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on JPM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -10770,6 +11774,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on JPM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -10808,6 +11816,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on JPM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -10846,6 +11858,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on JPM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -10884,6 +11900,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on JPM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 357.47
   },
   {
@@ -10930,6 +11950,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on KO 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -10976,6 +12000,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on KO 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -11022,6 +12050,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on KO 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -11068,6 +12100,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on KO 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -11114,6 +12150,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on KO 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 87.055
   },
   {
@@ -11160,6 +12200,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on MA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -11206,6 +12250,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on MA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -11244,6 +12292,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on MA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -11290,6 +12342,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on MA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -11328,6 +12384,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on MA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 562.75
   },
   {
@@ -11374,6 +12434,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on META 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -11412,6 +12476,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on META 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -11450,6 +12518,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on META 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -11488,6 +12560,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on META 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -11526,6 +12602,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on META 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 591.815
   },
   {
@@ -11572,6 +12652,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on MSFT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -11618,6 +12702,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on MSFT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -11664,6 +12752,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on MSFT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -11710,6 +12802,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on MSFT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -11756,6 +12852,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on MSFT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 499.89001
   },
   {
@@ -11802,6 +12902,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on NVDA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -11848,6 +12952,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on NVDA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -11894,6 +13002,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on NVDA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -11940,6 +13052,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on NVDA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -11986,6 +13102,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on NVDA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 223.98
   },
   {
@@ -12032,6 +13152,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on PEP 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -12078,6 +13202,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on PEP 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -12124,6 +13252,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on PEP 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -12162,6 +13294,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on PEP 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -12208,6 +13344,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on PEP 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 139.022003
   },
   {
@@ -12254,6 +13394,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on PG 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -12292,6 +13436,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on PG 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -12330,6 +13478,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on PG 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -12376,6 +13528,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on PG 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -12414,6 +13570,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on PG 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 145.765
   },
   {
@@ -12460,6 +13620,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on SOXL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -12506,6 +13670,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on SOXL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -12552,6 +13720,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on SOXL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -12590,6 +13762,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on SOXL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -12636,6 +13812,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on SOXL 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 140.25999
   },
   {
@@ -12682,6 +13862,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on SPY 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -12728,6 +13912,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on SPY 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -12774,6 +13962,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on SPY 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -12820,6 +14012,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on SPY 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -12866,6 +14062,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on SPY 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 773.12
   },
   {
@@ -12912,6 +14112,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on TQQQ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -12958,6 +14162,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on TQQQ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -13004,6 +14212,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on TQQQ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -13042,6 +14254,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on TQQQ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -13088,6 +14304,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on TQQQ 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 74.46
   },
   {
@@ -13134,6 +14354,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on TSLA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -13180,6 +14404,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on TSLA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -13226,6 +14454,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on TSLA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -13264,6 +14496,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on TSLA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -13310,6 +14546,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on TSLA 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 328.58499
   },
   {
@@ -13348,6 +14588,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on UNH 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -13394,6 +14638,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on UNH 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -13432,6 +14680,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on UNH 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -13478,6 +14730,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on UNH 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -13516,6 +14772,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on UNH 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 407.059998
   },
   {
@@ -13562,6 +14822,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on V 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -13608,6 +14872,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on V 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -13646,6 +14914,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on V 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -13684,6 +14956,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on V 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -13722,6 +14998,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on V 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 362.39999
   },
   {
@@ -13768,6 +15048,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on WMT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -13814,6 +15098,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on WMT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -13860,6 +15148,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on WMT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -13898,6 +15190,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on WMT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -13944,6 +15240,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on WMT 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 111.82
   },
   {
@@ -13982,6 +15282,10 @@
    ],
    "turnover": 0.0,
    "note": "MAXINDEX on XOM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -14020,6 +15324,10 @@
    ],
    "turnover": 0.0,
    "note": "ADXR on XOM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -14066,6 +15374,10 @@
    ],
    "turnover": 0.0,
    "note": "TSF_100 on XOM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -14104,6 +15416,10 @@
    ],
    "turnover": 0.0,
    "note": "MINMAX on XOM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +0 pending the first live 4h bar.",
+   "lifetime_trades": 0,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   },
   {
@@ -14150,6 +15466,10 @@
    ],
    "turnover": 0.0,
    "note": "LINEARREG_100 on XOM 4h, live Twelve Data bars into the Nautilus sandbox. Running to prove the pipeline. Warm-up complete; target +1 pending the first live 4h bar.",
+   "lifetime_trades": 1,
+   "curve_breaks": [],
+   "gaps": 0,
+   "unknown_gaps": 0,
    "mark_price": 152.94501
   }
  ]

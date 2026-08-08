@@ -314,7 +314,11 @@ class TalibRuleStrategy(Strategy):
         now = pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")
         days = max(int((now - self._start_ts).total_seconds() // 86400), 0)
 
-        paper_state.push_point(self._sid, pnl_pct, bench_pct)
+        # Keyed on the BAR's time, not the wall clock: a warm-up replay re-emits
+        # the same bars and must collapse onto the same rows, while two genuine
+        # closes never collide however fast they arrive.
+        paper_state.push_point(self._sid, pnl_pct, bench_pct,
+                               ts=now.isoformat(timespec='seconds'))
         paper_state.update(
             self._sid,
             state="long" if units > 0 else "short" if units < 0 else "flat",

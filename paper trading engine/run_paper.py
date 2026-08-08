@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 import paper_config
 import live_ws
 import paper_state
+import store
 import td_live
 import td_nautilus
 from strategy import TalibRuleConfig, TalibRuleStrategy
@@ -357,6 +358,10 @@ def main() -> None:
             hub.stop()
         paper_state.set_feed(status="stopped")
         paper_state.flush()
+        # Close the session row so the next start can measure the gap from here. Without
+        # it the record still works -- the gap is taken from the last curve point -- but
+        # the downtime window would be unattributable to a particular run.
+        store.end_session()
         node.dispose()
 
 

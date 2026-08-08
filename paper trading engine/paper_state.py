@@ -21,6 +21,12 @@ new one and never a truncated one.
 **Absent means absent.** If the node has never run, there is no file, and the dashboard
 says "not running". That is the honest state and it must never be pre-seeded with an
 empty scaffold that looks like a live desk reporting zeroes.
+
+**The JSON is a projection; `store.py` is the record.** This file used to be the only copy
+of the desk's history and nothing ever read it back, so each restart began empty and the
+forward record restarted at zero. Fills and curve points now go to SQLite as they happen,
+and a strategy that has traded before is rehydrated from it on registration. What the
+dashboard reads is rendered from that, so the document keeps exactly the shape it had.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import paper_config
+import store
 
 STATE_PATH = paper_config.RESULTS_DIR / "paper_state.json"
 
@@ -59,9 +66,16 @@ def _now() -> str:
 
 
 def reset() -> None:
-    """Drop everything. Called at node start so a restart does not resurrect a strategy
-    that is no longer configured."""
+    """Drop the in-memory registry and open a new session in the store.
+
+    Clearing is still right: a restart must not resurrect a strategy that is no longer
+    configured. What changed is that clearing no longer destroys history — the registry is
+    this process's working set, and anything a strategy traded before is read back from the
+    database when it registers.
+    """
     _strategies.clear()
+    _gap_cache.clear()
+    store.start_session()
 
 
 def set_feed(**kw) -> None:
@@ -73,28 +87,127 @@ def set_venue(**kw) -> None:
 
 
 def register(sid: str, **fields) -> None:
+    """Add a strategy to this process's working set, carrying its history forward.
+
+    A system that has traded before comes back with its inception date, its lifetime fill
+    count, its trade log and its chained curve. A new one starts empty. Either way the
+    document the dashboard sees has the same shape, so nothing downstream can tell the
+    difference between "started today" and "resumed".
+    """
     _strategies.setdefault(sid, {"id": sid, "trades": [], "paper_curve": [],
                                  "bench_curve": []})
     _strategies[sid].update(fields)
 
+    first_seen = store.upsert_strategy(sid, **fields)
+    _record_gap_if_any(sid, fields.get("symbol"), fields.get("tf"))
+
+    lifetime = store.lifetime_curve(sid)
+    s = _strategies[sid]
+    s["since"] = first_seen[:10]
+    s["lifetime_trades"] = store.fill_count(sid)
+    s["trades"] = store.recent_fills(sid)
+    s["paper_curve"] = lifetime["equity"]
+    s["bench_curve"] = lifetime["bench"]
+    # Indices where the desk was down. The line is broken there rather than drawn straight
+    # through, because a straight segment across four hours of downtime is a claim that
+    # nothing happened.
+    s["curve_breaks"] = lifetime["breaks"]
+    s["gaps"] = lifetime["gaps"]
+    s["unknown_gaps"] = lifetime["unknown_gaps"]
+
+
+# One benchmark lookup per (symbol, timeframe, gap start), not one per strategy. The desk
+# runs 330 systems over 33 symbols, and every system on the same symbol that stopped at the
+# same bar is asking the identical question. Without this, startup made 330 sequential
+# Twelve Data calls — minutes of boot, and a rate limit waiting to happen.
+_gap_cache: dict[tuple, float | None] = {}
+
+# One bar of each timeframe. A gap shorter than this closed no bar, so there is no
+# benchmark move to miss and 0.0 is measured rather than assumed.
+_BAR_SECONDS = {"1d": 86400.0, "4h": 14400.0}
+
+
+def _bench_over_gap(symbol: str, timeframe: str, start: datetime) -> float | None:
+    key = (symbol, timeframe, start.isoformat())
+    if key in _gap_cache:
+        return _gap_cache[key]
+    elapsed = (datetime.now(timezone.utc) - start).total_seconds()
+    if elapsed < _BAR_SECONDS.get(timeframe, 86400.0):
+        _gap_cache[key] = 0.0
+        return 0.0
+    try:
+        import td_live
+        value = td_live.return_between(symbol, timeframe, start)
+    except Exception:
+        value = None              # unknown, and it stays unknown
+    _gap_cache[key] = value
+    return value
+
+
+def _record_gap_if_any(sid: str, symbol: str | None, timeframe: str | None) -> None:
+    """Measure what the benchmark did while the desk was stopped.
+
+    The strategy's own return across a gap is 0 — it held nothing. The benchmark's is not,
+    and assuming it were would flatter the strategy in every falling market. So the actual
+    move is fetched for the gap window and stored; if it cannot be fetched the gap is
+    recorded with an unknown benchmark instead of a fabricated zero.
+    """
+    last = store.last_point(sid)
+    if last is None or not symbol or not timeframe:
+        return
+    from_ts = last[0]
+    to_ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        bench_pct = _bench_over_gap(symbol, timeframe, datetime.fromisoformat(from_ts))
+    except Exception:
+        bench_pct = None
+    store.record_gap(sid, from_ts, to_ts, bench_pct)
+
 
 def update(sid: str, **fields) -> None:
-    if sid in _strategies:
-        _strategies[sid].update(fields)
+    """Merge live fields into a registered strategy.
 
-
-def push_point(sid: str, equity_pct: float, bench_pct: float) -> None:
-    """One point on the strategy's curve, in percent from its own start."""
+    `since` and `days` are dropped when the store already knows an earlier inception.
+    The strategy computes both from its own first bar *this session*, which was right when
+    a restart meant starting over and is wrong now — it would relabel a system that has
+    traded for weeks as having started this morning, on every restart, forever.
+    """
     s = _strategies.get(sid)
     if s is None:
         return
-    s["paper_curve"].append(round(float(equity_pct), 4))
-    s["bench_curve"].append(round(float(bench_pct), 4))
-    # Halve by stride rather than dropping the head: the curve must keep its origin, or
-    # the chart silently re-bases and the line stops meaning "since inception".
-    if len(s["paper_curve"]) > MAX_CURVE_POINTS:
-        s["paper_curve"] = s["paper_curve"][::2]
-        s["bench_curve"] = s["bench_curve"][::2]
+    first_seen = s.get("since")
+    if first_seen and fields.get("since", first_seen) > first_seen:
+        fields.pop("since", None)
+        fields.pop("days", None)
+        try:
+            started = datetime.strptime(first_seen, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            fields["days"] = max((datetime.now(timezone.utc) - started).days, 0)
+        except ValueError:
+            pass
+    s.update(fields)
+
+
+def push_point(sid: str, equity_pct: float, bench_pct: float,
+               ts: str | None = None) -> None:
+    """One point on the strategy's curve, in percent from its own start.
+
+    `ts` is the BAR's timestamp, which is what makes the row idempotent: a warm-up replay
+    re-emits the same bars and collapses onto the same rows. Falling back to the wall clock
+    would collapse genuinely distinct points that happen to land in the same second.
+
+    Recorded first, then the rendered curve is rebuilt from the store, so what the
+    dashboard draws is always the chained lifetime series rather than this session's.
+    """
+    s = _strategies.get(sid)
+    if s is None:
+        return
+    store.record_point(sid, equity_pct, bench_pct, ts=ts)
+    lifetime = store.lifetime_curve(sid)
+    s["paper_curve"] = lifetime["equity"]
+    s["bench_curve"] = lifetime["bench"]
+    s["curve_breaks"] = lifetime["breaks"]
+    s["gaps"] = lifetime["gaps"]
+    s["unknown_gaps"] = lifetime["unknown_gaps"]
 
 
 def push_trade(sid: str, ts: str, side: str, qty: float, price: float,
@@ -102,10 +215,11 @@ def push_trade(sid: str, ts: str, side: str, qty: float, price: float,
     s = _strategies.get(sid)
     if s is None:
         return
-    s["trades"].append({"ts": ts, "side": side, "qty": qty,
-                        "price": price, "pnl": round(float(pnl), 2)})
-    if len(s["trades"]) > MAX_TRADES:
-        s["trades"] = s["trades"][-MAX_TRADES:]
+    store.record_fill(sid, ts, side, qty, price, pnl)
+    # Re-read rather than append: on a warm-up replay the store drops the duplicate, and
+    # appending here would show a fill in the UI that is not in the record.
+    s["trades"] = store.recent_fills(sid)
+    s["lifetime_trades"] = store.fill_count(sid)
 
 
 def mark(prices: dict[str, float]) -> int:
