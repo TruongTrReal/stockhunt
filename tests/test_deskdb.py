@@ -449,7 +449,11 @@ def test_each_thread_gets_its_own_connection(db):
     seen = {}
 
     def grab(name):
-        seen[name] = id(db.connect())
+        # The connection object, not its id(). Dead threads' connections are now reaped,
+        # and CPython recycles the address of anything it frees — so holding only the id
+        # of a closed connection can collide with a later one and read as "these two
+        # threads shared", which is the opposite of what happened.
+        seen[name] = db.connect()
 
     threads = [threading.Thread(target=grab, args=(f"t{i}",)) for i in range(3)]
     for t in threads:
@@ -457,8 +461,9 @@ def test_each_thread_gets_its_own_connection(db):
     for t in threads:
         t.join()
 
-    assert len(set(seen.values())) == 3, seen
-    assert id(db.connect()) not in seen.values()      # and this thread has its own
+    ids = {id(c) for c in seen.values()}
+    assert len(ids) == 3, seen
+    assert id(db.connect()) not in ids                # and this thread has its own
 
 
 def test_repointing_reaches_threads_that_already_opened_one(db, tmp_path):
@@ -539,3 +544,31 @@ def test_one_account_cannot_remove_anothers(db):
     deleted, why = db.delete_registration("a7", sid)
     assert not deleted and why == "no such strategy"
     assert db.registration(sid) is not None
+
+
+def test_a_dead_threads_connection_is_reclaimed(db):
+    """The registry must not grow with threads that have exited.
+
+    `desk_control` runs on a Nautilus `clock.set_timer` callback, and those fire on a NEW
+    thread every tick. Each one misses the thread-local cache and opens a connection, so a
+    registry that only ever appends holds one strong reference per tick forever — the
+    connection is never collected and its descriptor never closed. On Linux the desk hits
+    the 1024-fd soft limit in about eight minutes and then fails every reconcile, drain and
+    heartbeat with `unable to open database file`, while systemd still calls the unit
+    healthy. Windows has no comparable ceiling, which is why the dev box cannot show it.
+
+    Asserted on the registry rather than on `/proc/self/fd`, so it means the same thing on
+    both platforms.
+    """
+    import threading
+
+    for _ in range(25):
+        t = threading.Thread(target=db.connect)
+        t.start()
+        t.join()
+
+    # The property is BOUNDEDNESS, not emptiness. The sweep runs on a cache miss, so each
+    # new thread clears the ones before it; the entry for the most recent thread may still
+    # be there, and this thread's own connection certainly is. What must never happen is
+    # the registry tracking the number of threads that have ever run.
+    assert len(db._open) <= 3, f"{len(db._open)} connections held after 25 threads"

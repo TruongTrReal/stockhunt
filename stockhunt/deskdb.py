@@ -74,7 +74,19 @@ _lock = threading.RLock()
 # `submit_order`'s BEGIN IMMEDIATE only becomes truthful here too: a transaction on a
 # connection somebody else is issuing statements against was never really one.
 _local = threading.local()
-_open: list[sqlite3.Connection] = []
+# Keyed by thread ident, and holding the Thread so liveness can be asked. It was a plain
+# list, and that leaked a file descriptor per short-lived caller: `_local` drops its
+# reference when a thread exits, but the list kept a strong one forever, so the connection
+# was never collected and its fd never closed. `sqlite3.Connection` cannot be weak-
+# referenced, so the registry has to be pruned rather than made weak — see `_reap`.
+#
+# It is the DESK that hits this. Nautilus fires `clock.set_timer` callbacks on a fresh
+# thread each tick, so `desk_control` opens a new connection every second and the process
+# reaches the 1024-fd soft limit in about eight minutes, after which every reconcile, drain
+# and heartbeat fails with `unable to open database file` while systemd still reports the
+# unit healthy. It does not reproduce on Windows, which has no comparable per-process fd
+# ceiling — so this is a bug the dev box structurally cannot show you.
+_open: dict[int, tuple[threading.Thread, sqlite3.Connection]] = {}
 # Bumped by `use()`. A thread caches its connection, so repointing the module has to
 # invalidate every OTHER thread's cache as well — they compare this before reusing.
 _generation = 0
@@ -216,10 +228,39 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.executescript(SCHEMA)
         _add_late_columns(conn)
-        _open.append(conn)                 # so `close()` can reach every thread's
-        _local.conn = conn
-        _local.generation = _generation
+        _reap()                            # first, so a tick-per-thread caller stays flat
+        ident = threading.get_ident()
+        previous = _open.get(ident)
+        if previous is not None:
+            # Same ident, and this thread's cache was empty — so the entry belongs to a
+            # thread that has exited and had its ident recycled, or to a generation `use()`
+            # already closed. Either way it is nobody's live connection.
+            try:
+                previous[1].close()
+            except Exception:
+                pass
+        _open[ident] = (threading.current_thread(), conn)   # so `close()` reaches every
+        _local.conn = conn                                  # thread's, and `_reap` the
+        _local.generation = _generation                     # dead ones
         return conn
+
+
+def _reap() -> None:
+    """Close the connections of threads that have exited. Caller must hold `_lock`.
+
+    This is the whole fix for the descriptor leak described above `_open`. It runs from
+    `connect()` and therefore only on a cache miss — which, for the caller that leaks, is
+    exactly once per new thread, so the registry stays the size of the live thread count
+    instead of growing without bound.
+    """
+    for ident, (thread, conn) in list(_open.items()):
+        if thread.is_alive():
+            continue
+        try:
+            conn.close()
+        except Exception:
+            pass              # already closed; reaping must never raise into a callback
+        _open.pop(ident, None)
 
 
 def _add_late_columns(conn: sqlite3.Connection) -> None:
@@ -256,14 +297,14 @@ def close() -> None:
     that did nothing wrong, on a request that came later. Bumping makes every cache miss,
     so the next call on any thread reopens instead.
     """
-    global _open, _generation
+    global _generation
     with _lock:
-        for conn in _open:
+        for _thread, conn in list(_open.values()):
             try:
                 conn.close()
             except Exception:
                 pass          # already closed, or its thread is gone; closing must not raise
-        _open = []
+        _open.clear()
         _generation += 1
     _local.conn = None
 
