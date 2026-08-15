@@ -43,6 +43,19 @@ def account(client, email="m@example.com"):
     return headers, sid
 
 
+def account_id(email="m@example.com"):
+    """The account id that `email` actually got.
+
+    Never hardcode it. Account ids are handed out in sequence, so whether `m@example.com`
+    is `01` or `02` depends on whether anything was seeded ahead of it -- and `API_OWNER_EMAIL`
+    seeds exactly that, at startup, into whatever allowlist the app opens, including a
+    fixture's empty temp one. A literal `"01"` therefore passes on a dev box with no owner
+    configured and fails on a deployed one that has it set, which is a test that reports
+    the deployment's configuration as a defect in the order endpoint.
+    """
+    return next(u["account_id"] for u in authdb.users() if u["email"] == email)
+
+
 def order(sid, coid="o-1", **kw):
     body = {"strategy_id": sid, "client_order_id": coid, "symbol": "SPY",
             "side": "buy", "qty": 10, "type": "market", "tif": "day"}
@@ -184,7 +197,7 @@ def test_one_account_cannot_see_or_touch_anothers_orders(client):
     assert client.get("/v1/orders", headers=h2).json() == []
     assert client.get("/v1/orders/secret", headers=h2).status_code == 404
     assert client.delete("/v1/orders/secret", headers=h2).status_code == 404
-    assert deskdb.order("01", "secret")["state"] == "accepted"
+    assert deskdb.order(account_id("a@example.com"), "secret")["state"] == "accepted"
 
 
 def test_orders_for_a_strategy_you_do_not_own_are_refused(client):
@@ -204,8 +217,8 @@ def test_a_rule_strategy_does_not_take_orders(client):
     """A rule promoted off a backtest trades what the research said, not what anybody
     sends it. Accepting an order for one would silently do nothing."""
     h, _ = account(client)
-    house = deskdb.register("01", "spy-1d-sma_200", "us_stocks", ["SPY"], "1d", 10_000.0,
-                            kind="house_rule", rule="SMA_200")
+    house = deskdb.register(account_id(), "spy-1d-sma_200", "us_stocks", ["SPY"], "1d",
+                            10_000.0, kind="house_rule", rule="SMA_200")
     r = client.post("/v1/orders", headers=h,
                     json=order(house["strategy_id"], "x"))
     assert r.status_code == 409 and "does not take orders" in r.json()["detail"]
