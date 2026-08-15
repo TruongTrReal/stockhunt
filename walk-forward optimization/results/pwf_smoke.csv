@@ -1,0 +1,2 @@
+class,tf,rule,pit,n_folds,n_switches,is1_excess_cagr,is1_dsharpe,is1_boot_se,is1_boot_t,is1_boot_p_gt0,is1_boot_ci_lo,is1_boot_ci_hi,is1_boot_draws,best_fixed_rule,best_fixed_excess_cagr,selection_cost,n_candidates
+commodities,1d,IS#1[cashmatch],False,42,28,0.004251119017506966,0.029164950951028057,0.1358948085238552,0.21461416567586095,0.588,-0.22742293651874007,0.2964535778681651,2000,"macd_cross@fast_days=5.0,signal_days=5.0,slow_days=35.0",0.009170899666818721,-0.004919780649311756,120

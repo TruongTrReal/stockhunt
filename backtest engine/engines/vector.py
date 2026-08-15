@@ -110,9 +110,25 @@ def equity_curve(net: np.ndarray) -> np.ndarray:
 
 
 def stats(position: np.ndarray, close: np.ndarray, index, fee,
-          capital: float) -> dict | None:
-    """Scalar stats for one rule on one asset under one fee scenario."""
-    net = net_returns(position, close, fee, bars_per_year(index))
+          capital: float, net: np.ndarray = None,
+          bpy: float = None) -> dict | None:
+    """Scalar stats for one rule on one asset under one fee scenario.
+
+    `net` and `bpy` are optional and exist purely to avoid recomputation. Callers that
+    already hold the bar-level net series — `sweep.py` needs the *unfiltered* one for its
+    IR windows and its excess curve — used to compute it, then call this, which computed
+    it again: two full passes over the series for one answer. Passing it in is worth
+    ~15% of the scoring cost and changes nothing, since it is the same arithmetic on the
+    same inputs.
+
+    Note the filter below. The stats are computed on the finite subset, while the caller's
+    copy stays full length because slicing it by a date window requires the original bar
+    positions. Those are deliberately two different arrays and must not be conflated.
+    """
+    if bpy is None:
+        bpy = bars_per_year(index)
+    if net is None:
+        net = net_returns(position, close, fee, bpy)
     if net.size == 0 or not np.isfinite(net).any():
         return None
     net = net[np.isfinite(net)]
@@ -120,7 +136,6 @@ def stats(position: np.ndarray, close: np.ndarray, index, fee,
         return None
 
     eq = equity_curve(net)
-    bpy = bars_per_year(index)
     n_years = net.size / bpy if bpy and bpy > 0 else np.nan
     total_return = float(eq[-1] - 1.0)
 

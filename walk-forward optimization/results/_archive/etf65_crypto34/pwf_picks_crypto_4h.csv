@@ -1,0 +1,5 @@
+fold,rule,is_excess_cagr
+2023-01-07,"turn_of_month@after=5,before=3",0.5558105714989567
+2024-01-07,donchian_s1,0.45812546827600786
+2025-01-07,"macd_cross@fast_days=5.0,signal_days=5.0,slow_days=35.0",0.3040232148769768
+2026-01-07,"macd_cross@fast_days=20.0,slow_days=50.0",0.2617491831731098

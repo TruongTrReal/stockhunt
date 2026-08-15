@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOCKUP · Register a strategy</title>
+<!--
+  A MOCKUP. Nothing here calls the API, no state is real, every number is invented.
+  It exists to agree on the flow before `desk.html` is touched.
+
+  Design tokens are lifted verbatim from `web/desk.html` so this reads as the same
+  product. The toolbar pinned to the top is scaffolding for reviewing the mockup and is
+  not part of the design.
+-->
+<style>
+  :root{
+    color-scheme: light dark;
+    --paper:#FCFCFA; --ink:#16161A; --ink-2:#3F3F46; --muted:#78787F;
+    --hair:#E4E4DE; --hair-2:#CFCFC8; --loss:#B0402F; --live:#2C6E52;
+    --sunk:#F4F4F0; --scrim:rgba(16,16,20,.55);
+    --sans:ui-sans-serif,system-ui,"Segoe UI",-apple-system,"Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0B0B0C; --ink:#F1F1EE; --ink-2:#C3C3C0; --muted:#84848C;
+      --hair:#232327; --hair-2:#33333A; --loss:#E08472; --live:#6BBF95;
+      --sunk:#131316; --scrim:rgba(0,0,0,.7);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+
+  /* ------------------------------------------------ mockup scaffolding, not the design */
+  .harness{position:sticky;top:0;z-index:99;display:flex;gap:6px;align-items:center;
+    flex-wrap:wrap;padding:8px 14px;background:var(--sunk);
+    border-bottom:1px solid var(--hair-2);font-size:11.5px;font-family:var(--mono)}
+  .harness b{color:var(--loss);letter-spacing:.08em;margin-right:8px}
+  .harness button{font-family:var(--mono);font-size:11.5px;padding:3px 9px;border-radius:3px;
+    border:1px solid var(--hair-2);background:transparent;color:var(--muted);cursor:pointer}
+  .harness button.on{border-color:var(--ink);color:var(--ink)}
+
+  /* ------------------------------------------------------------------ the desk, behind */
+  main{max-width:820px;margin:0 auto;padding:28px 20px 80px}
+  .brand{font-size:13px;color:var(--muted);margin-bottom:6px}
+  .brand b{color:var(--ink);font-weight:600}
+  .nav{display:flex;gap:18px;margin:0 0 26px;padding-bottom:10px;border-bottom:1px solid var(--hair)}
+  .nav a{font-size:13.5px;color:var(--muted);text-decoration:none;padding-bottom:2px;
+    border-bottom:2px solid transparent}
+  .nav a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+  h1{font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+  .who{color:var(--muted);font-size:13px;font-family:var(--mono);margin-bottom:30px}
+  h2{font-size:13px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--muted);margin:38px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--hair);
+    display:flex;justify-content:space-between;align-items:center}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    font-weight:500;padding:6px 10px 6px 0;border-bottom:1px solid var(--hair)}
+  td{padding:9px 10px 9px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+  td.mono,th.mono{font-family:var(--mono);font-size:12.5px}
+  .tag{font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;
+    border:1px solid var(--hair-2);color:var(--muted);white-space:nowrap}
+  .tag.live{color:var(--live);border-color:var(--live)}
+  .empty{border:1px dashed var(--hair-2);border-radius:6px;padding:34px 20px;text-align:center;
+    color:var(--muted);font-size:14px}
+  .empty p{margin:0 0 16px}
+
+  button.primary{font-family:var(--sans);font-size:13.5px;padding:9px 16px;border-radius:4px;
+    border:1px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer}
+  button.ghost{font-family:var(--sans);font-size:13.5px;padding:9px 16px;border-radius:4px;
+    border:1px solid var(--hair-2);background:transparent;color:var(--ink);cursor:pointer}
+  button.small{font-size:12px;padding:5px 10px}
+  button:disabled{opacity:.4;cursor:default}
+
+  /* ------------------------------------------------------------------------ the wizard */
+  .overlay{position:fixed;inset:0;z-index:50;background:var(--scrim);
+    backdrop-filter:blur(3px);display:flex;flex-direction:column}
+  .sheet{flex:1;margin:0;background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+  @media(min-width:900px){
+    .overlay{padding:0}
+    .sheet{margin:0}
+  }
+
+  /* top rail: brand, the steps, the way out. Full width; the CONTENT is what is centred. */
+  .rail{display:flex;align-items:center;gap:24px;padding:0 22px;height:56px;
+    border-bottom:1px solid var(--hair);flex:0 0 auto}
+  .rail .title{font-size:13px;color:var(--muted);white-space:nowrap}
+  .rail .title b{color:var(--ink);font-weight:600}
+  .steps{display:flex;gap:0;flex:1;justify-content:center;overflow:hidden}
+  .steps .s{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
+    padding:0 14px;white-space:nowrap}
+  .steps .s .n{width:19px;height:19px;border-radius:50%;border:1px solid var(--hair-2);
+    display:grid;place-items:center;font-size:10.5px;font-family:var(--mono);flex:0 0 auto}
+  .steps .s.done{color:var(--ink-2)}
+  .steps .s.done .n{border-color:var(--live);color:var(--live)}
+  .steps .s.now{color:var(--ink);font-weight:600}
+  .steps .s.now .n{border-color:var(--ink);background:var(--ink);color:var(--paper)}
+  .steps .bar{width:26px;height:1px;background:var(--hair-2);align-self:center;flex:0 0 auto}
+  @media(max-width:820px){ .steps .s span.lbl{display:none} .steps .s{padding:0 6px} }
+  .rail .x{border:0;background:transparent;color:var(--muted);font-size:20px;cursor:pointer;
+    line-height:1;padding:4px 6px}
+
+  /* the centred column */
+  .body{flex:1;overflow-y:auto;display:flex;justify-content:center;padding:44px 22px 30px}
+  .col{width:100%;max-width:600px}
+  .col.wide{max-width:760px}
+  .eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);
+    margin-bottom:10px}
+  .col h3{font-size:25px;font-weight:600;letter-spacing:-.015em;margin:0 0 8px}
+  .lede{color:var(--ink-2);font-size:14.5px;margin:0 0 30px;max-width:52ch}
+
+  .field{margin-bottom:22px}
+  .field > label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+  .field .hint{font-size:12.5px;color:var(--muted);margin-top:6px}
+  input[type=text]{width:100%;background:transparent;color:var(--ink);font-family:var(--sans);
+    font-size:14.5px;padding:10px 11px;border:1px solid var(--hair-2);border-radius:5px}
+  input[type=text]:focus{outline:2px solid var(--ink-2);outline-offset:1px}
+  input.mono{font-family:var(--mono);font-size:13.5px}
+
+  .seg{display:flex;flex-wrap:wrap;gap:7px}
+  .seg button{font-family:var(--sans);font-size:13px;padding:7px 13px;border-radius:20px;
+    border:1px solid var(--hair-2);background:transparent;color:var(--ink-2);cursor:pointer}
+  .seg button.on{border-color:var(--ink);background:var(--ink);color:var(--paper)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;min-height:26px}
+  .chip{font-family:var(--mono);font-size:12px;padding:3px 8px;border-radius:3px;
+    border:1px solid var(--hair-2);color:var(--ink-2)}
+
+  details.adv{border-top:1px solid var(--hair);padding-top:14px;margin-top:4px}
+  details.adv summary{font-size:13px;color:var(--muted);cursor:pointer;list-style:none}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary::before{content:"+ ";font-family:var(--mono)}
+  details.adv[open] summary::before{content:"− "}
+  details.adv .inner{padding-top:18px}
+  .check{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--ink-2)}
+  .check input{margin-top:5px}
+
+  /* the terms step */
+  .terms{border:1px solid var(--hair);border-radius:6px;overflow:hidden;margin-bottom:22px}
+  .terms .row{display:flex;gap:14px;padding:15px 17px;border-bottom:1px solid var(--hair)}
+  .terms .row:last-child{border-bottom:0}
+  .terms .k{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:.07em;width:104px;flex:0 0 auto;padding-top:3px}
+  .terms .v{font-size:14px;color:var(--ink)}
+  .terms .v em{font-style:normal;color:var(--muted);display:block;font-size:12.5px;margin-top:3px}
+
+  .recap{background:var(--sunk);border:1px solid var(--hair);border-radius:6px;
+    padding:14px 17px;font-family:var(--mono);font-size:13px;margin-bottom:24px;
+    display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+  .recap b{font-weight:600}
+  .recap .sep{color:var(--hair-2)}
+
+  /* the key step */
+  .secret{border:1px solid var(--live);border-radius:6px;padding:15px 16px;margin:6px 0 12px;
+    display:flex;gap:12px;align-items:center;background:var(--sunk)}
+  .secret code{font-family:var(--mono);font-size:13.5px;color:var(--live);word-break:break-all;flex:1}
+  .warnbar{border-left:2px solid var(--loss);padding:2px 0 2px 12px;color:var(--ink-2);
+    font-size:13px;margin:14px 0 24px}
+  .pick{border:1px solid var(--hair-2);border-radius:6px;padding:13px 15px;margin-bottom:9px;
+    display:flex;gap:11px;align-items:flex-start;cursor:pointer;font-size:14px}
+  .pick.on{border-color:var(--ink)}
+  .pick .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .pick input{margin-top:5px}
+
+  /* the connect step */
+  .tabs{display:flex;gap:2px;border-bottom:1px solid var(--hair);margin-bottom:0}
+  .tabs button{font-family:var(--sans);font-size:12.5px;padding:8px 13px;border:0;
+    background:transparent;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+  .tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--ink)}
+  pre{background:var(--sunk);border:1px solid var(--hair);border-top:0;border-radius:0 0 6px 6px;
+    margin:0 0 6px;padding:16px 17px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;
+    line-height:1.65;color:var(--ink-2)}
+  pre .c{color:var(--muted)}
+  pre .s{color:var(--live)}
+  .codehead{display:flex;justify-content:space-between;align-items:center;
+    border:1px solid var(--hair);border-bottom:0;border-radius:6px 6px 0 0;background:var(--sunk);
+    padding:0 8px 0 0}
+  .waiting{border:1px solid var(--hair-2);border-radius:6px;padding:16px 17px;margin:22px 0 0}
+  .waiting .h{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;gap:9px;align-items:center}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:0 0 auto}
+  .dot.pulse{background:var(--live);animation:p 1.4s ease-in-out infinite}
+  @keyframes p{0%,100%{opacity:.25}50%{opacity:1}}
+  .waiting ol{margin:0;padding-left:0;list-style:none;font-size:13.5px}
+  .waiting li{display:flex;gap:10px;padding:5px 0;color:var(--muted)}
+  .waiting li.hit{color:var(--ink)}
+  .waiting li .m{font-family:var(--mono);width:16px;flex:0 0 auto}
+  .waiting li.hit .m{color:var(--live)}
+
+  /* done */
+  .done-ring{width:42px;height:42px;border-radius:50%;border:1px solid var(--live);color:var(--live);
+    display:grid;place-items:center;font-size:19px;margin-bottom:18px}
+  .next{border-top:1px solid var(--hair);padding-top:16px;margin-top:26px}
+  .next .n{display:flex;gap:12px;padding:7px 0;font-size:13.5px;color:var(--ink-2)}
+  .next .n .m{font-family:var(--mono);color:var(--muted);flex:0 0 auto}
+
+  /* footer */
+  .foot{flex:0 0 auto;border-top:1px solid var(--hair);padding:14px 22px;display:flex;
+    justify-content:center;background:var(--paper)}
+  .foot .in{width:100%;max-width:600px;display:flex;align-items:center;gap:14px}
+  .foot .in.wide{max-width:760px}
+  .foot .spacer{flex:1}
+  .foot .whatsnext{font-size:12.5px;color:var(--muted)}
+
+  /* ------------------------------------------------------------------- the docs page */
+  .docs{display:flex;gap:40px;max-width:1000px;margin:0 auto;padding:30px 20px 90px}
+  .toc{width:190px;flex:0 0 auto;position:sticky;top:44px;align-self:flex-start;font-size:13px}
+  .toc a{display:block;color:var(--muted);text-decoration:none;padding:4px 0}
+  .toc a.on{color:var(--ink);font-weight:600}
+  .toc .grp{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--hair-2);
+    margin:18px 0 6px}
+  .doc{flex:1;min-width:0}
+  .doc h4{font-size:16px;font-weight:600;margin:34px 0 10px;padding-top:8px}
+  .doc h4:first-child{margin-top:0}
+  .doc p{font-size:14.5px;color:var(--ink-2);margin:0 0 14px}
+  .doc code{font-family:var(--mono);font-size:13px;background:var(--sunk);padding:1px 5px;
+    border-radius:3px}
+  .doc pre{border-radius:6px;border-top:1px solid var(--hair)}
+  .doc table{margin-bottom:18px}
+  .agentbar{display:flex;gap:10px;align-items:center;border:1px solid var(--hair-2);
+    border-radius:6px;padding:13px 15px;margin-bottom:26px;font-size:13.5px;color:var(--ink-2)}
+  .agentbar b{color:var(--ink)}
+  [hidden]{display:none !important}
+</style>
+</head>
+<body>
+
+<div class="harness">
+  <b>MOCKUP</b>
+  <button data-go="desk" class="on">0 · desk (entry)</button>
+  <button data-go="1">1 · strategy</button>
+  <button data-go="2">2 · terms</button>
+  <button data-go="3">3 · key</button>
+  <button data-go="4">4 · connect</button>
+  <button data-go="5">5 · done</button>
+  <button data-go="docs">docs page</button>
+  <span style="color:var(--muted)">— no API calls, invented data</span>
+</div>
+
+<!-- ============================================================== the desk, behind ==== -->
+<main id="page-desk">
+  <div class="brand"><b>stockhunt</b> // truong's dashboard</div>
+  <nav class="nav">
+    <a href="#">Paper trading</a><a href="#">Backtest</a><a href="#" class="on">My desk</a>
+  </nav>
+  <h1>Your desk</h1>
+  <div class="who">member@example.com</div>
+
+  <h2>Strategies <button class="primary small" id="open">Register a strategy</button></h2>
+  <div class="empty" id="desk-empty">
+    <p>Nothing running yet.<br>Registering takes about two minutes and ends with a key and
+       a working example.</p>
+    <button class="primary" id="open2">Register a strategy</button>
+  </div>
+  <table hidden id="desk-table"><thead><tr>
+    <th>Name</th><th class="mono">strategy_id</th><th>Holds</th><th>Desk says</th><th></th>
+  </tr></thead><tbody>
+    <tr><td>meanrev</td><td class="mono">st_7Q2M4K</td><td class="mono">SPY, QQQ · 1d</td>
+      <td><span class="tag">pending</span></td>
+      <td><button class="ghost small">Pause</button> <button class="ghost small">Retire</button></td></tr>
+  </tbody></table>
+
+  <h2>API keys</h2>
+  <table><thead><tr><th class="mono">Prefix</th><th>Label</th><th>Last used</th><th></th></tr></thead>
+    <tbody><tr><td class="mono">sk_live_a1b2…</td><td>meanrev bot, laptop</td>
+      <td class="mono">never</td><td><button class="ghost small">Revoke</button></td></tr></tbody></table>
+</main>
+
+<!-- ==================================================================== the wizard ==== -->
+<div class="overlay" id="wiz" hidden>
+ <div class="sheet">
+
+  <div class="rail">
+    <div class="title"><b>stockhunt</b> · register a strategy</div>
+    <div class="steps" id="steps"></div>
+    <button class="x" id="close" title="Close">×</button>
+  </div>
+
+  <div class="body">
+
+    <!-- ---------------------------------------------------------------- 1 · strategy -->
+    <div class="col" data-step="1">
+      <div class="eyebrow">Step 1 of 5</div>
+      <h3>What are you running?</h3>
+      <p class="lede">This is the book the desk will keep for you. It does not have to
+        match what your code does today — you can retire it and register another.</p>
+
+      <div class="field">
+        <label for="f-name">Name</label>
+        <input type="text" id="f-name" class="mono" value="meanrev">
+        <div class="hint">Letters, digits, dashes, underscores. It becomes part of your
+          <code>strategy_id</code>, so it is worth being able to read at 3am.</div>
+      </div>
+
+      <div class="field">
+        <label>Asset class</label>
+        <div class="seg" data-group="cls">
+          <button class="on">US stocks</button><button>US ETFs</button>
+          <button>Crypto</button><button>Commodities</button>
+        </div>
+        <div class="hint">Decides the venue, and therefore when the desk is open.</div>
+      </div>
+
+      <div class="field">
+        <label for="f-sym">Symbols</label>
+        <input type="text" id="f-sym" class="mono" value="SPY, QQQ">
+        <div class="chips" id="chips"></div>
+        <div class="hint">Up to 20. Orders for anything not on this list are refused.</div>
+      </div>
+
+      <div class="field">
+        <label>Timeframe</label>
+        <div class="seg" data-group="tf"><button class="on">1d</button><button>4h</button></div>
+        <div class="hint">The bar the desk marks your book on. It does not throttle you —
+          the rate limit does.</div>
+      </div>
+
+      <details class="adv">
+        <summary>Optional</summary>
+        <div class="inner">
+          <div class="field">
+            <label for="f-bench">Benchmark</label>
+            <input type="text" id="f-bench" class="mono" placeholder="SPY">
+            <div class="hint">Declared, never guessed. A multi-symbol strategy has no obvious
+              baseline, and picking one for you would put this desk's opinion inside your
+              track record.</div>
+          </div>
+          <label class="check"><input type="checkbox">
+            <span>Allow shorts. Off means a sell is only ever a close.</span></label>
+        </div>
+      </details>
+    </div>
+
+    <!-- ------------------------------------------------------------------- 2 · terms -->
+    <div class="col" data-step="2" hidden>
+      <div class="eyebrow">Step 2 of 5</div>
+      <h3>What the desk will do</h3>
+      <p class="lede">Read this once. Everything below is fixed for every member and is not
+        negotiable per strategy.</p>
+
+      <div class="recap">
+        <b>meanrev</b><span class="sep">/</span>us_stocks<span class="sep">/</span>SPY,&nbsp;QQQ
+        <span class="sep">/</span>1d
+      </div>
+
+      <div class="terms">
+        <div class="row"><div class="k">Capital</div><div class="v">$10,000, paper.
+          <em>Allocated by the desk. There is no real money anywhere in this system.</em></div></div>
+        <div class="row"><div class="k">Who decides</div><div class="v">You do. The desk executes.
+          <em>Your code runs on your machine and sends orders here. Nothing runs on ours.</em></div></div>
+        <div class="row"><div class="k">An order</div><div class="v"><b>202</b> means written down — never filled.
+          <em>The desk drains the queue on its next pass, re-checks it against the real book,
+             and may still refuse. Read the state back.</em></div></div>
+        <div class="row"><div class="k">Limits</div><div class="v">6 strategies · 60 orders a minute.
+          <em>At 1d and 4h, needing more than 60 means something is looping.</em></div></div>
+        <div class="row"><div class="k">Stopping</div><div class="v">Pause keeps positions. Retire flattens.
+          <em>Either way the fills and the equity curve are kept forever. A forward record
+             you can erase is not a record.</em></div></div>
+      </div>
+
+      <p class="lede" style="margin:0">Registering writes a request. The desk picks it up on
+        its next pass, which is why the next screen says <b>pending</b> rather than live.</p>
+    </div>
+
+    <!-- --------------------------------------------------------------------- 3 · key -->
+    <div class="col" data-step="3" hidden>
+      <div class="eyebrow">Step 3 of 5</div>
+      <h3>Registered. Now it needs a key.</h3>
+      <p class="lede">Your strategy runs unattended and cannot answer an emailed sign-in
+        code, so it carries a key instead. Keys are minted here, behind your login, and
+        never by another key — which is what makes revoking one final rather than a race.</p>
+
+      <div class="recap">
+        <b>st_7Q2M4K</b><span class="sep">/</span>meanrev<span class="sep">/</span>
+        <span class="tag">pending</span>
+      </div>
+
+      <div id="key-pick">
+        <label class="pick on"><input type="radio" name="k" checked>
+          <span><b>Mint a new key</b>
+            <span class="sub">Shown once, on the next screen, already pasted into your
+              example code.</span></span></label>
+        <label class="pick"><input type="radio" name="k">
+          <span><b>I already have one</b>
+            <span class="sub">sk_live_a1b2… · “meanrev bot, laptop” · never used.
+              The example code will show a placeholder instead.</span></span></label>
+        <div class="field" style="margin-top:18px">
+          <label for="f-klabel">What is this key for?</label>
+          <input type="text" id="f-klabel" placeholder="meanrev bot, laptop">
+          <div class="hint">You will see this, not the key, when deciding what to revoke.</div>
+        </div>
+      </div>
+
+      <div id="key-out" hidden>
+        <div class="secret">
+          <code>sk_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0</code>
+          <button class="ghost small">Copy</button>
+        </div>
+        <div class="warnbar">Store this now. It is kept as a hash, so this is the only time
+          it can be shown. Lose it and you mint another — there is no recovery, by design.</div>
+      </div>
+    </div>
+
+    <!-- ----------------------------------------------------------------- 4 · connect -->
+    <div class="col wide" data-step="4" hidden>
+      <div class="eyebrow">Step 4 of 5</div>
+      <h3>Connect it</h3>
+      <p class="lede">Everything below is filled in with your real ids. Paste it, run it, and
+        this page will notice.</p>
+
+      <div class="tabs" id="tabs">
+        <button class="on">Agent brief</button><button>Python</button>
+        <button>cURL</button><button>.env</button>
+      </div>
+
+      <div data-tab="0">
+        <pre><span class="c"># Paste this to your coding agent. It is the whole contract.</span>
+
+You are connecting a trading strategy to the Stockhunt paper desk.
+
+BASE      https://desk.stockhunt.example
+AUTH      Authorization: Bearer sk_live_a1b2…   <span class="c">(header, every call)</span>
+STRATEGY  st_7Q2M4K   <span class="c">meanrev / us_stocks / SPY,QQQ / 1d</span>
+
+To trade, POST /v1/orders with:
+  {"strategy_id":"st_7Q2M4K","client_order_id":"&lt;yours, unique&gt;",
+   "symbol":"SPY","side":"buy","qty":10,"type":"market","tif":"day"}
+
+RULES YOU MUST FOLLOW
+  1. client_order_id is the idempotency key. Re-sending one returns the
+     first order with 200 instead of creating a second. Derive it from
+     something stable — strategy, symbol, bar timestamp — never a clock.
+  2. 202 means queued, NOT filled. Poll GET /v1/orders?since_seq=N and
+     read `state` and `reason`. Do not assume a fill.
+  3. Only SPY, QQQ. Only 1d. Anything else is refused with a reason.
+  4. 60 orders a minute, then 429 with Retry-After. Back off; do not retry
+     in a tight loop.
+  5. On any 401 the key is revoked or wrong. Stop. Do not re-mint.
+
+Full reference: https://desk.stockhunt.example/desk/docs
+Machine-readable: /openapi.json</pre>
+        <div class="agentbar" style="margin-top:12px">
+          <b>Built for an LLM agent.</b> Same words as the docs page, ordered so the rules
+          that cost money if broken come first.
+          <span class="spacer" style="flex:1"></span>
+          <button class="ghost small">Copy</button>
+          <button class="ghost small">Download .md</button>
+        </div>
+      </div>
+
+      <div data-tab="1" hidden>
+        <pre><span class="c">pip install requests</span>
+
+import os, requests
+
+BASE = <span class="s">"https://desk.stockhunt.example"</span>
+H    = {<span class="s">"Authorization"</span>: <span class="s">"Bearer "</span> + os.environ[<span class="s">"STOCKHUNT_API_KEY"</span>]}
+SID  = <span class="s">"st_7Q2M4K"</span>
+
+<span class="c"># client_order_id derived from the bar, so a retry is the SAME order.</span>
+coid = <span class="s">f"meanrev-SPY-{bar_ts:%Y%m%d}"</span>
+
+r = requests.post(<span class="s">f"{BASE}/v1/orders"</span>, headers=H, json={
+    <span class="s">"strategy_id"</span>: SID, <span class="s">"client_order_id"</span>: coid,
+    <span class="s">"symbol"</span>: <span class="s">"SPY"</span>, <span class="s">"side"</span>: <span class="s">"buy"</span>, <span class="s">"qty"</span>: 10,
+    <span class="s">"type"</span>: <span class="s">"market"</span>, <span class="s">"tif"</span>: <span class="s">"day"</span>})
+
+<span class="c"># 202 = queued. 200 = you already sent this one. Neither is a fill.</span>
+print(r.status_code, r.json()[<span class="s">"state"</span>])</pre>
+      </div>
+
+      <div data-tab="2" hidden>
+        <pre>curl -X POST https://desk.stockhunt.example/v1/orders \
+  -H <span class="s">"Authorization: Bearer $STOCKHUNT_API_KEY"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{"strategy_id":"st_7Q2M4K","client_order_id":"hello-1",
+       "symbol":"SPY","side":"buy","qty":1}'</span>
+
+<span class="c"># 202 Accepted
+# {"seq":1,"state":"accepted","filled_qty":0.0,"reason":null, …}</span></pre>
+      </div>
+
+      <div data-tab="3" hidden>
+        <pre>STOCKHUNT_BASE=https://desk.stockhunt.example
+STOCKHUNT_API_KEY=sk_live_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0
+STOCKHUNT_STRATEGY_ID=st_7Q2M4K</pre>
+      </div>
+
+      <div class="waiting">
+        <div class="h"><span class="dot pulse"></span> Watching for your first call…</div>
+        <ol>
+          <li class="hit"><span class="m">✓</span> Key used — 12:04:31 from 81.2.x.x</li>
+          <li class="hit"><span class="m">✓</span> Order <code>hello-1</code> accepted · seq 1</li>
+          <li><span class="m">·</span> Desk applies it on the next pass</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- -------------------------------------------------------------------- 5 · done -->
+    <div class="col" data-step="5" hidden>
+      <div class="eyebrow">Step 5 of 5</div>
+      <div class="done-ring">✓</div>
+      <h3>meanrev is on the desk</h3>
+      <p class="lede">It is pending until the desk's next pass. Your first order is already
+        in the queue.</p>
+
+      <div class="recap">
+        <b>st_7Q2M4K</b><span class="sep">/</span>SPY,&nbsp;QQQ<span class="sep">/</span>1d
+        <span class="sep">/</span>$10,000<span class="sep">/</span><span class="tag">pending</span>
+      </div>
+
+      <div class="next">
+        <div class="n"><span class="m">1</span><span>The desk picks it up within a pass. If it
+          refuses, the reason appears on your desk row — not in an email.</span></div>
+        <div class="n"><span class="m">2</span><span>Your book, fills and equity curve show up
+          on the board under your account only. Nobody else sees them.</span></div>
+        <div class="n"><span class="m">3</span><span>Pause, resume and retire live on your
+          desk. Retire keeps the record.</span></div>
+      </div>
+
+      <div class="agentbar" style="margin-top:26px">
+        <b>Keep the brief.</b> The agent brief and the key snippet stay on your desk under
+        the strategy — the key itself does not.
+        <span style="flex:1"></span>
+        <button class="ghost small">Open docs</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="foot"><div class="in" id="foot-in">
+    <button class="ghost" id="back">Back</button>
+    <span class="whatsnext" id="whatsnext"></span>
+    <span class="spacer"></span>
+    <button class="primary" id="next">Continue</button>
+  </div></div>
+
+ </div>
+</div>
+
+<!-- ================================================================== the docs page ==== -->
+<div id="page-docs" hidden>
+  <main style="max-width:1000px;padding-bottom:10px">
+    <div class="brand"><b>stockhunt</b> // truong's dashboard</div>
+    <nav class="nav"><a href="#">Paper trading</a><a href="#">Backtest</a>
+      <a href="#">My desk</a><a href="#" class="on">API</a></nav>
+  </main>
+  <div class="docs">
+    <div class="toc">
+      <div class="grp">Start</div>
+      <a href="#" class="on">In five minutes</a><a href="#">Authentication</a>
+      <a href="#">Base URL &amp; versions</a>
+      <div class="grp">Trading</div>
+      <a href="#">Register a strategy</a><a href="#">Submit an order</a>
+      <a href="#">Read it back</a><a href="#">Cancel</a>
+      <div class="grp">Getting it right</div>
+      <a href="#">Idempotency</a><a href="#">Order lifecycle</a>
+      <a href="#">Errors</a><a href="#">Rate limits</a>
+      <div class="grp">Reference</div>
+      <a href="#">Every endpoint</a><a href="#">OpenAPI /openapi.json</a>
+    </div>
+    <div class="doc">
+      <div class="agentbar">
+        <b>Connecting an agent?</b> This whole page is one markdown file written for a model
+        to read.
+        <span style="flex:1"></span>
+        <button class="ghost small">Copy as markdown</button>
+        <button class="ghost small">/desk/agent.md</button>
+      </div>
+
+      <h4>In five minutes</h4>
+      <p>Three calls: register a strategy, mint a key, send an order. The wizard on your desk
+        does the first two and hands you the third with your ids already in it.</p>
+      <pre>1  POST /v1/strategies   <span class="c">→ 201  {"strategy_id":"st_7Q2M4K","state":"pending"}</span>
+2  POST /auth/keys       <span class="c">→ 201  {"key":"sk_live_…"}   session only, shown once</span>
+3  POST /v1/orders       <span class="c">→ 202  {"seq":1,"state":"accepted"}   queued, not filled</span></pre>
+
+      <h4>Authentication</h4>
+      <p>One header, every call: <code>Authorization: Bearer sk_live_…</code>. A browser
+        session works too, but a key is what unattended code should carry. A key cannot mint
+        another key — that is deliberate, and it is why revoking is final.</p>
+
+      <h4>Idempotency</h4>
+      <p>Every order carries a <code>client_order_id</code> you choose. Sending the same one
+        twice returns the first order with <code>200</code> instead of creating a second.
+        Derive it from something stable — strategy, symbol, bar timestamp. If you derive it
+        from a clock, a retry after a timeout becomes a doubled position, and you will not
+        see it until somebody reconciles the book by hand.</p>
+
+      <h4>Order lifecycle</h4>
+      <pre>you ──POST──▶ <b>accepted</b> ──desk pass──▶ <b>working</b> ──▶ <b>filled</b>
+                  │                              └──▶ <b>partial</b>
+                  └──────────────────────────────────▶ <b>rejected</b>  (reason set)</pre>
+      <p><code>202</code> is the left-hand box and nothing more. Everything after it happens
+        on the desk's schedule, and <code>reason</code> is where a refusal explains itself.</p>
+
+      <h4>Errors</h4>
+      <table>
+        <thead><tr><th class="mono">Code</th><th>Means</th><th>What to do</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">200</td><td>You already sent this client_order_id</td><td>Nothing. Not an error.</td></tr>
+          <tr><td class="mono">401</td><td>Key wrong, or revoked</td><td>Stop. Do not re-mint in a loop.</td></tr>
+          <tr><td class="mono">404</td><td>Not your strategy, or no such order</td><td>Check strategy_id.</td></tr>
+          <tr><td class="mono">409</td><td>Limit hit, or already done</td><td>Read <code>detail</code>; it says which.</td></tr>
+          <tr><td class="mono">422</td><td>Shape is wrong</td><td><code>detail</code> names the field.</td></tr>
+          <tr><td class="mono">429</td><td>Over 60 orders a minute</td><td>Honour <code>Retry-After</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+// Mockup wiring only: it moves between screens. No fetches, no validation, no state.
+const el = id => document.getElementById(id);
+const STEPS = ["Strategy", "Terms", "Key", "Connect", "Done"];
+const NEXT_LABEL = ["Continue", "Register", "Mint the key", "Finish", "Go to my desk"];
+const WHATS = ["", "Nothing is written until you press Register.",
+               "Shown once — the next screen puts it in your code.", "", ""];
+let step = 1;
+
+function drawSteps() {
+  el("steps").innerHTML = STEPS.map((s, i) => {
+    const n = i + 1, cls = n === step ? "now" : (n < step ? "done" : "");
+    return `<div class="s ${cls}"><span class="n">${n < step ? "✓" : n}</span>` +
+           `<span class="lbl">${s}</span></div>`;
+  }).join('<div class="bar"></div>');
+}
+
+function show(n) {
+  step = n;
+  document.querySelectorAll("[data-step]").forEach(d =>
+    d.hidden = +d.dataset.step !== n);
+  el("foot-in").classList.toggle("wide", n === 4);
+  el("back").hidden = n === 1;
+  el("next").textContent = NEXT_LABEL[n - 1];
+  el("whatsnext").textContent = WHATS[n - 1];
+  el("key-out").hidden = true;
+  el("key-pick").hidden = false;
+  drawSteps();
+  document.querySelector(".body").scrollTop = 0;
+}
+
+function openWiz(n) { el("wiz").hidden = false; show(n || 1); }
+
+el("open").onclick = el("open2").onclick = () => openWiz(1);
+el("close").onclick = () => { el("wiz").hidden = true; };
+el("back").onclick = () => show(Math.max(1, step - 1));
+el("next").onclick = () => {
+  // Minting is a state change inside step 3, not a step of its own: the key appears in
+  // place and the button becomes Continue.
+  if (step === 3 && el("key-out").hidden) {
+    el("key-pick").hidden = true; el("key-out").hidden = false;
+    el("next").textContent = "Continue"; el("whatsnext").textContent = "";
+    return;
+  }
+  if (step === 5) { el("wiz").hidden = true; el("desk-empty").hidden = true;
+                    el("desk-table").hidden = false; return; }
+  show(step + 1);
+};
+
+document.querySelectorAll(".seg").forEach(g => g.onclick = ev => {
+  if (ev.target.tagName !== "BUTTON") return;
+  g.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === ev.target));
+});
+document.querySelectorAll(".pick").forEach(p => p.onclick = () =>
+  document.querySelectorAll(".pick").forEach(q => q.classList.toggle("on", q === p)));
+
+el("tabs").onclick = ev => {
+  if (ev.target.tagName !== "BUTTON") return;
+  const bs = [...el("tabs").children], i = bs.indexOf(ev.target);
+  bs.forEach(b => b.classList.toggle("on", b === ev.target));
+  document.querySelectorAll("[data-tab]").forEach(d => d.hidden = +d.dataset.tab !== i);
+};
+
+const chips = () => el("chips").innerHTML = el("f-sym").value.split(",")
+  .map(s => s.trim().toUpperCase()).filter(Boolean)
+  .map(s => `<span class="chip">${s}</span>`).join("");
+el("f-sym").oninput = chips; chips();
+
+document.querySelector(".harness").onclick = ev => {
+  const b = ev.target.closest("button[data-go]"); if (!b) return;
+  document.querySelectorAll(".harness button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on");
+  const g = b.dataset.go;
+  el("page-desk").hidden = g === "docs";
+  el("page-docs").hidden = g !== "docs";
+  if (g === "desk" || g === "docs") el("wiz").hidden = true; else openWiz(+g);
+};
+</script>
+</body>
+</html>

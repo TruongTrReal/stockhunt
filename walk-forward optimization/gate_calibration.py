@@ -35,7 +35,22 @@ TRIAL_SIZES = {"prereg (5)": 5, "variants (96)": 96, "full sweep (327)": 327}
 
 
 def gate_min(key: str) -> float:
-    return next(g["min"] for g in GATES if g["key"] == key)
+    """Minimum for a criterion, tolerant of the 2026-08-08 rename.
+
+    This module was written against the legacy four (`ir`, `breadth`, `headroom`, `t`)
+    and reads `config.GATES`, which is now EDGE_STANDARD (`dsharpe`, `t`, `vs_random`,
+    `vs_constant`, `wealth`, `headroom`). `next()` with no default then raised
+    StopIteration and the whole stage died — the effect-size gate is simply called
+    `dsharpe` now, and it is the same quantity: an edge over buy-and-hold that the sample
+    has to be able to resolve.
+    """
+    alias = {"ir": ("dsharpe", "ir")}.get(key, (key,))
+    for want in alias:
+        for g in GATES:
+            if g["key"] == want:
+                return float(g["min"])
+    raise KeyError(f"no criterion {key!r} in GATES "
+                   f"({[g['key'] for g in GATES]}) — has the standard been renamed?")
 
 
 def sheet_years() -> dict[str, float]:

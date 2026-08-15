@@ -57,7 +57,7 @@ def payload_schema() -> str:
                    capital_per_ticker, n_indicators, n_generic_fallback},
           "leaderboard": [ {
               rank, indicator, is_baseline, generic_fallback, tldr, n_tickers,
-              gates_passed, gate_ir, gate_breadth, gate_headroom, gate_t,
+              legacy_passed, legacy_gate_ir, legacy_gate_breadth, legacy_gate_headroom, legacy_gate_t,
               ir_net, ir_hit_rate, headroom, t_stat, loo_retention,
               total_pnl_dollars, avg_cagr, avg_sharpe, profit_factor,
               trade_win_rate, avg_max_drawdown, turnover_per_year,

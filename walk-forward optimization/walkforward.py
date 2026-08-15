@@ -57,18 +57,19 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
-from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
-from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, HEADLINE_SCENARIO,
+from wfo_paths import RESULTS_DIR, write_bulk   # noqa: F401  (wires sys.path first)
+from config import (headline_key,  # noqa: F401
+                    BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, HEADLINE_SCENARIO,
                     MIN_BARS, MIN_IR_COVERAGE, TIMEFRAMES,
                     WF_IS_YEARS, WF_MIN_FOLDS, WF_MIN_IS_BARS, WF_MIN_OOS_BARS,
-                    WF_OOS_YEARS, WF_STEP_YEARS, scenarios)
+                    WF_OOS_YEARS, WF_STEP_YEARS, scenarios_for)
 from engines import vector
 import metrics
 import signals
 import td_loader
 
+from stockhunt import parallel
 from strategies.talib_signals import GENERIC_FALLBACK_FUNCTIONS, get_all_indicator_names
 
 # `LINEARREG_INTERCEPT_50` must resolve to LINEARREG_INTERCEPT, not LINEARREG — so the
@@ -149,58 +150,148 @@ def _total_return_pct(net: np.ndarray, mask: np.ndarray) -> float:
     return float((np.prod(1.0 + r) - 1.0) * 100.0) if r.size else float("nan")
 
 
-def score_folds(data: dict, runnable: list[str], asset_class: str, timeframe: str,
-                folds: list[Fold], bench: dict, free: dict
-                ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Pass A — every rule's per-fold in-sample and out-of-sample IR.
+def _context(asset_class: str, timeframe: str) -> dict | None:
+    """Everything Pass A needs, built once per process.
 
-    Returns ``(fold_table, union_table)``. Position arrays are built, scored and dropped
-    one rule-asset at a time, holding to the memory contract in `sweep.py`: a 231-rule
-    tensor over a 3.35M-bar minute series is ~6 GB and the reason the fine timeframes are
-    runnable at all is that it is never materialised.
+    A pool worker on Windows starts from a bare interpreter and inherits nothing, so it
+    rebuilds this. Keeping one builder for both paths is also what stops the serial and
+    parallel runs from drifting onto differently-constructed benchmarks or fold masks —
+    the kind of difference that would show up as a changed number with no changed code.
+
+    Returns `None` when the sheet has no cached bars, or a dict carrying `skipped` when
+    it has too few folds to walk forward over.
     """
+    data = td_loader.load(asset_class, timeframe)
+    data = {s: df for s, df in data.items() if len(df) >= MIN_BARS}
+    if not data:
+        return None
+
+    start = min(df.index[0] for df in data.values())
+    end = max(df.index[-1] for df in data.values())
+    folds = generate_folds(start, end)
+    if len(folds) < WF_MIN_FOLDS:
+        return {"skipped": f"only {len(folds)} folds in {start.date()}..{end.date()}"}
+
+    names = list(get_all_indicator_names())
+    if BASELINE_NAME not in names:
+        names.append(BASELINE_NAME)
+    runnable, skipped = signals.usable_rules(names, asset_class, timeframe)
+
+    free = {"key": "gross", "commission_bps": 0.0, "half_spread_bps": 0.0,
+            "sell_fee_bps": 0.0, "borrow_annual": 0.0}
+    bench = {}
+    for symbol, df in data.items():
+        close = df["Close"].to_numpy(dtype="float64")
+        bpy = vector.bars_per_year(df.index)
+        bench[symbol] = {
+            "net": vector.net_returns(np.ones(len(df), dtype="float64"), close, free, bpy),
+            "bpy": bpy, "close": close,
+        }
+
+    # Computed once here rather than inside `score_folds` and again inside every `stitch`
+    # call. `run_pair` makes 15 of those (IS#1 plus 14 families), so this was 16 identical
+    # passes over the fold calendar for every asset on the sheet.
     masks = {s: fold_masks(df.index, folds) for s, df in data.items()}
     union = {s: np.logical_or.reduce([m[1] for m in ms if m is not None])
              for s, ms in masks.items() if any(m is not None for m in ms)}
 
+    return {"data": data, "bench": bench, "free": free, "folds": folds,
+            "masks": masks, "union": union, "runnable": runnable, "skipped": skipped,
+            "asset_class": asset_class, "timeframe": timeframe,
+            "fees": scenarios_for(asset_class, timeframe),
+            "cache": signals.sheet_cache(asset_class, timeframe, data)}
+
+
+def _score_rule(rule: str, ctx: dict) -> list[dict]:
+    """Pass A for ONE rule: its per-fold and union rows across every asset.
+
+    Split out of `score_folds` so it can run in a pool worker. The memory contract from
+    `sweep.py` still holds and is what the layout protects: positions for one rule across
+    all assets are built, scored and dropped before the next rule starts, so a 231-rule
+    tensor over a 3.35M-bar minute series (~6 GB) is never materialised. That is the only
+    reason the fine timeframes are runnable at all.
+    """
+    data, bench, union, masks = ctx["data"], ctx["bench"], ctx["union"], ctx["masks"]
+    folds, free = ctx["folds"], ctx["free"]
+
     fold_rows: list[tuple] = []
     union_rows: list[tuple] = []
-    for rule in tqdm(runnable, desc=f"WF {asset_class}/{timeframe}"):
-        for symbol, df in data.items():
-            if symbol not in union:
-                continue
-            pos = signals.position_for(rule, df, asset_class, timeframe,
-                                       baseline_name=BASELINE_NAME)
-            if pos is None:
-                continue
-            b = bench[symbol]
-            fees = [free] if rule == BASELINE_NAME else scenarios(asset_class)
-            for fee in fees:
-                net = vector.net_returns(pos, b["close"], fee, b["bpy"])
-                union_rows.append((
-                    rule, symbol, fee["key"],
-                    _ir(net, b["net"], union[symbol], b["bpy"]),
-                    _total_return_pct(net, union[symbol]),
-                    _total_return_pct(b["net"], union[symbol]),
-                    # Per asset, not per sheet. The sheet median is 41 years on 1d
-                    # equities, but META listed in 2012 and TSLA in 2010 — annualising
-                    # their returns over 41 years understates them by a factor of three.
-                    float(union[symbol].sum() / b["bpy"]) if b["bpy"] > 0 else np.nan,
+    positions = signals.rule_positions(rule, data, ctx["asset_class"], ctx["timeframe"],
+                                       ctx["cache"], baseline_name=BASELINE_NAME)
+    for symbol, df in data.items():
+        if symbol not in union:
+            continue
+        pos = positions.get(symbol)
+        if pos is None:
+            continue
+        b = bench[symbol]
+        u = union[symbol]
+        # Exposure over the scored window, on the same definitions `combo_wf.py` uses,
+        # because the dashboard now ranks singles and pairs in one list and a rule that
+        # is long ~100% of the time IS buy-and-hold — its IR converges on 0 from below
+        # for that reason alone, which on a leaderboard looks exactly like skill. The
+        # position does not depend on the fee schedule, so this is computed once and
+        # repeated across the scenario rows.
+        expo = (float(np.mean(pos[u] != 0)), float(np.mean(pos[u] > 0)),
+                float(np.mean(pos[u] < 0)))
+        fees = [free] if rule == BASELINE_NAME else ctx["fees"]
+        for fee in fees:
+            net = vector.net_returns(pos, b["close"], fee, b["bpy"])
+            union_rows.append((
+                rule, symbol, fee["key"],
+                _ir(net, b["net"], union[symbol], b["bpy"]),
+                _total_return_pct(net, union[symbol]),
+                _total_return_pct(b["net"], union[symbol]),
+                # Per asset, not per sheet. The sheet median is 41 years on 1d
+                # equities, but META listed in 2012 and TSLA in 2010 — annualising
+                # their returns over 41 years understates them by a factor of three.
+                float(union[symbol].sum() / b["bpy"]) if b["bpy"] > 0 else np.nan,
+                *expo,
+            ))
+            for f, m in zip(folds, masks[symbol]):
+                if m is None:
+                    continue
+                fold_rows.append((
+                    rule, symbol, fee["key"], f.index,
+                    _ir(net, b["net"], m[0], b["bpy"]),
+                    _ir(net, b["net"], m[1], b["bpy"]),
                 ))
-                for f, m in zip(folds, masks[symbol]):
-                    if m is None:
-                        continue
-                    fold_rows.append((
-                        rule, symbol, fee["key"], f.index,
-                        _ir(net, b["net"], m[0], b["bpy"]),
-                        _ir(net, b["net"], m[1], b["bpy"]),
-                    ))
+    return [{"fold": fold_rows, "union": union_rows}]
 
+
+_CTX: dict | None = None
+
+
+def _init_worker(asset_class: str, timeframe: str) -> None:
+    global _CTX
+    _CTX = _context(asset_class, timeframe)
+
+
+def _score_rule_worker(rule: str) -> list[dict]:
+    return _score_rule(rule, _CTX)
+
+
+def score_folds(ctx: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Pass A — every rule's per-fold in-sample and out-of-sample IR.
+
+    Returns ``(fold_table, union_table)``. Rules are independent, so the loop runs across
+    cores; `parallel.map_rules` preserves submission order, so both tables come out in
+    exactly the row sequence the serial version produced.
+    """
+    chunks = parallel.map_rules(
+        ctx["runnable"], _score_rule_worker, _init_worker,
+        (ctx["asset_class"], ctx["timeframe"]),
+        desc=f"WF {ctx['asset_class']}/{ctx['timeframe']}",
+        serial_fn=lambda r: _score_rule(r, ctx))
+
+    fold_rows = [r for c in chunks for r in c["fold"]]
+    union_rows = [r for c in chunks for r in c["union"]]
     fold_table = pd.DataFrame(
         fold_rows, columns=["rule", "symbol", "scenario", "fold", "ir_is", "ir_oos"])
     union_table = pd.DataFrame(
         union_rows, columns=["rule", "symbol", "scenario", "ir_union",
-                             "ret_pct", "bench_pct", "years_oos"])
+                             "ret_pct", "bench_pct", "years_oos",
+                             "exposure", "long_frac", "short_frac"])
     return fold_table, union_table
 
 
@@ -221,7 +312,7 @@ def pick_champions(fold_table: pd.DataFrame, candidates: set[str]) -> pd.DataFra
 
 def stitch(data: dict, asset_class: str, timeframe: str, folds: list[Fold],
            bench: dict, picks: pd.DataFrame, label: str,
-           position_fn=None) -> pd.DataFrame:
+           position_fn=None, masks: dict | None = None) -> pd.DataFrame:
     """Pass B — write each fold's chosen rule into one position array and backtest once.
 
     The switch at a fold boundary is a real trade and is charged here, because the
@@ -231,8 +322,14 @@ def stitch(data: dict, asset_class: str, timeframe: str, folds: list[Fold],
     `position_fn(rule, symbol, df) -> array | None` overrides how a name becomes a
     position, so `variants.py` can stitch transformed rules (`MAXINDEX|long_only`) that
     `signals.position_for` would not recognise. Default is the plain rule lookup.
+
+    `masks` is an optional pre-computed `{symbol: fold_masks(...)}`. `run_pair` calls this
+    fifteen times per sheet and every call rebuilt the identical calendar; passing it in
+    is the same arithmetic done once. Omitted, it is computed here as before, which keeps
+    the three external callers (`variants`, `prereg`, `strat_wf`) working unchanged.
     """
-    masks = {s: fold_masks(df.index, folds) for s, df in data.items()}
+    if masks is None:
+        masks = {s: fold_masks(df.index, folds) for s, df in data.items()}
     rows = []
     for symbol, df in data.items():
         ms = masks[symbol]
@@ -260,7 +357,17 @@ def stitch(data: dict, asset_class: str, timeframe: str, folds: list[Fold],
                 used |= m[1]
             if not used.any():
                 continue
-            fee = next(f for f in scenarios(asset_class) if f["key"] == scen)
+            # `next()` with no default raises StopIteration deep inside a generator
+            # and kills the run with no usable message — which is exactly what happened
+            # when a caller still built picks on the four-scenario grid while this sheet
+            # had collapsed to `gross`. Fail with the mismatch spelled out instead.
+            avail = scenarios_for(asset_class, timeframe)
+            fee = next((f for f in avail if f["key"] == scen), None)
+            if fee is None:
+                raise ValueError(
+                    f"{asset_class}/{timeframe}: picks reference scenario {scen!r} but "
+                    f"this sheet runs {[f['key'] for f in avail]}. The caller and "
+                    f"`config.scenarios_for` disagree about the fee grid.")
             net = vector.net_returns(stitched, b["close"], fee, b["bpy"])
             years = float(used.sum() / b["bpy"]) if b["bpy"] > 0 else np.nan
             chosen = grp.sort_values("fold")["rule"]
@@ -270,6 +377,12 @@ def stitch(data: dict, asset_class: str, timeframe: str, folds: list[Fold],
                 "ret_pct": _total_return_pct(net, used),
                 "bench_pct": _total_return_pct(b["net"], used),
                 "years_oos": years,
+                # Of the stitched path, not of any one fold's rule: what a person following
+                # this selection procedure was actually holding. Same definitions as the
+                # fixed rows, so the two are comparable in one column.
+                "exposure": float(np.mean(stitched[used] != 0)),
+                "long_frac": float(np.mean(stitched[used] > 0)),
+                "short_frac": float(np.mean(stitched[used] < 0)),
                 # Changes *between* folds. The opening selection is an entry, not a
                 # switch, and counting it would overstate churn by one on every asset.
                 "n_switches": int((chosen != chosen.shift()).sum() - 1),
@@ -286,7 +399,7 @@ def leaderboard_row(per_symbol: pd.DataFrame, label: str, mode: str,
     years = float(per_symbol["years_oos"].median())
     row = metrics.aggregate(per_asset, years,
                             float(ir_by_scen.get("gross", np.nan)),
-                            float(ir_by_scen.get(HEADLINE_SCENARIO[asset_class], np.nan)))
+                            float(ir_by_scen.get(headline_key(asset_class, timeframe), np.nan)))
     ret = float(per_symbol["ret_pct"].mean()) if "ret_pct" in per_symbol else float("nan")
     bench = float(per_symbol["bench_pct"].mean()) if "bench_pct" in per_symbol else float("nan")
     row.update({
@@ -329,35 +442,16 @@ def ranking_stability(fold_table: pd.DataFrame, scen: str) -> float:
 
 
 def run_pair(asset_class: str, timeframe: str) -> tuple[dict, dict]:
-    data = td_loader.load(asset_class, timeframe)
-    data = {s: df for s, df in data.items() if len(df) >= MIN_BARS}
-    if not data:
+    ctx = _context(asset_class, timeframe)
+    if ctx is None:
         return {}, {}
+    if "runnable" not in ctx:
+        return {}, ctx                       # carries the `skipped` reason
 
-    start = min(df.index[0] for df in data.values())
-    end = max(df.index[-1] for df in data.values())
-    folds = generate_folds(start, end)
-    if len(folds) < WF_MIN_FOLDS:
-        return {}, {"skipped": f"only {len(folds)} folds in {start.date()}..{end.date()}"}
+    data, bench, folds = ctx["data"], ctx["bench"], ctx["folds"]
+    masks, runnable, skipped = ctx["masks"], ctx["runnable"], ctx["skipped"]
 
-    names = list(get_all_indicator_names())
-    if BASELINE_NAME not in names:
-        names.append(BASELINE_NAME)
-    runnable, skipped = signals.usable_rules(names, asset_class, timeframe)
-
-    free = {"key": "gross", "commission_bps": 0.0, "half_spread_bps": 0.0,
-            "sell_fee_bps": 0.0, "borrow_annual": 0.0}
-    bench = {}
-    for symbol, df in data.items():
-        close = df["Close"].to_numpy(dtype="float64")
-        bpy = vector.bars_per_year(df.index)
-        bench[symbol] = {
-            "net": vector.net_returns(np.ones(len(df), dtype="float64"), close, free, bpy),
-            "bpy": bpy, "close": close,
-        }
-
-    fold_table, union_table = score_folds(data, runnable, asset_class, timeframe,
-                                          folds, bench, free)
+    fold_table, union_table = score_folds(ctx)
     if fold_table.empty:
         return {}, {"skipped": "no scoreable folds"}
 
@@ -372,11 +466,12 @@ def run_pair(asset_class: str, timeframe: str) -> tuple[dict, dict]:
             fams.setdefault(f, set()).add(r)
     fams = {f: v for f, v in fams.items() if len(v) > 1}
 
-    stitched = [stitch(data, asset_class, timeframe, folds,
-                       bench, pick_champions(fold_table, candidates), "IS#1")]
+    stitched = [stitch(data, asset_class, timeframe, folds, bench,
+                       pick_champions(fold_table, candidates), "IS#1", masks=masks)]
     for fam, variants in fams.items():
         stitched.append(stitch(data, asset_class, timeframe, folds, bench,
-                               pick_champions(fold_table, variants), f"{fam}[WF]"))
+                               pick_champions(fold_table, variants), f"{fam}[WF]",
+                               masks=masks))
     wf = pd.concat([s for s in stitched if not s.empty], ignore_index=True)
 
     # Fixed rules get the same stitched-OOS calendar with no re-selection, so the three
@@ -395,13 +490,21 @@ def run_pair(asset_class: str, timeframe: str) -> tuple[dict, dict]:
     for (label, scen), grp in allrows.groupby(["rule", "scenario"]):
         mode = ("is1_selection" if label == "IS#1"
                 else "family_reopt" if label.endswith("[WF]") else "fixed")
-        out.append(leaderboard_row(grp, label, mode, asset_class, timeframe, scen,
-                                   ir_by_scen.loc[label] if label in ir_by_scen.index
-                                   else pd.Series(dtype=float)))
+        row = leaderboard_row(grp, label, mode, asset_class, timeframe, scen,
+                              ir_by_scen.loc[label] if label in ir_by_scen.index
+                              else pd.Series(dtype=float))
+        # Mean across assets, matching how every other column on this row aggregates.
+        for col in ("exposure", "long_frac", "short_frac"):
+            row[col] = float(grp[col].mean()) if col in grp else float("nan")
+        out.append(row)
     summary = pd.DataFrame(out).sort_values(["scenario", "ir_net"],
                                             ascending=[True, False])
 
-    headline = HEADLINE_SCENARIO[asset_class]
+    # The scenario this sheet ACTUALLY ran. `HEADLINE_SCENARIO` is `retail`, but at
+    # 1d and 4h the grid collapses to `gross`, so filtering on it selects zero rows
+    # and every aggregate becomes the mean of an empty set — NaN, which reads as
+    # 'not computed' rather than 'asked the wrong question'.
+    headline = scenarios_for(asset_class, timeframe)[0]["key"]
     per_rule_folds = (fold_table.groupby(["rule", "scenario", "fold"])
                       [["ir_is", "ir_oos"]].mean().reset_index())
     schedule = pick_champions(fold_table, candidates)
@@ -428,7 +531,7 @@ def run_pair(asset_class: str, timeframe: str) -> tuple[dict, dict]:
 
 def report(tables: dict, meta: dict) -> None:
     summary = tables["summary"]
-    headline = HEADLINE_SCENARIO[meta["class"]]
+    headline = scenarios_for(meta["class"], meta["timeframe"])[0]["key"]
     head = summary[(summary["scenario"] == headline) & summary["rankable"]]
     is1 = head[head["wf_mode"] == "is1_selection"]
     fixed = head[(head["wf_mode"] == "fixed") & ~head["is_baseline"]]
@@ -449,7 +552,7 @@ def report(tables: dict, meta: dict) -> None:
         r = is1.iloc[0]
         print(f"\n  IS#1 (the rule you could actually have picked): "
               f"IR {r['ir_net']:+.3f}, breadth {r['ir_hit_rate']:.0%}, "
-              f"t {r['t_stat']:+.2f}, {r['gates_passed']}/4 gates, "
+              f"t {r['t_stat']:+.2f}, {r['legacy_passed']}/4 legacy, "
               f"{r['n_switches']:.0f} switches over {r['n_folds']:.0f} folds")
     if not fixed.empty:
         b = fixed.nlargest(1, "ir_net").iloc[0]
@@ -473,7 +576,7 @@ def report(tables: dict, meta: dict) -> None:
             print(f"    {r.rule:<24} {r.ir_net:+.3f}   best fixed {base}_* "
                   f"{best:+.3f}   delta {r.ir_net - best:+.3f}")
         print(f"    -> re-optimising helped {helped} of {len(fam)} families")
-    n_clear = int((head[~head["is_baseline"]]["gates_passed"] == 4).sum())
+    n_clear = int((head[~head["is_baseline"]]["legacy_passed"] == 4).sum())
     print(f"\n  {n_clear} of {len(head[~head['is_baseline']])} rankable rows "
           f"cleared all four gates")
 
@@ -500,7 +603,9 @@ def main() -> None:
             tables["summary"].to_csv(RESULTS_DIR / f"wf_summary_{tag}.csv", index=False)
             tables["folds"].to_csv(RESULTS_DIR / f"wf_folds_{tag}.csv", index=False)
             tables["schedule"].to_csv(RESULTS_DIR / f"wf_schedule_{tag}.csv", index=False)
-            tables["per_asset"].to_csv(RESULTS_DIR / f"wf_per_asset_{tag}.csv", index=False)
+            # Parquet: 77 MB of CSV on us_stocks 1d. The dashboard reads this one, so it
+            # goes through `artifacts.read_bulk`, which accepts either spelling.
+            write_bulk(tables["per_asset"], RESULTS_DIR / f"wf_per_asset_{tag}.parquet")
             meta["seconds"] = time.time() - t0
             metas.append(meta)
             report(tables, meta)

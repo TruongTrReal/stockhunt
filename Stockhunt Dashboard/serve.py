@@ -1,7 +1,17 @@
-"""One origin for the whole dashboard: static files and the tick stream on a single port.
+"""The local dashboard: static files and the tick stream on a single port, no login.
 
-The desk previously needed two — `python -m http.server` on 8765 and the WebSocket on 8766
-— which is fine on localhost and breaks the moment it is shared:
+**This server is loopback-only, and it refuses to be anything else.** It authenticates
+nobody, so whoever reaches it sees the whole book — which was fine while the only way to
+reach it was to be sitting at this machine. Sharing the desk now goes through
+`../paper api/`, which serves the same `web/` directory behind an emailed sign-in code.
+
+That is a hard refusal rather than a warning because the failure is silent and total: one
+`--host 0.0.0.0` and a tunnel publishes every position, every fill and the whole research
+record to anyone with the URL, and nothing on the page would look any different. See
+`_check_host`.
+
+The desk previously needed two ports — `python -m http.server` on 8765 and the WebSocket
+on 8766 — which is fine on localhost and breaks the moment it is shared:
 
 * **Mixed content.** A tunnel serves the page over HTTPS, and a browser refuses to let an
   HTTPS page open an insecure `ws://` socket. The stream would silently never connect.
@@ -18,8 +28,8 @@ or touch a position. If this dies the desk keeps trading.
 
 Run::
 
-    python serve.py                    # 127.0.0.1:8765
-    python serve.py --host 0.0.0.0     # reachable on the LAN / through a tunnel
+    python serve.py                    # 127.0.0.1:8765, and nowhere else
+    cd "../paper api" && python run_api.py    # the same board, behind a login
 """
 
 from __future__ import annotations
@@ -29,7 +39,6 @@ import asyncio
 import json
 import logging
 import mimetypes
-from pathlib import Path
 
 import websockets
 from websockets.asyncio.server import serve
@@ -37,17 +46,15 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 import dash_config
+import web_files
 
 WEB = dash_config.WEB
 WS_PATH = "/ws"
 POLL_EVERY = 1.0
 
-# Served to browsers; anything else is a 404. An allowlist rather than "whatever is under
-# `web/`" because this process may face the public internet through a tunnel, and the
-# directory also holds the build script and the demo fixture.
-ALLOWED = {"", "/", "/index.html", "/app.js", "/app.css", "/data.js",
-           "/live.json", "/paper_curves.json"}
-ALLOWED_PREFIXES = ("/curves/",)
+# Loopback, and the two spellings of it. Anything else is refused rather than warned
+# about -- see the module docstring.
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
 class _DropNonGet(logging.Filter):
@@ -67,23 +74,6 @@ class _DropNonGet(logging.Filter):
 logging.getLogger("websockets.server").addFilter(_DropNonGet())
 
 
-def _resolve(path: str) -> Path | None:
-    """Map a URL path to a file, refusing anything outside the allowlist.
-
-    `Path.resolve()` plus an `is_relative_to` check is what stops `/curves/../../.env.local`
-    — the tunnel makes traversal a real concern rather than a theoretical one.
-    """
-    clean = path.split("?", 1)[0]
-    if clean in ("", "/"):
-        clean = "/index.html"
-    if clean not in ALLOWED and not clean.startswith(ALLOWED_PREFIXES):
-        return None
-    target = (WEB / clean.lstrip("/")).resolve()
-    if not target.is_relative_to(WEB.resolve()) or not target.is_file():
-        return None
-    return target
-
-
 def http_handler(connection, request):
     """Serve a file for any request that is not the WebSocket upgrade.
 
@@ -92,7 +82,7 @@ def http_handler(connection, request):
     """
     if request.path.split("?", 1)[0] == WS_PATH:
         return None
-    target = _resolve(request.path)
+    target = web_files.resolve(WEB, request.path)
     if target is None:
         return Response(404, "Not Found", Headers({"Content-Type": "text/plain"}),
                         b"not found")
@@ -103,9 +93,7 @@ def http_handler(connection, request):
     headers = Headers({
         "Content-Type": ctype,
         "Content-Length": str(len(body)),
-        # `live.json` changes every couple of seconds; a cached copy would freeze the desk
-        # for whoever opened it first. The rest is versioned by query string already.
-        "Cache-Control": "no-store" if target.name == "live.json" else "public, max-age=60",
+        "Cache-Control": web_files.cache_control(target.name),
     })
     return Response(200, "OK", headers, body)
 
@@ -144,12 +132,32 @@ async def main_async(host: str, port: int) -> None:
         await asyncio.Future()
 
 
+def _check_host(host: str) -> None:
+    """Refuse to serve the unauthenticated board to anything but this machine.
+
+    The instruction to point a tunnel here used to be in this file's own docstring, so
+    this is not a hypothetical someone else might do — it is the documented workflow being
+    withdrawn, and a `--host` that quietly still worked would keep it alive.
+    """
+    if host in LOOPBACK:
+        return
+    raise SystemExit(
+        f"serve.py refuses to bind {host}: it has no login, so anything that can reach it\n"
+        "sees every position and every result.\n\n"
+        "To share the desk, serve the same board behind an emailed sign-in code:\n\n"
+        '    cd "../paper api"\n'
+        "    python admin_users.py allow them@example.com\n"
+        "    .\\run.ps1 -Tunnel\n"
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--host", default="127.0.0.1",
-                    help="0.0.0.0 to accept connections from the LAN or a tunnel")
+                    help="loopback only; sharing goes through ../paper api/")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    _check_host(args.host)
     try:
         asyncio.run(main_async(args.host, args.port))
     except KeyboardInterrupt:

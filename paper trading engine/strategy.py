@@ -32,8 +32,10 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
+import live_signal
 import paper_config
 import paper_state
+import store
 
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
@@ -41,7 +43,8 @@ from nautilus_trader.model.enums import BarAggregation, OrderSide
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
-from strategies.talib_signals import generate_position
+# `generate_position` is no longer imported here: it answers for the TA-Lib family only.
+# `live_signal.position_for` asks it first and falls through to the published registry.
 
 
 def _bar_duration(bar_type: BarType) -> timedelta:
@@ -82,6 +85,10 @@ class TalibRuleConfig(StrategyConfig, frozen=True):
     # `BTC/USD` becomes `BTCUSD` on the instrument — fine for routing, wrong on a
     # dashboard a manager reads.
     display_symbol: str = ""
+    # Whose book this is. '00' is the house — the rules the desk runs off its own
+    # walk-forward sheets — and a member's registration carries their own two-character id.
+    # It is only ever an id: the trading engine never sees an email address.
+    account: str = "00"
     bt_ir: float | None = None
     bt_years: float | None = None
     note: str = ""
@@ -103,7 +110,13 @@ class TalibRuleStrategy(Strategy):
         # published curve means "since this strategy began", not "since the warmup data
         # vendor's earliest bar" — which would put years of history in a chart captioned
         # as days of paper trading.
-        self._sid = f"{str(config.instrument_id.symbol).lower()}-{config.timeframe}-{config.rule.lower()}"
+        # Account-scoped, so two accounts running the identical cell keep separate books.
+        # Without the prefix they share one sid, their fills merge, their curves merge and
+        # neither number belongs to anybody.
+        self._sid = store.sid_for(
+            config.account,
+            f"{str(config.instrument_id.symbol).lower()}-{config.timeframe}"
+            f"-{config.rule.lower()}")
         self._start_equity: float | None = None
         self._start_price: float | None = None
         self._start_ts: str | None = None
@@ -137,8 +150,17 @@ class TalibRuleStrategy(Strategy):
         # `limit` rather than the range, but a real vendor adapter would honour it — so
         # compute an honest span instead of passing an arbitrary early date. The 2x
         # padding covers weekends and holidays: 1500 daily *bars* is ~2170 calendar days.
+        #
+        # `self.clock.utc_now()`, NOT `datetime.now()`. A strategy must read its own clock
+        # or it cannot run anywhere except live. The two are the same thing under a
+        # LiveClock, so this changes nothing on the desk — but a strategy attached to a
+        # RUNNING trader is handed a brand-new clock (`Trader.add_strategy` does
+        # `self._clock.__class__()`), and under a TestClock that clock starts at the epoch
+        # until the engine next advances it. Asking for a window measured from the wall
+        # clock then requests a range in the future and Nautilus rejects it outright with
+        # `start was > now`. See `test_runtime_attach.py`, which is what found this.
         span = _bar_duration(self.config.bar_type)
-        start = datetime.now(timezone.utc) - span * self.config.window_bars * 2
+        start = self.clock.utc_now() - span * self.config.window_bars * 2
         self.request_bars(self.config.bar_type, start=start,
                           limit=self.config.window_bars)
         self.subscribe_bars(self.config.bar_type)
@@ -146,6 +168,7 @@ class TalibRuleStrategy(Strategy):
         if self.config.export_state:
             paper_state.register(
                 self._sid,
+                account=self.config.account, kind="house_rule",
                 symbol=self.config.display_symbol or str(self.config.instrument_id.symbol),
                 venue=str(self.config.instrument_id.venue),
                 cls=self.config.asset_class, tf=self.config.timeframe,
@@ -197,7 +220,7 @@ class TalibRuleStrategy(Strategy):
         if self._primed or len(self._bars) < self.config.min_warmup_bars:
             return
         span = _bar_duration(self.config.bar_type)
-        age = datetime.now(timezone.utc) - self._bars[-1]["ts"].to_pydatetime()
+        age = self.clock.utc_now() - self._bars[-1]["ts"].to_pydatetime()   # own clock, as above
         # Two intervals of slack absorbs a weekend gap on a daily bar and a vendor that
         # has not yet settled the bar that just closed.
         if age > span * 2 + timedelta(days=3):
@@ -246,11 +269,24 @@ class TalibRuleStrategy(Strategy):
         return df[["Open", "High", "Low", "Close", "Volume"]]
 
     def _signal(self) -> float | None:
-        """Position in {-1, 0, +1} from the shared research signal layer."""
+        """Position in {-1, 0, +1} from the shared research signal layer.
+
+        Through `live_signal`, which asks BOTH dispatchers. This used to call
+        `generate_position` directly, which knows only the 231 TA-Lib rules and raises
+        `No signal rule registered` for anything in `strategies/published/` — so the desk
+        could not trade `ibs` or `volmanaged`, which are the two rules at the top of the
+        `us_stocks 1d` board. The rules the research liked best were exactly the ones the
+        paper desk refused.
+        """
         try:
-            raw = generate_position(self.config.rule, self._frame())
+            raw = live_signal.position_for(
+                self.config.rule, self._frame(),
+                self.config.display_symbol or str(self.config.instrument_id.symbol))
         except Exception as exc:
             self.log.error(f"{self.config.rule} failed: {exc}")
+            return None
+        if raw is None:
+            self.log.error(f"no dispatcher can build {self.config.rule!r}")
             return None
         arr = np.nan_to_num(np.asarray(raw, dtype="float64"), nan=0.0,
                             posinf=0.0, neginf=0.0)

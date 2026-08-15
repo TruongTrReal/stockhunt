@@ -41,24 +41,34 @@ COMMISSION_BPS = {"us_stocks": 1.0, "crypto": 10.0}
 SLIPPAGE_BPS = {"us_stocks": 1.0, "crypto": 5.0}
 
 
+EDGE_STANDARD_CSV = (RESULTS_DIR.parent.parent / "walk-forward optimization"
+                     / "results" / "edge_standard.csv")
+
+
 def survivors() -> pd.DataFrame:
-    """Every (class, timeframe, rule) that cleared all four gates at headline cost."""
-    frames = []
-    for asset_class in CLASSES:
-        for timeframe in TIMEFRAMES:
-            for prefix in ("summary", "combo_summary"):
-                path = RESULTS_DIR / f"{prefix}_{asset_class}_{timeframe}.csv"
-                if not path.exists():
-                    continue
-                df = pd.read_csv(path)
-                headline = CLASSES[asset_class]["headline_cost"]
-                keep = df[(df["cost_bps"] == headline) & df["rankable"]
-                          & (df["gates_passed"] == 4)]
-                if len(keep):
-                    keep = keep.copy()
-                    keep["stage"] = "single" if prefix == "summary" else "combo"
-                    frames.append(keep)
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    """Every (class, timeframe, rule) that PASSED THE EDGE STANDARD.
+
+    Re-pointed 2026-08-08. This used to select `gates_passed == 4` out of this folder's
+    own single-split sweeps, which is wrong twice over: those gates were retired, and a
+    single split scores a rule without scoring the act of choosing it. Nautilus validation
+    is expensive and exists to re-price things that already look real, so it should run on
+    the one list of things that actually cleared the standard.
+
+    That list is written by `walk-forward optimization/riskmatch_wf.py` — the only module
+    that can compute the six criteria. This is the sole read this folder makes into the
+    walk-forward results, and it exists because the verdict genuinely lives there.
+    """
+    if not EDGE_STANDARD_CSV.exists():
+        print(f"no {EDGE_STANDARD_CSV.name} — run `riskmatch_wf.py` in the walk-forward "
+              f"folder first; there is nothing to validate until something passes")
+        return pd.DataFrame()
+    df = pd.read_csv(EDGE_STANDARD_CSV)
+    keep = df[df["edge_verdict"] == "PASS"].copy()
+    if keep.empty:
+        return pd.DataFrame()
+    keep["stage"] = "edge_standard"
+    keep = keep.rename(columns={"tf": "timeframe"})
+    return keep
 
 
 def validate_one(asset_class: str, timeframe: str, rule: str) -> list[dict]:

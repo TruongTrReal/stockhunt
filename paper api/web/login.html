@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Sign in · Stockhunt</title>
+<!--
+  Deliberately self-contained: no stylesheet, no script file, nothing from `web/`.
+
+  The only page here an unauthenticated caller can fetch, so every byte it pulls in would
+  be a byte served before anyone has proved who they are. Inlining it means the login
+  screen cannot become a hole in the allowlist by someone later adding an asset to it.
+
+  Two steps in one form. It never says whether an address is registered -- the second step
+  appears either way, because the server's answer is the same either way and a page that
+  said "unknown address" would undo that in one line of HTML.
+-->
+<style>
+  :root{
+    color-scheme: light dark;
+    --paper:#FCFCFA; --ink:#16161A; --ink-2:#3F3F46; --muted:#78787F;
+    --hair:#E4E4DE; --hair-2:#CFCFC8; --loss:#B0402F;
+    --sans:ui-sans-serif,system-ui,"Segoe UI",-apple-system,"Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0B0B0C; --ink:#F1F1EE; --ink-2:#C3C3C0; --muted:#84848C;
+      --hair:#232327; --hair-2:#33333A; --loss:#E08472;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;
+    display:flex;align-items:center;justify-content:center;padding:24px}
+  main{width:100%;max-width:380px}
+  .brand{font-size:13px;letter-spacing:.02em;color:var(--muted);margin-bottom:34px}
+  .brand b{color:var(--ink);font-weight:600}
+  h1{font-size:23px;font-weight:600;margin:0 0 8px;letter-spacing:-.01em}
+  p.lede{color:var(--ink-2);margin:0 0 26px;font-size:15px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:7px}
+  input{width:100%;background:transparent;color:var(--ink);font-family:var(--sans);
+    font-size:16px;padding:11px 0;border:0;border-bottom:1px solid var(--hair-2);
+    border-radius:0}
+  input:focus{outline:none;border-bottom-color:var(--ink)}
+  input#code{font-family:var(--mono);font-size:26px;letter-spacing:.34em;
+    font-variant-numeric:tabular-nums}
+  button{margin-top:26px;width:100%;padding:12px;font-family:var(--sans);font-size:15px;
+    color:var(--paper);background:var(--ink);border:0;cursor:pointer}
+  button:disabled{opacity:.45;cursor:default}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--hair);
+    margin-top:12px}
+  .note{margin-top:20px;font-size:13px;color:var(--muted)}
+  .err{margin-top:18px;font-size:14px;color:var(--loss);min-height:1.6em}
+  .hide{display:none}
+  footer{margin-top:44px;font-size:12px;color:var(--muted);
+    border-top:1px solid var(--hair);padding-top:14px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">stockhunt // <b>paper desk</b></div>
+
+  <form id="step-email">
+    <h1>Sign in</h1>
+    <p class="lede">Access is by invitation. Enter the address you were invited on and
+      we'll email you a code.</p>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required
+           autofocus placeholder="you@example.com">
+    <button type="submit" id="send">Email me a code</button>
+    <div class="err" id="err-email"></div>
+  </form>
+
+  <form id="step-code" class="hide">
+    <h1>Check your email</h1>
+    <p class="lede" id="sent-to">A six-digit code is on its way. It expires in ten
+      minutes.</p>
+    <label for="code">Code</label>
+    <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+           maxlength="6" required placeholder="000000">
+    <button type="submit" id="verify">Sign in</button>
+    <button type="button" class="ghost" id="back">Use a different address</button>
+    <div class="err" id="err-code"></div>
+    <div class="note">No code? It can take a minute. Check spam, then ask again — a new
+      code replaces the old one.</div>
+  </form>
+
+  <footer>
+    This desk is a paper-trading forward test. Nothing on it is advice, and no order it
+    shows was ever sent to a venue.
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let email = "";
+
+async function post(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 204, or an error page */ }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// FastAPI's validation errors arrive as a list of objects; anything rendered straight
+// into the page would print "[object Object]" at exactly the moment somebody is stuck.
+function detailOf(data, fallback) {
+  const d = data && data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d) && d.length && d[0].msg) return d[0].msg.replace(/^Value error, /, "");
+  return fallback;
+}
+
+$("step-email").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("err-email").textContent = "";
+  $("send").disabled = true;
+  email = $("email").value.trim();
+  const { ok, data } = await post("/auth/otp", { email });
+  $("send").disabled = false;
+  if (!ok) {
+    $("err-email").textContent = detailOf(data, "Could not send a code. Try again.");
+    return;
+  }
+  // Deliberately shown whether or not that address is registered.
+  $("sent-to").textContent =
+    `If ${email} is registered, a six-digit code is on its way. It expires in ten minutes.`;
+  $("step-email").classList.add("hide");
+  $("step-code").classList.remove("hide");
+  $("code").focus();
+});
+
+$("step-code").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("err-code").textContent = "";
+  $("verify").disabled = true;
+  const { ok, data } = await post("/auth/browser", { email, code: $("code").value });
+  $("verify").disabled = false;
+  if (!ok) {
+    $("err-code").textContent = detailOf(data, "That code is not valid.");
+    $("code").select();
+    return;
+  }
+  // The session is an HttpOnly cookie by this point; this page never sees the token.
+  window.location.replace("/");
+});
+
+$("back").addEventListener("click", () => {
+  $("step-code").classList.add("hide");
+  $("step-email").classList.remove("hide");
+  $("code").value = "";
+  $("err-code").textContent = "";
+  $("email").focus();
+});
+</script>
+</body>
+</html>

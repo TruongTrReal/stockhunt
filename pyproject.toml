@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stockhunt"
+version = "0.1.0"
+description = "Shared library for the stockhunt quant research pipeline"
+requires-python = ">=3.11"
+dependencies = ["numpy", "pandas"]
+
+# Deliberately minimal. `stockhunt/` is the shared core — stats, the position cache, the
+# parallel harness, paths — and it depends on numpy and pandas only. The heavy
+# dependencies (TA-Lib, requests, tqdm, pyarrow, nautilus_trader) belong to the pipeline
+# folders that use them, and pinning them here would make the paper desk's venv a
+# prerequisite for importing a Sharpe ratio.
+
+[project.optional-dependencies]
+# What the pipeline folders additionally need. Installed in `.venv`; the two bake-off
+# venvs deliberately do not get them.
+pipeline = ["TA-Lib", "requests", "tqdm", "pyarrow", "matplotlib"]
+
+# `paper api/`, the invitation-only HTTP layer. Installed into the same `.venv` as the
+# desk because the strategy endpoints will import `paper_config`, and a second
+# environment would mean keeping two copies of `nautilus_trader` in step. `httpx` is
+# there for `fastapi.testclient`, which is a test dependency of `test_auth.py` only.
+api = ["fastapi", "uvicorn[standard]", "httpx"]
+
+[tool.setuptools]
+# Only the real package. The four pipeline folders have spaces in their names and are
+# script directories, not importable packages — see `stockhunt/paths.py`.
+packages = ["stockhunt"]
+
+[tool.pytest.ini_options]
+# `tests/` is the unit suite: synthetic bars only, no `data/`, no vendor, no result CSV.
+#
+# The other two entries collect NOTHING under pytest and are listed for discoverability
+# only. `strategies/tests/test_causality.py` and `tools/test_stats_equivalence.py` are
+# `__main__` scripts that exit nonzero — they gate the pipeline the way `parity.py` does
+# and are run directly, not collected:
+#
+#     python strategies\tests\test_causality.py
+#     python tools\test_stats_equivalence.py
+testpaths = ["tests", "strategies/tests", "tools"]
+
+# Default (prepend) import mode on purpose: it puts `tests/` on `sys.path`, which is what
+# lets the modules share `conftest.make_ohlcv` by plain import. `--import-mode=importlib`
+# does not, and every test that builds its own synthetic bars fails to collect under it.
+# Test basenames must stay unique across `testpaths` for this mode, which they are.
+addopts = "-p no:cacheprovider"
+
+# An xfail that starts passing is a defect that got fixed without the note being removed.
+# Two are recorded here (`tests/test_stats.py`, `tests/test_config.py`) and both name a
+# live defect, so this must fail loudly rather than quietly turning green.
+xfail_strict = true

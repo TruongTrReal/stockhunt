@@ -1,29 +1,21 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) working in this directory.
+Guidance for Claude Code (claude.ai/code) working in this directory. Read `../CLAUDE.md`
+first. **No results here** — the `results/` CSVs and the dashboard own those.
 
 ## What this is
 
-The third and widest study in this repo. `../test research/` asked whether any TA-Lib
-rule beats buy-and-hold across 501 S&P tickers on daily bars (no). `../top 20 stocks/`
-asked the same at depth on 20 mega-caps across 1d/1h/5m (no, and finer timeframes were
-monotonically worse). This one widens to **two asset classes and seven timeframes**,
-ranks on **information ratio against four acceptance gates** rather than excess Sharpe,
-and — the real change — makes the backtest itself auditable by running three independent
-engines against each other.
+The machinery: universes, data fetching and integrity, the signal layer, three backtest
+engines and the parity harness that makes them check each other, plus the single-split
+sweeps and the static HTML report.
 
-Read `../test research/CLAUDE.md` too: the signal layer and the position conventions come
-from there and apply here unchanged.
-
-**Current state: a null result on US stocks.** 0 of 230 rules cleared all four gates at
-any of six timeframes or any cost level. Best net out-of-sample IR is **-0.21** (1d,
-26 years of history); it degrades monotonically to -0.84 by 15m. Treat a run that
-suddenly produces winners as a bug until `parity.py` and the multiplicity correction
-have both been re-checked.
+Everything that prices **selection** lives next door in `../walk-forward optimization/` —
+stages 1b through 2b, and the book run that draws the dashboard's curves. That is where the
+headline numbers come from.
 
 ## Setup and commands
 
-The venv is one level up (in the repo root) and shared with the sibling studies:
+The venv is one level up and shared with the sibling studies:
 
 ```powershell
 ..\.venv\Scripts\Activate.ps1
@@ -37,7 +29,15 @@ Run everything **from this directory** — modules import each other by bare nam
 ```powershell
 python td_loader.py                       # fetch everything (~5h, ~13k credits)
 python td_loader.py --class crypto --tf 1d
+python sp500_membership.py --probe        # point-in-time membership + priceability
+python top100_membership.py               # the top 100 of it, point-in-time
+python top100_membership.py --show 2008   # ...and who that was in a given year
+python universe_screen.py                 # which ETFs and pairs are tradable, and when
+python universe_screen.py --write         # ...and commit that to etf_entry.csv
+python factors.py                         # Fama-French daily -> ../data/reference/
 python check_data.py --fix                # OHLC integrity scan + repair
+python check_data.py --probe-listing      # is each ticker even the US company? (network)
+python check_data.py --class us_stocks --tf 1d
 python parity.py --n 3                    # three-engine cross-check (gate on this)
 python sweep.py --class us_stocks         # stage 1: singles
 python combo_sweep.py                     # stage 2/3: single-split pairs (legacy)
@@ -47,29 +47,36 @@ python build_report.py                    # -> report/index.html
 python build_report.py --demo             # synthetic payload, layout check only
 ```
 
-Everything that prices **selection** moved to `../walk-forward optimization/` — stages 1b
-through 2b, and `curves.py`. That is where the headline numbers come from:
-
-```powershell
-cd "../walk-forward optimization"
-python walkforward.py --class us_stocks --tf 1d   # stage 1b: THE headline (quote IS#1)
-python variants.py --tf 1d 4h                     # stage 1c
-python prereg.py --tf 1d 4h --freeze              # stage 1d
-python strat_wf.py --tf 1d 4h                     # stage 1e
-python gate_calibration.py                        # are the gates provable on this sample?
-python combo_wf.py --tf 1d 4h                     # stage 2b
-python curves.py --tf 1d 4h                       # curves for the dashboard
-```
+**Background jobs get killed at 10 minutes** by the harness timeout. Long fetches and sweeps
+must be launched detached (`Start-Process ... -WindowStyle Hidden`) with output redirected
+to `logs/*.log`.
 
 ## Architecture
 
 ```
 config.py        universes, 7 timeframes, per-class cost grids, gates, sys.path
+   |             US_STOCKS is the POINT-IN-TIME TOP 100 (the 751-name S&P universe is
+   |             kept as SP500_UNIVERSE, the 20 mega-caps as MEGA20)
+   |             US_ETFS is ETF_TOP10 and CRYPTO is CRYPTO_TOP20 (the 65- and 34-name
+   |             lists are kept as ETF_ALL65 and CRYPTO_ALL34)
+   |             BACKTEST_START, MIN_PRICE_USD, FEE_SCENARIOS, HEADLINE_SCENARIO
+universes.py     GENERATED: 503 current + 248 priceable departed S&P names
+sp500_membership.py  point-in-time index membership from the Wikipedia changelog
+universes_top100.py  GENERATED: the 216 names that ever held a top-100 slot
+top100_membership.py the top 100 OF that index, ranked per date on trailing dollar
+   |             volume. Annual re-rank, 120-rank buffer. -> top100_membership.csv
+universe_screen.py   the ETF and crypto equivalent: which of the 65 funds and 34 pairs
+   |             can actually be TRADED, and from when. -> universe_screen_<class>.csv
+   |             and ../data/reference/etf_entry.csv
+factors.py       Fama-French daily + momentum + short-term reversal, Newey-West OLS
    |
-../strategies/   talib_signals.py (231 rules) | catalog.py (26 published strategies)
-   |
-td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs>/<tf>/<SYMBOL>.parquet
-check_data.py    OHLC integrity scan and repair
+../strategies/   talib_signals.py (231 rules) | registry.py (31 published strategies)
+   |             overlays/regime.py: trailing-vol conditioning over any base rule
+td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs|commodities>/<tf>/*.parquet
+   |             applies BACKTEST_START and the quarantine, once, for the whole repo
+   |             span_for(class): the head cut. us_stocks -> membership_span (top-100
+   |             record), us_etfs -> etf_entry_span (the liquidity screen), others none
+check_data.py    OHLC integrity scan, repair, and the quarantine rules
    |
 signals.py       the ONE way a rule name becomes a position series
    |
@@ -78,183 +85,91 @@ parity.py        samples cells, runs all three, FAILS on disagreement
    |
 sweep.py         stage 1: 231 singles x assets x timeframes x costs
 combo_sweep.py   stage 2/3: pairs of train-shortlisted singles, 4 operators (legacy split)
-metrics.py       IR, the four gates, breakeven, leave-one-out
+metrics.py       IR, the edge standard, deflated Sharpe, breakeven, leave-one-out
    |
    +--> ../walk-forward optimization/   stages 1b-2b: everything that prices SELECTION
-   |                                    walkforward, variants, prereg, strat_wf,
-   |                                    combo_wf, gate_calibration, curves
    |
 validate.py      Nautilus on survivors: whole shares, commission, slippage
 build_payload.py results -> report/report_payload.json
 build_report.py  template.html + report.js + payload -> report/index.html
 ```
 
-**`config.py` is load-bearing beyond configuration.** It prepends the **repo root** to
-`sys.path`, which is the only reason `from strategies.talib_signals import ...` resolves.
-The signal layer and the published-strategy catalog live in `../strategies/`, a real
-package shared with the walk-forward stage, the paper desk and the dashboard.
+## Three modules are load-bearing beyond what they look like
+
+**`config.py` is a path bootstrap.** It prepends the **repo root** to `sys.path`, which is
+the only reason `from strategies.talib_signals import ...` resolves. The signal layer and
+the published-strategy catalog live in `../strategies/`, a real package shared with the
+walk-forward stage, the paper desk and the dashboard.
 
 It used to prepend `../test research/src` instead, which made a frozen study a runtime
-dependency of live code. `strategies/talib_signals.py` is now a byte-identical copy of
-that file — verified rule-for-rule, 231 of 231 producing the same positions — and the
-original stays where it is because 17 modules inside the locked folder still import it.
-See `../LOCKED.md`.
+dependency of live code. `strategies/talib_signals.py` is now a copy of that file and the
+original stays where it is because 17 modules inside the locked folder still import it. See
+`../LOCKED.md`.
 
 **`signals.py` is the single source of positions.** `parity.py`, `sweep.py`,
 `combo_sweep.py` and `validate.py` must all produce byte-identical positions for the same
-cell, or the parity harness is checking the wrong thing. Benchmark plumbing (BETA,
-CORREL), the NaN policy and end-of-day flattening live there and nowhere else.
+cell, or the parity harness is checking the wrong thing. Benchmark plumbing (BETA, CORREL),
+the NaN policy and end-of-day flattening live there and nowhere else.
 
-## Conventions that carry real meaning
+**`td_loader.load` is where the sample is defined.** `config.BACKTEST_START` and the
+quarantine list are applied there and nowhere else, so one cut is the whole pipeline
+agreeing on a window. `check_data.py` is the deliberate exception — it passes
+`skip_quarantined=False` because it has to see the bars it is judging.
 
-- **Rank on IR against buy-and-hold on the same asset.** Not raw Sharpe (measures
-  long-bias in a rising market) and not excess Sharpe (discards the benchmark
-  correlation that decides detectability). A rule that sits flat has IR approximately
-  *minus* the benchmark's Sharpe — so on the intraday sheets the "best" rules are the
-  ones that most nearly do nothing, and that is a fact about the metric, not a finding.
-- **Positions re-size to the target fraction every bar.** `(1 + pos.shift(1)*ret).cumprod()`
-  means constant *fraction*, not constant share count. The two are identical for long and
-  flat and differ badly for shorts — a static -1 short through four +10% bars ends at
-  0.536x, a re-sized one at 0.9^4 = 0.656x. Any new engine must match this or parity
-  will (correctly) fail.
-- **Cost grids are per asset class**, and itemised: `commission_bps`, `half_spread_bps`,
-  `sell_fee_bps` and `borrow_annual` per scenario, in `config.FEE_SCENARIOS`. Equities run
-  `gross / retail / wide / pessimistic` (headline `retail`); crypto runs
-  `gross / binance / kraken / coinbase` (headline `binance`), because major-exchange taker
-  fees are ~10bps a side. Charging crypto an equity grid manufactures survivors.
-- **The baseline is never charged and never flattened.** Flattening the benchmark turns
-  it into a different strategy — precisely what made the old 5m "beat" an artifact.
-- **Shortlisting happens on train-period IR only.** Sorting by a test column and reading
-  the top rows is selection on test; this project has done it and had to retract.
-- **A single split scores a rule; it does not score *choosing* a rule.** `sweep.py`'s
-  leaderboard picks its winner once, with the whole test column already visible — nobody
-  trading in 2015 had that table. `walkforward.py` prices the choice: parameters and rule
-  identity are re-selected on each 3y in-sample window and applied to the next 12 months.
-  Quote **IS#1** as the headline, not the best fixed rule. On 1d equities the gap is
-  **-0.21 IR** (-0.447 vs -0.237), and per-fold parameter tuning lost on **all 14**
-  re-optimisable families (mean -0.083). Selection is a cost here, never a free upgrade.
-- **Annualisation is measured**, never a constant. A US equity 4h "day" is one 4h bar
-  plus a 2.5h stub.
-- `ddof=1` everywhere. pandas defaults to 1, numpy to 0; mixing them makes two backtests
-  silently incomparable.
-- **One source, one adjustment.** Twelve Data with `adjust=all`. Never compare against
-  the yfinance-derived leaderboards: 0.05% of position-days differ but final equity moves
-  up to 18%, which looks exactly like alpha.
+## Where a verdict may be computed
 
-- **Check the gates against the sample before believing a null.** `gate_calibration.py`
-  reports the effective bar, `max(IR gate, 2/sqrt(years), noise_ceiling(N, years))`. Only
-  **us_stocks 1d** is coherent, and only since the history fix below: at 41 OOS years its
-  ceiling is +0.43 even after 327 trials, under the 0.50 gate. Every other sheet carries
-  3.4-5.9 OOS years, where the t gate alone implies IR 0.82-1.09 and the ceiling at 96
-  trials is +0.95 to +1.26 — so the stated 0.50 gate sits *below* what luck produces and
-  cannot be passed meaningfully. Relaxing such a gate makes it easier and more worthless
-  simultaneously; the coherent moves are more years or fewer trials.
-- **On equities, read `long_frac` before believing any IR improvement.** `../walk-forward optimization/combo_wf.py`
-  found the best daily combination at IR -0.057 against -0.224 for the best single — and
-  it is long **96%** of the time. `MININDEX~MAXINDEX|or` is long **100%**: it is literally
-  buy-and-hold. Across all 140 combinations `corr(IR, long_frac) = 0.881` on 1d and 0.692
-  on 4h, so the whole leaderboard is a ranking of time-in-market, and `or` wins because it
-  is the operator that spends the most. IR against buy-and-hold approaches 0 from below as
-  a rule approaches always-long, and 0 is the *ceiling*, not a win. Crypto behaves
-  differently (correlation -0.12 / -0.00), so the artifact is an equity-uptrend effect,
-  not a property of the metric everywhere.
-- **Daily equity history goes back to 1970, not 2000.** `WINDOWS[("us_stocks","1d")]`
-  carried `start: 2000-01-01` annotated as the vendor's earliest timestamp. It was wrong:
-  `/earliest_timestamp` returns 1970-01-02 for JNJ/KO/XOM/PG/CVX, 1980-12-12 for AAPL,
-  1986-03-13 for MSFT. Refetching took the sheet from 24 to **54 folds** and median OOS
-  years from 23.6 to 41.0, which cut the noise ceiling from +0.48 to +0.36 and is the
-  single reason the gates are testable at all. History is the only lever on the ceiling —
-  `metrics.se_ir` falls as 1/sqrt(years) and ignores how many assets or bars those years
-  hold. The pre-2000 cache is preserved at `../data/_archive/stocks_1d_pre2000/`.
+Nowhere in this folder. `metrics.aggregate` emits diagnostics only. The six criteria need
+matched sizing, per-fold Sharpe and two signal-free controls, none of which the IR sweeps
+have.
 
-- **A negative IR does not mean a rule is worthless, and a leaderboard without exposure
-  controls cannot tell you which.** Against a rising benchmark, IR is close to a linear
-  function of time-in-market: `../walk-forward optimization/strat_wf.py` measures it directly with six signal-free
-  controls (`ALWAYS_FLAT`, seeded block-random rules at 25/50/75/90%, `ALWAYS_LONG`) and
-  on us_stocks 1d the curve runs -0.68 at zero exposure to 0.00 at full exposure. Rank on
-  `ir_vs_random` — the row's IR minus that curve at its *own* exposure — before believing
-  any ordering. It reverses the leaderboard: on equities every mean-reversion rule clears
-  its control while the trend rules do not, and on crypto that flips exactly.
-- **IR is arithmetic and blind to variance drag; on leveraged ETFs that matters.** `ibs`
-  on SOXL scores IR -0.134 (a loss) and simultaneously compounds **+25.4%/yr more than
-  buy-and-hold** (1,908x vs 230x), because it cuts annualised vol from 93.5% to 62.7% and
-  the drag that removes is worth 24 points a year. Both numbers are correct.
-  `strat_wf.excess_cagr` reports `excess_cagr` / `excess_cagr_min` / `excess_cagr_hit`
-  alongside IR for this reason. Note `walkforward.leaderboard_row`'s `excess_return_pct`
-  is a mean of per-asset *total* returns and is near-meaningless when SOXL compounds 230x
-  and SPY 6.4x — annualise first, average second.
-- **`np.nanmedian(whole_series)` is look-ahead, and it is in this repo.**
-  `prereg.volmanaged`, `variants._vol_scale` (both now in `../walk-forward optimization/`)
-  and any Pruitt-style adaptive lookback
-  normalise current volatility against the median of the *entire* series. It is one
-  scalar rather than a per-bar signal, but it is still future data: truncating the series
-  changed 11 of 93 cells' *past* positions. `strategies.catalog._causal_median` uses an expanding
-  median instead. **The stage 1c and 1d results were not re-run** — their
-  volatility-scaled rows carry the leak, and it is worth 0.084 IR on `volmanaged` at
-  us_stocks 1d (the contaminated version scored -0.368, the clean one -0.284).
-  Re-run those two stages before quoting their vol-scaled numbers again.
-- **Test causality by truncation, not by reading the code.** Build positions on the full
-  series and on the series minus the last N bars, then assert the overlapping region is
-  identical. That is what caught the above; no amount of staring at `rolling()` calls did.
+`metrics.apply_edge_standard` is the single **definition** — thresholds, the Bonferroni
+correction on `t`, the rankability preconditions — and it lives here so that both stages
+that can supply those inputs call the same function rather than two copies of it. Two do:
 
-## Gotchas
+| who | over what | writes |
+|---|---|---|
+| `../walk-forward optimization/riskmatch_wf.py` | the **median asset**, risk-matched | `edge_standard.csv` |
+| `../walk-forward optimization/portfolio_wf.py` | the **book**, one account | `book_<class>_<tf>.csv` |
+
+They disagree on rows, legitimately — a book is steadier than any of its names. The
+dashboard shows the book's. Changing a threshold means changing `config.EDGE_STANDARD`
+once; adding a third caller means feeding it the same six inputs, never re-deriving them.
+
+## Mechanics that will bite you
 
 - **Twelve Data serves no volume for crypto** — the field is absent, not zero. AD, ADOSC,
-  MFI and OBV therefore cannot be evaluated on that class. `signals.usable_rules` skips
-  and counts them; they are never fed NaN, because a volume rule on NaN produces a flat
-  position that is indistinguishable on a leaderboard from a rule that does nothing.
-- **The vendor ships broken intraday OHLC bars** — 284 of ~3.4M had `high < close` or
-  `low > open`. The vectorised engine reads Close only and would consume them forever in
-  silence; Nautilus refuses to load them, which is how they were found. Run
-  `check_data.py --fix` after any fetch, before sweeping.
-- **The vendor also ships decimal-point bad ticks in crypto intraday**, and these are far
-  more dangerous. BTC prints 2.812 instead of 28,100 for one minute, then recovers. Raw
-  returns self-cancel, so `prod(1+r)` still telescopes to the right answer and nothing
-  looks wrong. But the **-0.999 return floor clips the crash leg and not the recovery**,
-  so each spike pair multiplies equity by ~10x — 126 spikes on BTC 1-minute turned
-  buy-and-hold into 1e125 and contaminated every IR on that sheet. `check_data.py` now
-  detects them with a centred rolling median and **drops** the bars (a bar at 1/10,000 of
-  the true price did not happen; interpolating would invent a trade). 182 across crypto,
-  every timeframe except daily; zero in equities.
-  **This was not caught by the OHLC check** — each bad bar is internally consistent, its
-  own high/low correctly bracketing its own bogus close — **nor by structural payload
-  validation, nor by jsdom.** It was caught by looking at the rendered page and seeing a
-  buy-and-hold PnL of $2.9e129. Structural checks verify shape; sanity-check the actual
-  numbers on the actual output.
-- **Nautilus parity tolerance scales with sqrt(fills), not with equity.** Every fill
-  rounds cash to the cent, and a short re-sizes every bar — one 7k-bar cell produced
-  5,355 fills. A flat tolerance produces false failures; see the note in `parity.py`.
-- **`parity.py` is currently RED on one cell, and it is a real disagreement.**
-  `crypto 5m AVAX/USD EMA_1000` fails vector-vs-reference at `rel_diff ~= 1.0`. It is not
-  a refactor artifact — `engines/vector.py` and `engines/reference.py` are byte-identical
-  to the `pre-refactor` tag, and the cell had simply never been sampled (`--n 3`/`--n 4`
-  miss it; `--n 5` hits it).
-
-  The cause is real data. On 2025-10-10 AVAX fell from 23.06 to 11.44 and rebounded to
-  27.80 inside 15 minutes — the October liquidation cascade, not a bad tick: every bar is
-  internally consistent and `check_data.py` correctly reports no fault. Against a **short**
-  position a +143% bar is a >100% loss, and the two engines then disagree by construction:
-
-  | engine | final equity | why |
-  |---|---|---|
-  | `vector` | **$28.47** | clips per-bar net return at `RETURN_FLOOR = -0.999` |
-  | `reference` | **-$12,243** | share-level accounting, no floor; the account goes negative |
-
-  Both are faithful to their own model and **neither models a margin call**. A short that
-  is annihilated should be liquidated at zero, not clipped to survive and not allowed to
-  run negative. Fixing it changes published numbers, so it is deliberately left alone —
-  it wants its own task with the result diff as the deliverable. Until then, know that
-  `parity.py --n 5` exits nonzero for this reason and not because the build is broken.
+  MFI and OBV cannot be evaluated on that class. `signals.usable_rules` skips and counts
+  them; they are never fed NaN, because a volume rule on NaN produces a flat position that is
+  indistinguishable on a leaderboard from a rule that does nothing.
+- **A bare symbol is not an identity, and the vendor substitutes rather than failing.**
+  `td_loader._request` now pins `country=United States` for `US_LISTED_CLASSES`, which
+  makes Twelve Data return `status: error` for a ticker it has no US listing for instead
+  of serving a foreign namesake. Before that pin, **85 of 739** cached `us_stocks` series
+  were a different company for their entire length — `CTRA` was Ciputra Development Tbk PT
+  on the Indonesia Stock Exchange, and it ranked as the 3rd largest US stock of 2026.
+  `check_data.py --probe-listing` is the check on data already on disk; it caches a
+  verdict per symbol and `check_data.wrong_instrument_reason` quarantines from that cache
+  offline. **No bar-level test can find these** — the series is internally consistent, its
+  highs bracket its lows, it has no 10x bar, and it turns over billions a day. The
+  liquidity floor catches an impostor that is THIN; this catches one that is FAT.
+  `sp500_membership.probe_priceable` still sends a bare symbol, and its answer is
+  therefore a claim about the ticker rather than about the company.
+- **Run `check_data.py --fix` after any fetch, before sweeping.** A scoped
+  `--class X --tf Y` merges into `quarantine.csv` rather than rewriting it; rows outside the
+  scanned scope are preserved, rows inside are re-derived so a repaired symbol can leave.
 - **Nautilus parity runs at zero cost only.** A venue fee is charged on traded notional;
   this project's cost model charges on target change. Under constant-fraction rebalancing
   those legitimately differ. Cost modelling is verified between `vector` and `reference`
   across the whole grid instead.
-- **Background jobs get killed at 10 minutes** by the harness timeout. Long fetches and
-  sweeps must be launched detached (`Start-Process ... -WindowStyle Hidden`) with output
-  redirected to `logs/*.log`.
-- `report/index.html` is generated. Edit `template.html`, `report.js` or
-  `build_payload.py` — never `index.html`, which is overwritten every build.
-- **The report is forced to pure ASCII** by `build_report.py`, with different escaping
-  per region (character references in HTML, backslash escapes in JS, and CSS `content:`
-  must be ASCII outright). A raw `->` in the source renders as mojibake in any context
-  where the charset cannot be declared.
+- **Nautilus parity tolerance scales with sqrt(fills), not with equity.** Every fill rounds
+  cash to the cent and a short re-sizes every bar — one 7k-bar cell produced 5,355 fills. A
+  flat tolerance produces false failures; see the note in `parity.py`.
+- **`parity.py --n 5` currently exits nonzero**, and `vector-nautilus` is red on some cells.
+  Both are known and deliberate — a real short-annihilation disagreement in the first case,
+  fill-count rounding in the second. `--n 3`/`--n 4` do not sample the failing cell.
+- `report/index.html` is generated. Edit `template.html`, `report.js` or `build_payload.py`
+  — never `index.html`, which is overwritten every build.
+- **The report is forced to pure ASCII** by `build_report.py`, with different escaping per
+  region (character references in HTML, backslash escapes in JS, and CSS `content:` must be
+  ASCII outright). A raw `->` in the source renders as mojibake in any context where the
+  charset cannot be declared.

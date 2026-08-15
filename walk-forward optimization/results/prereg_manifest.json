@@ -1,6 +1,6 @@
 {
-  "frozen_at": "2026-08-05T10:38:51.174845+00:00",
-  "forward_test_starts": "2026-08-05",
+  "frozen_at": "2026-08-12T15:27:06.796981+00:00",
+  "forward_test_starts": "2026-08-12",
   "hypotheses": {
     "tsmom12": "Moskowitz/Ooi/Pedersen 2012: long if trailing 12m return > 0",
     "faber_gtaa": "Faber 2007: long above the 10-month moving average",
@@ -15,25 +15,25 @@
   "n_trials": 5,
   "note": "Scored on bars after forward_test_starts, this set carries no selection at all: 5 fixed rules, no free parameters, no re-optimisation. That is the only version of this test that is genuinely pre-registered.",
   "sheets": {
-    "us_stocks_1d": {
-      "oos_start": "1973-01-02",
-      "oos_end": "2026-08-04",
-      "years_oos": 41.01
+    "us_etfs_1d": {
+      "oos_start": "2003-01-03",
+      "oos_end": "2026-08-07",
+      "years_oos": 22.09
     },
-    "us_stocks_4h": {
-      "oos_start": "2022-06-21",
-      "oos_end": "2026-07-31",
-      "years_oos": 3.94
+    "us_etfs_4h": {
+      "oos_start": "2023-02-10",
+      "oos_end": "2026-08-07",
+      "years_oos": 3.46
     },
     "crypto_1d": {
       "oos_start": "2020-08-29",
-      "oos_end": "2026-08-03",
-      "years_oos": 5.93
+      "oos_end": "2026-08-08",
+      "years_oos": 5.94
     },
     "crypto_4h": {
       "oos_start": "2023-01-07",
-      "oos_end": "2026-08-03",
-      "years_oos": 3.58
+      "oos_end": "2026-08-08",
+      "years_oos": 3.59
     }
   }
 }

@@ -129,8 +129,15 @@ def equity_instrument(symbol: str, venue: str) -> Equity:
     )
 
 
-def crypto_instrument(pair: str, venue: str) -> CurrencyPair:
-    """`BTC/USD` -> a fractional-quantity spot pair."""
+def pair_instrument(pair: str, venue: str) -> CurrencyPair:
+    """`BTC/USD` or `XAU/USD` -> a fractional-quantity spot pair.
+
+    Was `crypto_instrument`, and the rename is the point: commodities are quoted the same
+    way and settle the same way — buying `XAU/USD` converts USD into XAU exactly as buying
+    `BTC/USD` converts it into BTC — so they want the same instrument, on their own venue.
+    Nautilus's currency registry already knows XAU, XAG, XPT, XPD and WTI, so nothing has to
+    be invented for them.
+    """
     from nautilus_trader.model.currencies import BTC, ETH, USD as _USD
     from nautilus_trader.model.objects import Currency
 
@@ -168,15 +175,17 @@ def crypto_instrument(pair: str, venue: str) -> CurrencyPair:
 
 
 def vendor_symbol(instrument_id: InstrumentId) -> str:
-    """`BTCUSD.BINANCE` -> `BTC/USD`; `SOXL.SANDBOX` -> `SOXL`."""
+    """`BTCUSD.BINANCE` -> `BTC/USD`; `XAUUSD.SPOT` -> `XAU/USD`; `SOXL.SANDBOX` -> `SOXL`.
+
+    A lookup in `paper_config.SAFE_TO_VENDOR`, not a pattern match on the ticker. The old
+    shape — strip a `USD` suffix if the head looks like a currency code — searched only the
+    crypto leg, so `XAUUSD` fell through to itself and every commodity bar request asked
+    Twelve Data for an instrument that does not exist. That fails *quietly*: the vendor
+    answers with an empty series rather than an error, so the strategy would have warmed up
+    forever on zero bars while its logs looked healthy.
+    """
     s = instrument_id.symbol.value
-    if s.endswith("USD") and len(s) > 3 and s not in ("USD",):
-        head = s[:-3]
-        if head.isalpha() and head.upper() == head and len(head) <= 5 and "/" not in s:
-            for pair in paper_config.CRYPTO_SYMBOLS:
-                if pair.replace("/", "") == s:
-                    return pair
-    return s
+    return paper_config.SAFE_TO_VENDOR.get(s, s)
 
 
 def timeframe_of(bar_type: BarType) -> str:

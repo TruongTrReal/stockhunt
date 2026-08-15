@@ -44,8 +44,9 @@ import pandas as pd
 from tqdm import tqdm
 
 from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
-from config import (BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
-                    MIN_IR_COVERAGE, scenarios)
+from config import (headline_key,  # noqa: F401
+                    BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
+                    MIN_IR_COVERAGE, scenarios_for)
 from engines import vector
 import metrics
 import signals
@@ -99,7 +100,7 @@ def leg_correlation(leg_nets: dict[str, dict[str, np.ndarray]],
 
 def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
     tag = f"{asset_class}_{timeframe}"
-    scen_key = HEADLINE_SCENARIO[asset_class]
+    scen_key = headline_key(asset_class, timeframe)
     data = td_loader.load(asset_class, timeframe)
     data = {s: df for s, df in data.items() if len(df) >= MIN_BARS}
     if not data:
@@ -132,20 +133,24 @@ def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
              for s, ms in masks.items() if any(m is not None for m in ms)}
 
     # Leg positions are built once per (rule, symbol) and reused by every operator that
-    # references them; only one asset's worth is live at a time.
+    # references them; only one asset's worth is live at a time. The legs are ordinary
+    # TA-Lib singles that earlier stages already generated, so they come from the cache.
+    cache = signals.sheet_cache(asset_class, timeframe, data)
     leg_pos: dict[str, dict[str, np.ndarray]] = {}
     leg_nets: dict[str, dict[str, np.ndarray]] = {}
     for rule in legs:
         leg_pos[rule], leg_nets[rule] = {}, {}
+        built = signals.rule_positions(rule, data, asset_class, timeframe, cache,
+                                       baseline_name=BASELINE_NAME)
         for symbol, df in data.items():
             if symbol not in union:
                 continue
-            p = signals.position_for(rule, df, asset_class, timeframe,
-                                     baseline_name=BASELINE_NAME)
+            p = built.get(symbol)
             if p is None:
                 continue
             leg_pos[rule][symbol] = p
-            fee = next(f for f in scenarios(asset_class) if f["key"] == scen_key)
+            fee = next(f for f in scenarios_for(asset_class, timeframe)
+                       if f["key"] == scen_key)
             leg_nets[rule][symbol] = vector.net_returns(
                 p, bench[symbol]["close"], fee, bench[symbol]["bpy"])
 
@@ -177,7 +182,7 @@ def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
                               "exposure": float(np.mean(pos[u] != 0)),
                               "long_frac": float(np.mean(pos[u] > 0)),
                               "short_frac": float(np.mean(pos[u] < 0))})
-            for fee in scenarios(asset_class):
+            for fee in scenarios_for(asset_class, timeframe):
                 net = vector.net_returns(pos, bd["close"], fee, bd["bpy"])
                 union_rows.append((name, symbol, fee["key"],
                                    wfmod._ir(net, bd["net"], u, bd["bpy"]),
@@ -260,7 +265,7 @@ def wfmod_shortlist(tag: str, k: int, scen: str) -> list[str]:
 
 def report(tables: dict, meta: dict) -> None:
     s = tables["summary"]
-    scen = HEADLINE_SCENARIO[meta["class"]]
+    scen = headline_key(meta["class"], meta.get("timeframe"))
     h = s[(s.scenario == scen) & s.rankable]
     print(f"\n=== {meta['class']}_{meta['timeframe']} ({meta['seconds']:.0f}s) ===")
     print(f"  {meta['n_legs']} legs -> {meta['n_combos']} combinations | "
@@ -289,7 +294,7 @@ def report(tables: dict, meta: dict) -> None:
         print("\n  top 5 fixed combinations  (long% ~100 means it has become buy-and-hold):")
         for r in fixed.nlargest(5, "ir_net").itertuples():
             print(f"    {r.rule:<38} IR {r.ir_net:+.3f}  long {r.long_frac:.0%}  "
-                  f"breadth {r.ir_hit_rate:.0%}  t {r.t_stat:+.2f}  {r.gates_passed}/4")
+                  f"breadth {r.ir_hit_rate:.0%}  t {r.t_stat:+.2f}  {r.legacy_passed}/4 legacy")
 
         # The only combination that would be evidence: one that beats its own best leg
         # while spending materially less time in the market than buy-and-hold.
@@ -304,7 +309,7 @@ def report(tables: dict, meta: dict) -> None:
         r = wf.iloc[0]
         print(f"\n  IS#1[combo] (re-selected each fold — the honest number): "
               f"IR {r['ir_net']:+.3f}, breadth {r['ir_hit_rate']:.0%}, "
-              f"t {r['t_stat']:+.2f}, {r['gates_passed']}/4 gates")
+              f"t {r['t_stat']:+.2f}, {r['legacy_passed']}/4 legacy gates")
 
     best = h.nlargest(1, "ir_net")
     if not best.empty:
@@ -312,7 +317,8 @@ def report(tables: dict, meta: dict) -> None:
         verdict = "ABOVE" if r["ir_net"] > meta["noise_ceiling"] else "below"
         print(f"  best row overall: {r['rule']}  IR {r['ir_net']:+.3f}  "
               f"({verdict} the noise ceiling)")
-    print(f"  rows clearing all four gates: {int((h.gates_passed == 4).sum())} of {len(h)}")
+    print(f"  legacy 4-gate diagnostic: {int((h.legacy_passed == 4).sum())} of {len(h)}"
+          f" — the verdict is in results/edge_standard.csv, not here")
 
 
 def main() -> None:

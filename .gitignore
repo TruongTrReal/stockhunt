@@ -21,6 +21,10 @@
 # --- credentials, never commit ---
 .env.local
 *.env.local
+# The API's auth store: the allowlist, every live session hash, and the server secret the
+# OTP hashes are keyed under. Unlike paper.db this is NOT a record worth keeping in git --
+# it is a credential store, and committing it publishes who has access to the desk.
+paper api/state/
 
 # --- python ---
 __pycache__/
@@ -73,3 +77,45 @@ report_payload.json
 # --- vendored binaries ---
 # Cloudflare Tunnel, 52 MB. Download from github.com/cloudflare/cloudflared.
 **/tools/cloudflared.exe
+.cache/
+
+# Golden-output snapshots. Captured fresh immediately before a refactor and compared
+# after; a committed one would silently go stale as the price data changes, which is the
+# "stale twin of a generated file" trap this repo already documents for index.html.
+tools/golden/
+
+# Per-cell diagnostic dumps. Written for inspection; NOTHING in the repo reads them
+# (verified: only `sweep.py` and `combo_sweep.py` write them, no reader anywhere). They
+# are now Parquet rather than CSV -- 2.9 GB of these tables became 472 MB -- but even
+# compressed they are ~429 MB of regenerable output, so they stay out of git history,
+# which is forever. The tables the dashboard DOES read (`wf_per_asset_*`,
+# `strat_per_asset_*`) stay tracked, at ~43 MB of Parquet against 317 MB of CSV.
+backtest engine/results/per_asset_*.parquet
+backtest engine/results/combo_per_asset_*.parquet
+
+# The same rule, applied where it had been missed. Two gaps let 1.5 GB of the identical
+# kind of file through: the patterns above are path-anchored, so the `_archive/` copies of
+# the very same dumps were still tracked; and `**/results/*folds*.csv` names only CSV, so
+# the fold dumps were caught before the Parquet migration and not after. Three of the
+# escapees are over GitHub's hard 100 MB per-file limit and cannot be pushed at all.
+#
+# Regenerable, and read by nothing: `walkforward.py`, `variants.py` and `strat_wf.py`
+# write the fold dumps for inspection, and `Stockhunt Dashboard/payload.py` reads
+# `edge_standard.csv`, `riskmatch.parquet`, `wf_meta.csv`, `prereg_*`, `parity_live_1d.csv`
+# and the curve JSONs -- none of these.
+per_asset_*.parquet
+combo_per_asset_*.parquet
+*folds*.parquet
+**/results/_archive/**/per_asset_*.csv
+**/results/_archive/**/combo_per_asset_*.csv
+**/results/_archive/**/*folds*.csv
+**/results/_archive/**/_pre_liquidity_*
+**/results/_archive/**/wf_per_asset_*
+**/results/_archive/**/strat_per_asset_*
+**/results/_archive/**/riskmatch*
+
+# Superseded riskmatch runs. `riskmatch.parquet` itself IS tracked -- `payload.py:462`
+# reads it and the dashboard's per-asset table is a groupby over it. These two are the
+# pre-fill-fix and mega20-universe copies, which nothing reads.
+**/results/riskmatch.closefill_archive.parquet
+**/results/riskmatch.mega20.parquet

@@ -35,11 +35,14 @@ import pandas as pd
 from tqdm import tqdm
 
 from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, HEADLINE_SCENARIO,
+                    headline_key,
                     MIN_BARS, MIN_IR_COVERAGE, RESULTS_DIR, TIMEFRAMES,
-                    TRAIN_FRACTION, scenarios)
+                    TRAIN_FRACTION, scenarios_for)
 from engines import vector
 import metrics
 import signals
+
+from stockhunt.artifacts import write_bulk
 import td_loader
 
 FREE = {"key": "gross", "commission_bps": 0.0, "half_spread_bps": 0.0,
@@ -68,7 +71,7 @@ def run_pair(asset_class: str, timeframe: str, shortlist_n: int | None = None
         return pd.DataFrame(), {}
 
     summary = pd.read_csv(summary_path)
-    headline = HEADLINE_SCENARIO[asset_class]
+    headline = headline_key(asset_class, timeframe)
     pool = summary[(summary["scenario"] == headline) & summary["rankable"]
                    & ~summary["is_baseline"]]
     if pool.empty:
@@ -117,7 +120,7 @@ def run_pair(asset_class: str, timeframe: str, shortlist_n: int | None = None
                 continue
             pos = combine(pa.astype("float64"), pb.astype("float64"), op)
             bs = bench[symbol]
-            for fee in scenarios(asset_class):
+            for fee in scenarios_for(asset_class, timeframe):
                 net = vector.net_returns(pos, bs["close"], fee, bs["bpy"])
                 stats = vector.stats(pos, bs["close"], bs["index"], fee,
                                      CAPITAL_PER_TICKER)
@@ -143,10 +146,11 @@ def run_pair(asset_class: str, timeframe: str, shortlist_n: int | None = None
     return pd.DataFrame(rows), meta
 
 
-def summarise(per_asset: pd.DataFrame, asset_class: str) -> pd.DataFrame:
+def summarise(per_asset: pd.DataFrame, asset_class: str,
+              timeframe: str | None = None) -> pd.DataFrame:
     if per_asset.empty:
         return pd.DataFrame()
-    headline_key = HEADLINE_SCENARIO[asset_class]
+    headline = headline_key(asset_class, timeframe)
     ir_by_scen = (per_asset.groupby(["rule", "scenario"])["ir_test"]
                   .mean().unstack())
 
@@ -154,7 +158,7 @@ def summarise(per_asset: pd.DataFrame, asset_class: str) -> pd.DataFrame:
     for (rule, scen), grp in per_asset.groupby(["rule", "scenario"]):
         per_sym = {r.symbol: {"ir": r.ir_test} for r in grp.itertuples()}
         gross = float(ir_by_scen.loc[rule].get("gross", np.nan)) if rule in ir_by_scen.index else np.nan
-        head = float(ir_by_scen.loc[rule].get(headline_key, np.nan)) if rule in ir_by_scen.index else np.nan
+        head = float(ir_by_scen.loc[rule].get(headline, np.nan)) if rule in ir_by_scen.index else np.nan
         row = metrics.aggregate(per_sym, float(grp["years_test"].median()),
                                 gross, head)
         row.update({
@@ -195,21 +199,24 @@ def main() -> None:
             if per_asset.empty:
                 print(f"{asset_class}/{timeframe}: no stage-1 summary, skipped")
                 continue
-            summary = summarise(per_asset, asset_class)
+            summary = summarise(per_asset, asset_class, timeframe)
             tag = f"{asset_class}_{timeframe}"
-            per_asset.to_csv(RESULTS_DIR / f"combo_per_asset_{tag}.csv", index=False)
+            # Parquet: the largest table in the repo — 973 MB of CSV on us_stocks 1d —
+            # and nothing reads it. Written for inspection only, so it pays the Parquet
+            # price. `write_bulk` removes the superseded CSV twin.
+            write_bulk(per_asset, RESULTS_DIR / f"combo_per_asset_{tag}.parquet")
             summary.to_csv(RESULTS_DIR / f"combo_summary_{tag}.csv", index=False)
             meta["seconds"] = time.time() - t0
             metas.append(meta)
 
-            headline_key = HEADLINE_SCENARIO[asset_class]
-            head = summary[(summary["scenario"] == headline_key) & summary["rankable"]]
+            headline = headline_key(asset_class, timeframe)
+            head = summary[(summary["scenario"] == headline) & summary["rankable"]]
             print(f"\n=== combo {tag} ({meta['seconds']:.0f}s) ===")
             print(f"  {meta['shortlist_n']} shortlisted -> {meta['n_candidates']} "
-                  f"candidates | {int((head['gates_passed'] == 4).sum())} cleared all four")
+                  f"candidates | {int((head['legacy_passed'] == 4).sum())} cleared the legacy four")
             if len(head):
                 print(head.nlargest(3, "ir_net")[
-                    ["rule", "ir_net", "ir_hit_rate", "headroom", "t_stat", "gates_passed"]]
+                    ["rule", "ir_net", "ir_hit_rate", "headroom", "t_stat", "legacy_passed"]]
                     .to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
     if metas:

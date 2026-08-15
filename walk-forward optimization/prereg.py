@@ -58,9 +58,11 @@ import pandas as pd
 import talib
 
 from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
-from config import (CLASSES, HEADLINE_SCENARIO, MIN_BARS, MIN_IR_COVERAGE,
+from config import (headline_key,  # noqa: F401
+                    CLASSES, HEADLINE_SCENARIO, MIN_BARS, MIN_IR_COVERAGE,
                     scenarios)
 from engines import vector
+from strategies._indicators import _causal_median
 import metrics
 import td_loader
 import walkforward as wfmod
@@ -96,15 +98,24 @@ def golden_cross(df: pd.DataFrame, close: np.ndarray, bpy: float) -> np.ndarray:
 
 
 def volmanaged(df: pd.DataFrame, close: np.ndarray, bpy: float) -> np.ndarray:
-    """Always long, scaled by inverse prior-month realised variance, capped at 1.0."""
+    """Always long, scaled by inverse prior-month realised variance, capped at 1.0.
+
+    The target is an EXPANDING median, not `np.nanmedian` over the whole series.
+
+    The whole-series version is look-ahead and it is not marginal: truncation-testing it
+    changed **5,696 of 11,005** past values on AAPL — 52% of bars, not the "11 of 93
+    cells" this repo previously recorded. One scalar computed from data that had not
+    happened yet re-scales every position before it.
+
+    `_causal_median` is the level a trader could have computed by bar t.
+    """
     ret = np.empty_like(close)
     ret[0] = 0.0
     ret[1:] = close[1:] / close[:-1] - 1.0
     var = pd.Series(ret).rolling(_bars(bpy, 1.0 / 12.0)).var(ddof=1).to_numpy()
-    target = np.nanmedian(var)
-    if not np.isfinite(target) or target <= 0:
-        return np.ones_like(close)
-    scale = np.divide(target, var, out=np.ones_like(var), where=np.isfinite(var) & (var > 0))
+    target = _causal_median(var, _bars(bpy, 1.0 / 12.0))
+    ok = np.isfinite(var) & (var > 0) & np.isfinite(target) & (target > 0)
+    scale = np.divide(target, var, out=np.ones_like(var), where=ok)
     return np.clip(np.nan_to_num(scale, nan=1.0), 0.0, 1.0)
 
 
@@ -188,7 +199,7 @@ def run_pair(asset_class: str, timeframe: str) -> tuple[pd.DataFrame, dict]:
 
 
 def report(summary: pd.DataFrame, meta: dict) -> None:
-    scen = HEADLINE_SCENARIO[meta["class"]]
+    scen = headline_key(meta["class"], meta.get("timeframe"))
     h = summary[summary.scenario == scen]
     print(f"\n=== {meta['class']}_{meta['timeframe']} ({meta['seconds']:.0f}s) ===")
     print(f"  {meta['n_trials']} pre-registered hypotheses | {meta['n_folds']} folds | "
@@ -201,8 +212,9 @@ def report(summary: pd.DataFrame, meta: dict) -> None:
         verdict = "ABOVE ceiling" if r.ir_net > meta["noise_ceiling_5"] else "below ceiling"
         print(f"    {r.rule:<14} IR {r.ir_net:+.3f}  breadth {r.ir_hit_rate:.0%}  "
               f"t {r.t_stat:+.2f}  headroom {r.headroom:.2f}  "
-              f"{r.gates_passed}/4 gates  {verdict}{mark}")
-    print(f"\n  passed all four gates: {int((h.gates_passed == 4).sum())} of {len(h)}")
+              f"{r.legacy_passed}/4 legacy  {verdict}{mark}")
+    print(f"\n  legacy 4-gate diagnostic: {int((h.legacy_passed == 4).sum())} of {len(h)}"
+          f" — the verdict lives in results/edge_standard.csv, not here")
 
 
 def freeze(paths: dict) -> None:

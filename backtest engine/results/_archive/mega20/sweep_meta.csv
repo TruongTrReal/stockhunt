@@ -1,0 +1,2 @@
+class,timeframe,n_assets,n_rules_run,n_rules_skipped,skipped_rules,n_bars_min,n_bars_max,start,end,source,seconds
+crypto,1d,10,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",2049,3262,2017-08-29 00:00:00,2026-08-03 00:00:00,"Twelve Data time_series, adjust=all",6.463485479354858

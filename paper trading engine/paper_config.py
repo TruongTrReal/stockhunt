@@ -60,12 +60,44 @@ HEADLINE = bt_config.HEADLINE_SCENARIO
 # Nautilus bar specs for the timeframes this desk trades. Both `run_paper.py` (live) and
 # `backtest_paper.py` (the same strategy on cached bars) need it, and they must agree or
 # the smoke test stops testing the live path.
-BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
+#
+# Derived from `bt_config.TIMEFRAMES` rather than listed, because the engine already
+# declares every timeframe and its vendor interval. Two hand-written subsets of one list
+# is how the desk ended up able to accept a registration at a timeframe it could not build
+# a bar type for — a `KeyError` inside `on_start`, minutes after the API said 201.
+_NAUTILUS_UNIT = {"m": "MINUTE", "h": "HOUR", "d": "DAY"}
+BAR_SPEC = {
+    tf: f"{tf[:-1]}-{_NAUTILUS_UNIT[tf[-1]]}-LAST-EXTERNAL"
+    for tf in bt_config.TIMEFRAMES
+}
+
+# Timeframes a MEMBER may register at. Wider than the house's own books, and deliberately
+# so: the desk's books are a research artifact that follows the walk-forward sheets, while
+# a member's strategy decides for itself and only needs the desk to mark a book and fill an
+# order. Neither of those needs a leaderboard behind it.
+#
+# `1m` is excluded, and it is the one exclusion worth stating. `td_nautilus` runs ONE POLL
+# TASK PER SUBSCRIPTION, aligned to the bar close — so a minute book of ten symbols is ten
+# vendor requests every minute, which is a different Twelve Data credit regime from the one
+# this desk was sized for, not merely a faster version of it. Add it here when the plan
+# behind `TWELVEDATA_API_KEY` can carry it; nothing else has to change.
+MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "2h", "1h", "15m", "5m")]
+
+# A timeframe on offer that the desk cannot subscribe to is a registration that is accepted
+# and then rejected minutes later, which is exactly the confusion the console was rebuilt
+# to remove. Checked at import so it fails on start rather than on somebody's first order.
+_missing = [tf for tf in MEMBER_TIMEFRAMES if tf not in BAR_SPEC]
+if _missing:
+    raise SystemExit(f"{', '.join(_missing)} in MEMBER_TIMEFRAMES has no BAR_SPEC; "
+                     f"add it to TIMEFRAMES in `backtest engine/config.py` first")
 
 # --------------------------------------------------------------- forward-test universe
 #
 # MK's brief, taken in full: SPY, the two leveraged ETFs, and the top-10 crypto by market
-# cap, on 1d and 4h.
+# cap, on 1d and 4h. The desk now also runs the two asset classes the research gained on
+# 2026-08-09 — ETFs and commodities — so that every sheet with a walk-forward leaderboard
+# has a forward test attached to it rather than two of the four being scored and never
+# traded.
 #
 # SPY and the ETFs are a DIFFERENT universe from the research study, which deliberately
 # excluded SPY (it is only the BETA/CORREL benchmark input there) and never held an ETF at
@@ -87,17 +119,150 @@ BAR_SPEC = {"1d": "1-DAY-LAST-EXTERNAL", "4h": "4-HOUR-LAST-EXTERNAL"}
 #
 # Keeping both means a rule that works on the mega-caps but not the ETFs is visibly a
 # transfer failure rather than a mystery.
-RESEARCH_EQUITIES = list(bt_config.US_STOCKS)
+#
+# **`MEGA20`, not `bt_config.US_STOCKS`.** This used to read the live class list, which was
+# right when that list WAS the 20 mega-caps and became wrong the moment the universe grew
+# to the point-in-time S&P 500 on 2026-08-09: `run_paper.py --symbols` would have defaulted
+# to 751 tickers, and a third of the departed ones are impostor penny stocks that Twelve
+# Data resolves from a recycled ticker. The desk's job is a continuous forward record on a
+# fixed set of instruments, so the set is pinned. Widening it is a deliberate act, not a
+# side effect of re-running `sp500_membership.py`.
+RESEARCH_EQUITIES = list(bt_config.MEGA20)
 BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
 EQUITY_SYMBOLS = RESEARCH_EQUITIES + BRIEF_EQUITIES
-CRYPTO_SYMBOLS = list(bt_config.CLASSES["crypto"]["symbols"])   # the same top-10
+
+# Pinned for the same reason, and to the same 10 the desk has been trading since it
+# started: the research class grew to 34 pairs and was then screened back to 20, and
+# swapping this roster would reset nothing but would multiply the credit cost and bury the
+# existing record in new sids.
+#
+# **This was `CLASSES["crypto"]["symbols"][:10]`, which is not a pin.** It reads the live
+# research universe and takes whatever ten names happen to sit at the front of it, so the
+# desk's roster was one list reordering away from silently changing — exactly the failure
+# the paragraph above claims to prevent, and the 2026-08-12 screen came within a couple of
+# positions of triggering it. `CRYPTO_DEEP` is a stable named list and is already exactly
+# these ten: the pairs with 1-minute history deep enough for the finest grid.
+CRYPTO_SYMBOLS = list(bt_config.CRYPTO_DEEP)
+
+# The ETF leg deliberately holds NONE of `BRIEF_EQUITIES`. SPY, SOXL and TQQQ are already
+# traded above under the us_stocks leaderboard, and listing them here too would run one
+# instrument against two different rule lists — which reads on the dashboard as two
+# independent systems agreeing or disagreeing when it is really one asset counted twice.
+# These five are the breadth the equity leg has not got: an index that is not the S&P, small
+# caps, a sector, long duration, and gold.
+ETF_SYMBOLS = ["QQQ", "IWM", "XLK", "TLT", "GLD"]
+
+# All five. The class is small enough to trade whole, and `XAU/USD` carries the deepest
+# history in the repo (1979-12-26), which is the only lever there is on a noise ceiling.
+COMMODITY_SYMBOLS = list(bt_config.CLASSES["commodities"]["symbols"])
 
 FORWARD_TIMEFRAMES = ["1d", "4h"]
 
+# ------------------------------------------------------------------ class-wide books
+#
+# What one promoted strategy is given, whatever the class. The slice is this divided by
+# however many names are live, so 100 US stocks get $1,000 each and 5 commodities get
+# $20,000 — one number to reason about instead of a per-class table.
+BOOK_CAPITAL = 100_000.0
+
+# Timeframes a book may run at. Daily led, and 4h followed once the daily books had been
+# watched — the desk runs one accounting model now, so there is no longer a second shape
+# on the board for a second horizon to be confused with.
+BOOK_TIMEFRAMES = ["1d", "4h"]
+
+
+def live_top100(on=None) -> list[str]:
+    """The US stocks in the point-in-time top 100 *now*.
+
+    Read live rather than pinned, because that is the whole idea: the book holds the
+    hundred largest by turnover, and when January's re-rank moves somebody out the desk
+    sells them and buys whoever replaced them. `top100_membership` is the same table the
+    research ranks on, so the forward test holds the same names the backtest did.
+
+    216 symbols have held a slot; about 100 are live on any date.
+    """
+    import pandas as pd
+    import top100_membership
+    frame = top100_membership.load()
+    when = pd.Timestamp(on) if on is not None else pd.Timestamp.utcnow().tz_localize(None)
+    start = pd.to_datetime(frame["start"], errors="coerce")
+    end = pd.to_datetime(frame["end"], errors="coerce")
+    live = frame[(start <= when) & (end.isna() | (end > when))]
+    return sorted(live["symbol"].astype(str).unique())
+
+
+def book_universe(asset_class: str) -> list[str]:
+    """Who a class-wide book holds right now.
+
+    `us_stocks` is the live top 100 and moves under the book; the other three classes are
+    the desk's pinned legs, which are already the whole tradable class after
+    `universe_screen.py` cut them down.
+    """
+    if asset_class == "us_stocks":
+        return live_top100()
+    return list(UNIVERSE.get(asset_class, []))
+
 UNIVERSE = {
     "us_stocks": EQUITY_SYMBOLS,
+    "us_etfs": ETF_SYMBOLS,
     "crypto": CRYPTO_SYMBOLS,
+    "commodities": COMMODITY_SYMBOLS,
 }
+
+# The legs must stay disjoint: `class_of` is a reverse lookup, and it is what decides which
+# leaderboard a symbol's rules come from and which venue it trades on. A symbol in two legs
+# would silently resolve to whichever was declared first.
+_seen: dict[str, str] = {}
+for _cls, _syms in UNIVERSE.items():
+    for _s in _syms:
+        if _s in _seen:
+            raise SystemExit(f"{_s} is in both {_seen[_s]} and {_cls}; the legs must be "
+                             f"disjoint — see UNIVERSE in paper_config.py")
+        _seen[_s] = _cls
+CLASS_OF = _seen
+
+
+def class_of(symbol: str) -> str:
+    """Which research class a desk symbol belongs to.
+
+    Not inferable from the ticker: `SPY` and `QQQ` are both ETFs but only one of them is
+    traded off the ETF sheet here, and `XAU/USD` carries the same separator as `BTC/USD`
+    while belonging to a different class, a different venue and a different leaderboard.
+    """
+    try:
+        return CLASS_OF[symbol]
+    except KeyError:
+        raise SystemExit(
+            f"{symbol} is not in the forward-test universe — add it to a leg of "
+            f"UNIVERSE in paper_config.py, which is also what tells the desk which "
+            f"walk-forward sheet to select its rules from") from None
+
+
+# `BTC/USD` -> `BTCUSD`. A Nautilus `Symbol` cannot carry a separator, so the instrument
+# wears the stripped form and the vendor still has to be asked for the original. Held as a
+# map rather than re-derived, because the inverse is genuinely ambiguous — `XAUUSD` could
+# be `XAU/USD` or a ticker called XAUUSD, and guessing it wrong asks Twelve Data for an
+# instrument that does not exist and gets an empty frame back rather than an error.
+SAFE_TO_VENDOR = {s.replace("/", ""): s for s in CLASS_OF if "/" in s}
+
+# Which sandbox venue each class trades on. `sandbox` is Nautilus's own paper venue: real
+# market data in, simulated fills out, which is what makes "same framework, backtest ->
+# paper -> live" true rather than aspirational — only the execution client changes.
+#
+# Equities and ETFs share a venue because they are the same instrument shape (whole shares,
+# USD settlement); the pair-quoted classes each get their own so a `SPOT` bar can never be
+# priced against the `BINANCE` book — `run_paper.route_bars_to_sandbox` filters by venue and
+# that filter is only as good as the venues being distinct — and so the accounts' balances
+# stay separable on the dashboard.
+VENUES = {
+    "us_stocks": "SANDBOX",
+    "us_etfs": "SANDBOX",
+    "crypto": "BINANCE",
+    "commodities": "SPOT",
+}
+
+# Classes whose instrument is a fractional-quantity pair rather than a whole-share equity.
+PAIR_CLASSES = {"crypto", "commodities"}
 
 
 def all_cells():
@@ -138,14 +303,6 @@ DEFAULT_WINDOW_BARS = 1500
 MEASURED_WINDOW_BARS = 1000
 MIN_WARMUP_BARS = 250
 
-# Live venues. `sandbox` is Nautilus's own paper venue: real market data in, simulated
-# fills out. That is what makes "same framework, backtest -> paper -> live" true rather
-# than aspirational - only the adapter changes.
-VENUES = {
-    "crypto": {"name": "BINANCE", "sandbox": True},
-    "us_stocks": {"name": "IB", "sandbox": True},
-}
-
 # --------------------------------------------------------------- rule selection
 #
 # Here rather than in `run_paper.py` because the dashboard picks the same rules to draw
@@ -156,24 +313,37 @@ VENUES = {
 # walk-forward stage, not with the engine that produced the single-split leaderboards.
 WFO_RESULTS = WFO / "results"
 
+# How many rules per class per timeframe the desk trades. Three rather than five: the
+# universe went from two classes to four, so the same number per sheet would have doubled
+# the system count, the credit spend and the log volume for no extra evidence. Three also
+# sits further above the point where the leaderboard is indistinguishable from its own noise
+# — on every sheet here the gap between rank 1 and rank 8 is smaller than one standard error
+# of a single IR, so taking more of the list is taking more noise, not more signal.
+TOP_N_RULES = 3
 
-def top_rules(asset_class: str, n: int, timeframe: str = "1d") -> list[str]:
+
+def top_rules(asset_class: str, n: int = TOP_N_RULES,
+              timeframe: str = "1d") -> list[str]:
     """The n best rules on a sheet, by walk-forward out-of-sample IR.
 
     Read from `wf_summary_*.csv` rather than hard-coded, so the paper desk always reflects
     the current sweep instead of a list that silently goes stale the next time the research
-    is re-run. Restricted to `wf_mode == "fixed"`: the re-selected rows (`IS#1`, the
-    `[WF]` families) are a different rule in every fold and have no single definition to
-    trade live.
+    is re-run. Re-running `walkforward.py` re-picks the desk on the next start; there is no
+    list to remember to update. Restricted to `wf_mode == "fixed"`: the re-selected rows
+    (`IS#1`, the `[WF]` families) are a different rule in every fold and have no single
+    definition to trade live.
 
-    **Ranking is not passing.** Nothing on either sheet clears a single acceptance gate,
-    and on equities the best rule has positive IR on 15% of assets. These are the least-bad
-    candidates, which is not the same as good ones; they are here to exercise the pipeline.
+    **Ranking is not passing.** Nothing on any of the four sheets clears a single acceptance
+    gate. Three of them are led by `MAXINDEX`/`MININDEX` at `long_frac` ~ 0.86, which is the
+    leaderboard ranking time-in-market rather than skill — see the `ir_vs_random` note in
+    `../CLAUDE.md`. These are the least-bad candidates, which is not the same as good ones;
+    they are here to exercise the pipeline.
     """
     import pandas as pd
     p = WFO_RESULTS / f"wf_summary_{asset_class}_{timeframe}.csv"
     if not p.exists():
         raise SystemExit(f"no sweep results at {p} — run walkforward.py first")
+    _warn_if_stale(p)
     df = pd.read_csv(p)
     h = df[(df.scenario == HEADLINE[asset_class]) & df.rankable & ~df.is_baseline]
     h = h[(h.wf_mode == "fixed") & ~h.rule.astype(str).str.startswith("IS#1")]
@@ -190,6 +360,76 @@ def top_rules(asset_class: str, n: int, timeframe: str = "1d") -> list[str]:
     return out
 
 
+_warned_stale: set = set()
+
+
+def _warn_if_stale(sheet) -> bool:
+    """Say so, once per sheet, when the leaderboard predates the data it was computed from.
+
+    `td_loader.load` applies corrections that change WHICH bars a sweep sees, not just how
+    they are scored: the liquidity quarantine and `config.BACKTEST_START`. A sheet written
+    before the last of those landed ranked rules over a different sample from the one this
+    desk would trade, and nothing in the CSV records it — the file looks exactly as valid as
+    a fresh one. `quarantine.csv`'s mtime is the timestamp used because it is the youngest
+    artifact the loader consults; it is a marker for "the input changed", not a claim that
+    quarantining is the only thing that changed.
+
+    The severity differs by class and the message says so. On `us_stocks` a stale sheet was
+    ranked with the recycled-ticker impostors still in the sample — `ibs` reached 6.4e17%
+    on one of them — so the ordering is not trustworthy at all. Elsewhere the quarantine
+    holds nothing and the cost is narrower: the sample still runs back through the coarsely
+    quantized pre-2000 bars that `BACKTEST_START` now cuts.
+
+    A warning rather than a refusal. The desk is plumbing; a stale ranking still exercises
+    the order path, and stopping the forward record because a research artifact is a day old
+    would trade one problem for a worse one. But it is printed at selection time so the
+    provenance is in the run's own log, next to the rules it chose.
+    """
+    try:
+        quarantine = bt_config.DATA_DIR / "reference" / "quarantine.csv"
+        if not quarantine.exists():
+            return False
+        if sheet.stat().st_mtime >= quarantine.stat().st_mtime:
+            return False
+    except OSError:
+        return False
+    if sheet.name in _warned_stale:
+        return True
+    _warned_stale.add(sheet.name)
+    import datetime as _dt
+    stamp = lambda p: _dt.datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    why = ("the recycled-ticker impostors were still in the sample"
+           if sheet.name.startswith("wf_summary_us_stocks")
+           else f"the sample still predates BACKTEST_START={bt_config.BACKTEST_START}")
+    print(f"  ! {sheet.name} ({stamp(sheet)}) predates the data corrections of "
+          f"{stamp(quarantine)}: {why}. Re-run walkforward.py to re-pick.")
+    return True
+
+
+# Rules that are one idea under two names. Each entry is MEASURED — the fraction of bars on
+# which the two rules hold the identical position — not assumed from the indicator's
+# description, because that is how the pair below got through in the first place.
+#
+#   MA_n / SMA_n   100%   TA-Lib's MA defaults to a simple average, so they are one series
+#   SAR / SAREXT   100%   on XAU/USD 1d, 7,068 bars. SAREXT exposes more parameters and at
+#                         their defaults produces the same flips as SAR, bar for bar
+#
+# Two near-misses, measured and deliberately NOT collapsed, so the next reader has the
+# numbers rather than re-deriving them:
+#
+#   MAXINDEX / MININDEX    74%   which is what any two long-biased rules do on a rising
+#                                series; they flip on different events
+#   LINEARREG_n / TSF_n    95%   close, and genuinely different — TSF projects the
+#                                regression one bar forward, LINEARREG reads its endpoint
+#
+# Collapsing those would be an opinion about the indicators. The two above are an
+# observation about the output.
+_ALIASES = {"SMA_": "MA_", "SAREXT": "SAR"}
+
+
 def _same_idea(a: str, b: str) -> bool:
-    norm = lambda s: s.replace("SMA_", "MA_")
+    def norm(s: str) -> str:
+        for src, dst in _ALIASES.items():
+            s = s.replace(src, dst)
+        return s
     return norm(a) == norm(b)

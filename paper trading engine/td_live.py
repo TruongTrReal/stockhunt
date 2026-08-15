@@ -40,8 +40,18 @@ OUTPUT_SIZE = 5000
 
 # Vendor interval strings, and how long one bar lasts. The 4h duration is nominal: a US
 # equity session is one 4h bar plus a ~2.5h stub, so the stub bar closes early. That only
-# ever makes the freshness test stricter, which is the safe direction.
-INTERVALS = {"1d": ("1day", timedelta(days=1)), "4h": ("4h", timedelta(hours=4))}
+# ever makes the freshness test stricter, which is the safe direction — and the same is
+# true of every intraday timeframe below it, for the same reason.
+#
+# Taken from the engine's own `TIMEFRAMES` (re-exported by `paper_config`), which already
+# names the vendor interval for each one.
+# Restating them here is how this map and the engine's came to disagree about which
+# timeframes exist at all.
+_UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
+INTERVALS = {
+    tf: (spec["interval"], timedelta(seconds=int(tf[:-1]) * _UNIT_SECONDS[tf[-1]]))
+    for tf, spec in paper_config.TIMEFRAMES.items()
+}
 
 
 def api_key() -> str:
@@ -198,3 +208,64 @@ def _smoke() -> None:
 
 if __name__ == "__main__":
     _smoke()
+
+
+# Twelve Data accepts a comma-separated symbol list on `/time_series` and answers with a
+# dict keyed by symbol. Chunked below this, because a very long list makes one request
+# whose failure loses every symbol in it — and because the vendor caps the list length.
+BATCH_SYMBOLS = 50
+
+
+def fetch_bars_many(symbols: list[str], timeframe: str, n: int = 1500,
+                    drop_forming: bool = True,
+                    country: str | None = None) -> dict[str, pd.DataFrame]:
+    """The last `n` closed bars for MANY symbols, in as few requests as possible.
+
+    `fetch_bars` asks for one symbol per request, which is fine for a 33-instrument desk
+    and stops being fine at a hundred: every subscription polls at the same bar close, so
+    a hundred names is a hundred simultaneous requests in the second after the bell.
+
+    Credits are counted per symbol either way — batching does not make the data cheaper —
+    but it collapses the request COUNT, which is what a rate limiter measures and what
+    turns a burst into a queue of failures.
+
+    A symbol that errors is omitted from the result rather than raising, because one
+    delisted or mistyped name must not cost the other ninety-nine their bars. The caller
+    sees a short dict and can say which are missing.
+    """
+    interval, duration = INTERVALS[timeframe]
+    out: dict[str, pd.DataFrame] = {}
+    now = datetime.now(timezone.utc)
+
+    for i in range(0, len(symbols), BATCH_SYMBOLS):
+        chunk = symbols[i:i + BATCH_SYMBOLS]
+        params = {
+            "symbol": ",".join(chunk), "interval": interval,
+            "outputsize": min(n + 2, OUTPUT_SIZE), "adjust": "all",
+            "order": "ASC", "apikey": api_key(),
+        }
+        if country:
+            params["country"] = country
+        r = requests.get(f"{BASE_URL}/time_series", timeout=120, params=params)
+        r.raise_for_status()
+        payload = r.json()
+
+        # One symbol comes back as the bare object, several as a dict keyed by symbol —
+        # the same asymmetry `fetch_prices` handles, and the same trap: a one-name chunk
+        # would otherwise be read as a dict of symbols called "meta" and "values".
+        if "values" in payload or payload.get("status") == "error":
+            payload = {chunk[0]: payload}
+
+        for symbol in chunk:
+            block = payload.get(symbol)
+            if not isinstance(block, dict) or "values" not in block:
+                continue
+            df = _to_frame(block["values"])
+            if drop_forming and len(df):
+                last_open = df.index[-1]
+                if last_open.tzinfo is None:
+                    last_open = last_open.tz_localize("UTC")
+                if now < last_open + duration:
+                    df = df.iloc[:-1]
+            out[symbol] = df.tail(n)
+    return out

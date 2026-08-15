@@ -26,7 +26,9 @@ keeps one implementation of every view instead of two.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 from datetime import datetime, timezone
 
 import dash_config
@@ -48,6 +50,38 @@ def emit_serve(payload: dict) -> None:
                    encoding="utf-8")
     print(f"  wrote {out.relative_to(dash_config.REPO)} "
           f"({out.stat().st_size / 1e3:.0f} kB)")
+    stamp_cache_busters()
+
+
+def stamp_cache_busters() -> None:
+    """Point `index.html`'s `?v=` query strings at the CONTENT of the files they load.
+
+    `index.html` is hand-written and its two script tags carried hand-bumped version
+    numbers. That is a rebuild step nobody remembers, and forgetting it is silent in the
+    worst way: the build succeeds, the files on disk are correct, and a returning browser
+    keeps running the JavaScript and the payload it cached last week. It cost a real
+    afternoon — a chart was read as current, questioned as a bug, and was neither.
+
+    So the stamp is derived rather than typed: eight hex characters of the file's SHA-256.
+    Same bytes, same URL, browser cache still valid; one byte different, new URL, fetched.
+    `index.html` stays a source file — this rewrites nothing but the digits.
+
+    Only the served site needs it. `dist/dashboard.html` inlines everything and has no URL
+    to bust.
+    """
+    idx = WEB / "index.html"
+    if not idx.exists():
+        return
+    html = original = idx.read_text(encoding="utf-8")
+    for name in ("data.js", "app.js", "app.css"):
+        f = WEB / name
+        if not f.exists():
+            continue
+        digest = hashlib.sha256(f.read_bytes()).hexdigest()[:8]
+        html = re.sub(rf'({re.escape(name)})\?v=[^"\']*', rf'\1?v={digest}', html)
+    if html != original:
+        idx.write_text(html, encoding="utf-8")
+        print("  stamped index.html cache-busters")
 
 
 def _embedded_files(payload: dict, with_curves: bool) -> dict[str, str]:

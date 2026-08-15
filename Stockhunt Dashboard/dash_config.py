@@ -41,8 +41,23 @@ WEB = HERE / "web"                      # the served SPA; `serve.py` is rooted h
 DIST = HERE / "dist"                    # the self-contained single-file build
 
 HEADLINE = bt_config.HEADLINE_SCENARIO
-GROUPS = [("stocks", "us_stocks", "Top 20 US mega-caps", bt_config.US_STOCKS),
-          ("crypto", "crypto", "Top 10 crypto by market cap", bt_config.CRYPTO)]
+# Asset class is the only split on the backtest page. Single rules and pairs used to be two
+# separate lists with two separate tables; they are one leaderboard now, because a pair is
+# a strategy in exactly the sense a single rule is and nobody choosing what to trade cares
+# which sweep produced it. What does differ between these four groups is the price series,
+# the cost grid and the benchmark -- so that is what the tabs are.
+#
+# Commodities were scored from the start and shown nowhere: the walk-forward, combo, book
+# and curve files have existed for every stage since 2026-08-10, and the paper page has
+# carried the class since 2026-08-11, but this list had three entries so `payload.build`
+# never asked for a fourth and the tab strip -- which is built from its keys -- could not
+# offer one. Read the tab knowing the cross-section is FIVE contracts against 100 equities:
+# breadth-based figures on it carry a fraction of the weight.
+GROUPS = [("stocks", "us_stocks", "Top 100 US stocks, point-in-time", bt_config.US_STOCKS),
+          ("crypto", "crypto", "20 pairs, screened on spread and price grid", bt_config.CRYPTO),
+          ("etf", "us_etfs", "10 ETFs, each held only while liquid", bt_config.US_ETFS),
+          ("commodities", "commodities", "5 spot metals and oil, quoted as FX pairs",
+           bt_config.COMMODITIES)]
 TIMEFRAMES = ["1d", "4h"]
 BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
-TOP_N = 15                       # leaderboard depth; the tail is all worse, not different
+TOP_N = 30                       # leaderboard depth; the tail is all worse, not different

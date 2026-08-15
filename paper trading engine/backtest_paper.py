@@ -75,7 +75,7 @@ def load_bars(symbol: str, timeframe: str) -> pd.DataFrame:
     also the loader every sweep uses — so the paper desk and the backtest can no longer
     disagree about which bars a symbol has.
     """
-    for asset_class in ("us_stocks", "crypto", "us_etfs"):
+    for asset_class in ("us_stocks", "crypto", "us_etfs", "commodities"):
         try:
             bars = td_loader.load(asset_class, timeframe, [symbol])
         except (KeyError, FileNotFoundError):
@@ -113,7 +113,16 @@ def make_instrument(symbol: str):
     )
 
 
-def build_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
+def build_bars(df: pd.DataFrame, bar_type: BarType,
+               price_precision: int = PRICE_PRECISION,
+               size_precision: int = SIZE_PRECISION) -> list[Bar]:
+    """Cached OHLCV as Nautilus bars.
+
+    The precisions are parameters because they must MATCH THE INSTRUMENT the bars are
+    priced against: `SimulatedExchange.process_bar` refuses a bar whose precision differs
+    from `instrument.price_precision` outright. The defaults suit this module's own
+    fractional `CurrencyPair`; a whole-share `Equity` from `td_nautilus` wants (2, 0).
+    """
     # `.astype("int64")` on a millisecond index yields milliseconds, not the nanoseconds
     # Nautilus expects — hence the explicit `as_unit("ns")`.
     idx = pd.to_datetime(df.index, utc=True).as_unit("ns")
@@ -122,9 +131,9 @@ def build_bars(df: pd.DataFrame, bar_type: BarType) -> list[Bar]:
     vol = np.where(np.isfinite(vol), vol, 0.0)     # crypto ships no volume at all
     return [
         Bar(bar_type=bar_type,
-            open=Price(o, PRICE_PRECISION), high=Price(h, PRICE_PRECISION),
-            low=Price(lo, PRICE_PRECISION), close=Price(c, PRICE_PRECISION),
-            volume=Quantity(v, SIZE_PRECISION), ts_event=int(t), ts_init=int(t))
+            open=Price(o, price_precision), high=Price(h, price_precision),
+            low=Price(lo, price_precision), close=Price(c, price_precision),
+            volume=Quantity(v, size_precision), ts_event=int(t), ts_init=int(t))
         for o, h, lo, c, v, t in zip(
             df["Open"].to_numpy(), df["High"].to_numpy(), df["Low"].to_numpy(),
             df["Close"].to_numpy(), vol, ts)
@@ -160,7 +169,12 @@ def run_cell(symbol: str, timeframe: str, rule: str, bars_limit: int | None,
         instrument_id=inst.id, bar_type=bar_type, rule=rule,
         allow_short=allow_short, window_bars=paper_config.DEFAULT_WINDOW_BARS,
         min_warmup_bars=warmup,
-        asset_class="crypto" if "/" in symbol else "equity",
+        # The research class name, matching what `run_paper.py` publishes, so a
+        # `--write-state` replay lands in the same dashboard grouping as the live desk.
+        # Falls back for a symbol outside the forward-test universe: this script is also
+        # the way an arbitrary ticker gets smoke-tested through the order path.
+        asset_class=paper_config.CLASS_OF.get(
+            symbol, "crypto" if "/" in symbol else "us_stocks"),
         timeframe=timeframe, export_state=write_state, display_symbol=symbol,
         note=f"Nautilus backtest over {len(df)} cached bars — not live paper trading."))
     engine.add_strategy(strat)

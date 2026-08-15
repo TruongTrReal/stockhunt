@@ -52,10 +52,12 @@ import pandas as pd
 import talib
 from tqdm import tqdm
 
-from wfo_paths import RESULTS_DIR          # noqa: F401  (wires sys.path first)
-from config import (BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
+from wfo_paths import RESULTS_DIR, write_bulk   # noqa: F401  (wires sys.path first)
+from config import (headline_key,  # noqa: F401
+                    BASELINE_NAME, CLASSES, HEADLINE_SCENARIO, MIN_BARS,
                     MIN_IR_COVERAGE, scenarios)
 from engines import vector
+from strategies._indicators import _causal_median
 import metrics
 import signals
 import td_loader
@@ -109,15 +111,23 @@ def _vol_scale(close: np.ndarray, bpy: float) -> np.ndarray:
 
     Capped because levering to hit a target is a different strategy with a different risk
     profile, and this repo's gates are stated for an unlevered book.
+
+    The target is an EXPANDING median, not `np.nanmedian` over the whole series.
+
+    The whole-series version is look-ahead and it is not marginal: truncation-testing it
+    changed **5,696 of 11,005** past values on AAPL — 52% of bars, not the "11 of 93
+    cells" this repo previously recorded. One scalar computed from data that had not
+    happened yet re-scales every position before it.
+
+    `_causal_median` is the level a trader could have computed by bar t.
     """
     ret = np.empty_like(close)
     ret[0] = 0.0
     ret[1:] = close[1:] / close[:-1] - 1.0
     s = pd.Series(ret).rolling(VOL_WINDOW).std(ddof=1).to_numpy() * np.sqrt(max(bpy, 1.0))
-    target = np.nanmedian(s)
-    if not np.isfinite(target) or target <= 0:
-        return np.ones_like(close)
-    scale = np.divide(target, s, out=np.ones_like(s), where=np.isfinite(s) & (s > 0))
+    target = _causal_median(s, VOL_WINDOW)
+    ok = np.isfinite(s) & (s > 0) & np.isfinite(target) & (target > 0)
+    scale = np.divide(target, s, out=np.ones_like(s), where=ok)
     return np.clip(np.nan_to_num(scale, nan=1.0), 0.0, 1.0)
 
 
@@ -147,7 +157,7 @@ def shortlist(tag: str, k: int, scen: str) -> list[str]:
 
 def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
     tag = f"{asset_class}_{timeframe}"
-    scen_key = HEADLINE_SCENARIO[asset_class]
+    scen_key = headline_key(asset_class, timeframe)
     data = td_loader.load(asset_class, timeframe)
     data = {s: df for s, df in data.items() if len(df) >= MIN_BARS}
     if not data:
@@ -188,13 +198,19 @@ def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
     union = {s: np.logical_or.reduce([m[1] for m in ms if m is not None])
              for s, ms in masks.items() if any(m is not None for m in ms)}
 
+    # The eight transforms are applied to the *same* base positions `sweep.py` and
+    # `walkforward.py` already generated, so this stage reads them back rather than
+    # regenerating 232 rules x every asset for the third time.
+    cache = signals.sheet_cache(asset_class, timeframe, data)
+
     fold_rows, union_rows = [], []
     for rule in tqdm(runnable, desc=f"variants {tag}"):
+        bases = signals.rule_positions(rule, data, asset_class, timeframe, cache,
+                                       baseline_name=BASELINE_NAME)
         for symbol, df in data.items():
             if symbol not in union:
                 continue
-            base = signals.position_for(rule, df, asset_class, timeframe,
-                                        baseline_name=BASELINE_NAME)
+            base = bases.get(symbol)
             if base is None:
                 continue
             b = bench[symbol]
@@ -276,7 +292,7 @@ def run_pair(asset_class: str, timeframe: str, top_k: int) -> tuple[dict, dict]:
 
 def report(tables: dict, meta: dict) -> None:
     s = tables["summary"]
-    scen = HEADLINE_SCENARIO[meta["class"]]
+    scen = headline_key(meta["class"], meta.get("timeframe"))
     h = s[(s.scenario == scen) & s.rankable]
     base = h[h.variant == "base"]
     print(f"\n=== {meta['class']}_{meta['timeframe']} ({meta['seconds']:.0f}s) ===")
@@ -307,18 +323,19 @@ def report(tables: dict, meta: dict) -> None:
             delta = r.ir_net - b.iloc[0] if len(b) else np.nan
             print(f"    {r.rule:<28} IR {r.ir_net:+.3f}  vs base {delta:+.3f}  "
                   f"breadth {r.ir_hit_rate:.0%}  t {r.t_stat:+.2f}  "
-                  f"{r.gates_passed}/4 gates")
+                  f"{r.legacy_passed}/4 legacy")
 
     best = h.nlargest(1, "ir_net")
     if not best.empty:
         r = best.iloc[0]
         print(f"\n  best row overall: {r['rule']}  IR {r['ir_net']:+.3f}  "
-              f"({r['gates_passed']}/4 gates)"
+              f"({r['legacy_passed']}/4 legacy)"
               f"  {'ABOVE' if r['ir_net'] > meta['noise_ceiling'] else 'below'} "
               f"the noise ceiling")
-    gate_counts = {g: int(h[f"gate_{g}"].sum()) for g in ("ir", "breadth", "headroom", "t")}
-    print(f"  rows passing each gate: {gate_counts} "
-          f"| all four: {int((h.gates_passed == 4).sum())} of {len(h)}")
+    gate_counts = {g: int(h[f"legacy_gate_{g}"].sum())
+                   for g in ("ir", "breadth", "headroom", "t")}
+    print(f"  legacy per-gate diagnostic: {gate_counts} "
+          f"| legacy all-four: {int((h.legacy_passed == 4).sum())} of {len(h)}")
 
 
 def main() -> None:
@@ -341,8 +358,11 @@ def main() -> None:
                       f"{meta.get('skipped', 'no cached data')}, skipped")
                 continue
             tag = f"{asset_class}_{timeframe}"
+            # `var_summary` stays CSV: `gate_calibration.py` globs `var_summary_*.csv` by
+            # literal name and would match nothing if the extension moved. `var_folds` is
+            # read by nothing, so it takes the Parquet path.
             tables["summary"].to_csv(RESULTS_DIR / f"var_summary_{tag}.csv", index=False)
-            tables["folds"].to_csv(RESULTS_DIR / f"var_folds_{tag}.csv", index=False)
+            write_bulk(tables["folds"], RESULTS_DIR / f"var_folds_{tag}.parquet")
             meta["seconds"] = time.time() - t0
             metas.append(meta)
             report(tables, meta)

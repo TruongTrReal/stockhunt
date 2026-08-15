@@ -53,9 +53,25 @@ CREATE TABLE IF NOT EXISTS sessions (
     pid         INTEGER
 );
 
+-- `account` is who owns this system's book: '00' is the house — the rules this desk runs
+-- off its own walk-forward sheets — and every other value is a member. It is a two-character
+-- id and never an email, so nothing in the trading engine holds personal data.
+--
+-- `kind` separates 'house_rule' (a talib rule traded to a target by TalibRuleStrategy)
+-- from 'member' (orders arriving over the API). They keep the same record shape on
+-- purpose: one curve, one fill log, one set of gaps, so the dashboard and every reader
+-- downstream cannot tell them apart and does not have to.
+--
+-- `benchmark` is DECLARED, never inferred. A house rule benchmarks against buy-and-hold of
+-- its own symbol; a member strategy may hold several names and has no obvious baseline, so
+-- picking one would be this desk's opinion appearing inside somebody else's track record.
+-- NULL means "no benchmark", which `lifetime_curve` already handles as unknown.
 CREATE TABLE IF NOT EXISTS strategies (
     sid         TEXT PRIMARY KEY,
+    account     TEXT NOT NULL DEFAULT '00',
+    kind        TEXT NOT NULL DEFAULT 'house_rule',
     symbol      TEXT, cls TEXT, tf TEXT, rule TEXT, venue TEXT,
+    benchmark   TEXT,
     capital     REAL,
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
@@ -63,20 +79,41 @@ CREATE TABLE IF NOT EXISTS strategies (
 );
 
 -- The natural key is the fill itself. Two genuinely distinct fills for one strategy at the
--- same bar time, same side, same size and same price are indistinguishable and would not
+-- same bar time, same size and same price are indistinguishable and would not
 -- be separable by any key that does not come from the venue -- and on a replay the venue
 -- ids are regenerated, so they are no help. Collapsing them is the safe direction: a
 -- double-counted fill corrupts the record, a dropped duplicate does not.
+--
+-- `symbol` is IN the key. Without it the key is unambiguous only while a strategy holds
+-- exactly one instrument, which is true of every house rule and false of the first member
+-- strategy that trades two names: buying 10 of each at the same price on the same bar
+-- would collapse to one row and lose half the position. It carries a NOT NULL default
+-- rather than being nullable because SQLite treats NULLs as distinct in a UNIQUE index,
+-- which would silently switch the deduplication off for any row that omitted it.
+--
+-- `ref` is how the two kinds of strategy get the deduplication each of them needs, and
+-- they need OPPOSITE things:
+--
+--   house rules  leave it ''. A restart replays warm-up bars and the strategy re-emits
+--                fills it already reported, so identical fills MUST collapse. That is the
+--                property `test_store.py` protects and it stays exactly as it was.
+--   members      pass the venue's own trade id. A manager can legitimately send the same
+--                order twice on one bar — same symbol, side, size and price — and those
+--                are two real fills. Collapsing them would lose half the position. Their
+--                orders are never replayed, because the desk only drains past its
+--                watermark, so a unique id per fill is safe here and not there.
 CREATE TABLE IF NOT EXISTS fills (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     sid         TEXT NOT NULL,
     session_id  INTEGER NOT NULL,
     ts          TEXT NOT NULL,
+    symbol      TEXT NOT NULL DEFAULT '',
     side        TEXT NOT NULL,
     qty         REAL NOT NULL,
     price       REAL NOT NULL,
     book_pnl    REAL,
-    UNIQUE(sid, ts, side, qty, price)
+    ref         TEXT NOT NULL DEFAULT '',
+    UNIQUE(sid, ts, symbol, side, qty, price, ref)
 );
 
 -- equity_pct and bench_pct are percent from the START OF THEIR OWN SESSION, not from
@@ -106,6 +143,132 @@ CREATE INDEX IF NOT EXISTS ix_curve_sid ON curve(sid, ts);
 CREATE INDEX IF NOT EXISTS ix_gaps_sid  ON gaps(sid, from_ts);
 """
 
+# Indexes over columns that `_migrate` adds, so they CANNOT live in SCHEMA above.
+# `CREATE TABLE IF NOT EXISTS` is a no-op against a legacy table, which then still lacks
+# `account` — and the index statement fails the whole script before the migration that
+# would have added the column ever runs. Ordering, not preference.
+POST_MIGRATION_INDEXES = """
+CREATE INDEX IF NOT EXISTS ix_strat_acct ON strategies(account, kind);
+"""
+
+# The house. Reserved, and never handed to a member — `authdb.allow` starts at '01'.
+HOUSE = "00"
+
+# Bumped whenever `SCHEMA` changes shape. `PRAGMA user_version` is the marker rather than
+# inspecting the data, because "has this run already?" must be answerable on an empty
+# database too, where every data-shaped test looks like "not yet".
+SCHEMA_VERSION = 2
+
+
+def sid_for(account: str, name: str) -> str:
+    """The record's identity for one system: `00:spy-1d-sma_200`.
+
+    The account goes IN FRONT, and that placement is not cosmetic. Nautilus caps
+    `order_id_tag` at 36 characters and `run_paper` already slices it, so an account
+    written as a suffix is the part that gets truncated away — two members on the same
+    long-named rule would collapse into one tag and Nautilus would reject the second
+    registration. In front, the discriminator is the one thing that always survives.
+
+    Two characters, so the prefix costs three of the 36 and the existing tags still fit.
+    """
+    return f"{account}:{name}"
+
+
+def _migrate(conn: sqlite3.Connection) -> bool:
+    """Bring an existing database up to `SCHEMA_VERSION`. Idempotent; returns True if it
+    did anything.
+
+    Run automatically from `connect()` rather than left to a command somebody has to
+    remember, because several processes open this file — the desk, the dashboard builder,
+    the tests — and a half-migrated set of readers is a worse failure than a migration
+    nobody asked for. `migrate_owner.py --check` is how a human inspects it.
+
+    `results/paper.db` is tracked in git precisely because it is the forward record, which
+    means this is revertible with `git checkout` if it goes wrong. That is the safety net;
+    do not remove the tracking without replacing it.
+    """
+    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if version >= SCHEMA_VERSION:
+        return False
+
+    had_rows = int(conn.execute("SELECT COUNT(*) FROM strategies").fetchone()[0])
+
+    # --- v0 -> v1 -------------------------------------------------------------------
+    scols = {r[1] for r in conn.execute("PRAGMA table_info(strategies)")}
+    if "account" not in scols:
+        conn.execute("ALTER TABLE strategies ADD COLUMN account TEXT NOT NULL DEFAULT '00'")
+    if "kind" not in scols:
+        conn.execute("ALTER TABLE strategies ADD COLUMN kind TEXT NOT NULL "
+                     "DEFAULT 'house_rule'")
+    if "benchmark" not in scols:
+        conn.execute("ALTER TABLE strategies ADD COLUMN benchmark TEXT")
+
+    # `fills` needs a widened UNIQUE, and SQLite cannot alter a constraint in place — so
+    # the table is rebuilt. The symbol is backfilled from `strategies` rather than left
+    # empty: every legacy sid names exactly one instrument, so the value is recoverable
+    # and exact. Leaving it blank would work until the desk restarted and re-emitted a
+    # warm-up fill WITH a symbol, which would then miss the old row and double-count.
+    fcols = {r[1] for r in conn.execute("PRAGMA table_info(fills)")}
+    if "symbol" not in fcols or "ref" not in fcols:
+        conn.executescript("""
+            CREATE TABLE fills_v2 (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                sid         TEXT NOT NULL,
+                session_id  INTEGER NOT NULL,
+                ts          TEXT NOT NULL,
+                symbol      TEXT NOT NULL DEFAULT '',
+                side        TEXT NOT NULL,
+                qty         REAL NOT NULL,
+                price       REAL NOT NULL,
+                book_pnl    REAL,
+                ref         TEXT NOT NULL DEFAULT '',
+                UNIQUE(sid, ts, symbol, side, qty, price, ref)
+            );
+        """)
+        # Built by name rather than by position: v0 has no `symbol` and v1 has no `ref`,
+        # and `SELECT *` across a schema change is how a migration silently transposes two
+        # columns. The symbol is backfilled from `strategies` — every legacy sid names one
+        # instrument, so it is recoverable and exact, and leaving it blank would let a
+        # restart's replayed fill miss the old row and double-count.
+        has_symbol = "symbol" in fcols
+        conn.execute(f"""
+            INSERT OR IGNORE INTO fills_v2
+                (id, sid, session_id, ts, symbol, side, qty, price, book_pnl, ref)
+            SELECT f.id, f.sid, f.session_id, f.ts,
+                   {'f.symbol' if has_symbol else
+                    "COALESCE((SELECT s.symbol FROM strategies s WHERE s.sid = f.sid), '')"},
+                   f.side, f.qty, f.price, f.book_pnl, ''
+            FROM fills f
+        """)
+        conn.executescript("""
+            DROP TABLE fills;
+            ALTER TABLE fills_v2 RENAME TO fills;
+            CREATE INDEX IF NOT EXISTS ix_fills_sid ON fills(sid, ts);
+        """)
+
+    # Every existing system belongs to the house. The prefix is applied to all four tables
+    # in one transaction: a sid is a foreign key in everything but name, and prefixing
+    # `strategies` alone would orphan every fill, curve point and gap ever recorded.
+    #
+    # Guarded on `version < 1` and NOT on the target version, because this step is not
+    # idempotent — running it again on an already-prefixed database produces `00:00:spy-…`
+    # and orphans everything a second time. Every future schema bump would trip it. The
+    # column additions above are safe to re-run because they test for their own column;
+    # this one has nothing to test for, so the version has to carry it.
+    if version < 1:
+        for table in ("strategies", "fills", "curve", "gaps"):
+            conn.execute(f"UPDATE {table} SET sid = ? || sid", (HOUSE + ":",))
+        conn.execute("UPDATE strategies SET account = ?, kind = 'house_rule' "
+                     "WHERE account IS NULL OR account = ''", (HOUSE,))
+
+    conn.executescript(POST_MIGRATION_INDEXES)
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    conn.commit()
+    if had_rows:
+        print(f"  store: migrated {had_rows} strategies to schema v{SCHEMA_VERSION} "
+              f"(account prefix '{HOUSE}:', symbol in the fill key)")
+    return True
+
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -125,6 +288,10 @@ def connect() -> sqlite3.Connection:
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
         conn.commit()
+        # After the schema, not before: `_migrate` reads `PRAGMA table_info` and needs the
+        # tables to exist. On a fresh database the script above already built the target
+        # shape, so migration only stamps the version and touches nothing.
+        _migrate(conn)
         _conn = conn
         return conn
 
@@ -162,18 +329,26 @@ def upsert_strategy(sid: str, **f) -> str:
     """
     conn = connect()
     now = _utc()
+    # The account is taken from the sid rather than trusted as a separate argument: they
+    # are two spellings of one fact, and a row whose `account` column disagreed with its
+    # own key is a row that would be invisible to one query and visible to another.
+    account = sid.split(":", 1)[0] if ":" in sid else HOUSE
     with _lock:
         conn.execute("""
-            INSERT INTO strategies (sid, symbol, cls, tf, rule, venue, capital,
-                                    first_seen, last_seen, bt_ir, bt_years, note)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO strategies (sid, account, kind, symbol, cls, tf, rule, venue,
+                                    benchmark, capital, first_seen, last_seen,
+                                    bt_ir, bt_years, note)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(sid) DO UPDATE SET
+                account=excluded.account, kind=excluded.kind,
                 symbol=excluded.symbol, cls=excluded.cls, tf=excluded.tf,
-                rule=excluded.rule, venue=excluded.venue, capital=excluded.capital,
+                rule=excluded.rule, venue=excluded.venue,
+                benchmark=excluded.benchmark, capital=excluded.capital,
                 last_seen=excluded.last_seen, bt_ir=excluded.bt_ir,
                 bt_years=excluded.bt_years, note=excluded.note
-        """, (sid, f.get("symbol"), f.get("cls"), f.get("tf"), f.get("rule"),
-              f.get("venue"), f.get("capital"), now, now, f.get("bt_ir"),
+        """, (sid, account, f.get("kind", "house_rule"), f.get("symbol"), f.get("cls"),
+              f.get("tf"), f.get("rule"), f.get("venue"), f.get("benchmark"),
+              f.get("capital"), now, now, f.get("bt_ir"),
               f.get("bt_years"), f.get("note")))
         conn.commit()
         row = conn.execute("SELECT first_seen FROM strategies WHERE sid = ?",
@@ -182,14 +357,22 @@ def upsert_strategy(sid: str, **f) -> str:
 
 
 def record_fill(sid: str, ts: str, side: str, qty: float, price: float,
-                book_pnl: float = 0.0) -> None:
+                book_pnl: float = 0.0, symbol: str = "", ref: str = "") -> None:
+    """One fill. `symbol` and `ref` are both part of the natural key.
+
+    Leave `ref` empty for a rule-driven strategy, where identical fills on one bar are a
+    warm-up replay and MUST collapse. Pass the venue's trade id for an order-driven one,
+    where they are two real fills a manager asked for. The `fills` table comment has the
+    full reasoning.
+    """
     conn = connect()
     sess = session_id()          # resolved BEFORE the lock: it may open a session, which
     with _lock:                  # takes the same non-reentrant lock and would deadlock
         conn.execute("""INSERT OR IGNORE INTO fills
-                        (sid, session_id, ts, side, qty, price, book_pnl)
-                        VALUES (?,?,?,?,?,?,?)""",
-                     (sid, sess, ts, side, float(qty), float(price), float(book_pnl)))
+                        (sid, session_id, ts, symbol, side, qty, price, book_pnl, ref)
+                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                     (sid, sess, ts, symbol or "", side, float(qty), float(price),
+                      float(book_pnl), ref or ""))
         conn.commit()
 
 
@@ -230,11 +413,32 @@ def fill_count(sid: str) -> int:
 
 def recent_fills(sid: str, limit: int = MAX_TRADES) -> list[dict]:
     conn = connect()
-    rows = conn.execute("""SELECT ts, side, qty, price, book_pnl FROM fills
+    rows = conn.execute("""SELECT ts, side, qty, price, book_pnl, symbol FROM fills
                            WHERE sid = ? ORDER BY ts DESC, id DESC LIMIT ?""",
                         (sid, limit)).fetchall()
     return [{"ts": r[0], "side": r[1], "qty": r[2], "price": r[3],
-             "pnl": round(r[4] or 0.0, 2)} for r in reversed(rows)]
+             "pnl": round(r[4] or 0.0, 2), "symbol": r[5] or ""}
+            for r in reversed(rows)]
+
+
+def strategies_for(account: str | None = None) -> list[dict]:
+    """Registered systems, optionally just one account's.
+
+    `None` means every account and is what the desk itself uses at start-up; a member view
+    always passes one. Filtering here rather than at the caller means there is a single
+    place where "whose is this" is decided.
+    """
+    conn = connect()
+    sql = ("SELECT sid, account, kind, symbol, cls, tf, rule, venue, benchmark, "
+           "capital, first_seen, last_seen, note FROM strategies")
+    args: tuple = ()
+    if account is not None:
+        sql += " WHERE account = ?"
+        args = (account,)
+    sql += " ORDER BY account, sid"
+    cols = ("sid", "account", "kind", "symbol", "cls", "tf", "rule", "venue",
+            "benchmark", "capital", "first_seen", "last_seen", "note")
+    return [dict(zip(cols, row)) for row in conn.execute(sql, args).fetchall()]
 
 
 def lifetime_curve(sid: str) -> dict:

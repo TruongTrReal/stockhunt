@@ -4,6 +4,11 @@
 the same (rule, asset, timeframe) or the parity harness is checking the wrong thing.
 That means the benchmark plumbing, the NaN policy and end-of-day flattening live here
 and nowhere else.
+
+`rule_positions` adds a caching layer over exactly that, and it lives here for the same
+reason everything else does: if two stages could cache positions differently, the parity
+harness would be comparing two different things. See `stockhunt.poscache` for why the
+cache is keyed on the OHLCV bytes and the signal source rather than on a timestamp.
 """
 
 from __future__ import annotations
@@ -11,10 +16,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from config import CLASSES, rule_needs_volume, volume_dependent_rules
+from config import (CLASSES, FLATTEN_EOD_TIMEFRAMES, TIMEFRAMES,
+                    rule_needs_volume, volume_dependent_rules)
 from engines import vector
 import td_loader
 
+from stockhunt import paths, poscache
 from strategies.talib_signals import BETA_NAME, CORREL_NAME, generate_position
 
 NEEDS_BENCHMARK = {BETA_NAME, CORREL_NAME}
@@ -59,22 +66,14 @@ def usable_rules(rules, asset_class: str, timeframe: str) -> tuple[list[str], li
     return runnable, skipped
 
 
-def combine(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
-    """Two 1/0/-1 position series -> one. Lives here so `combo_sweep.py` (which
-    searches) and `build_payload.py` (which has to redraw the winner's curve) cannot
-    drift apart on what an operator means."""
-    if op == "vote":
-        return np.sign(a + b)
-    if op == "and":
-        return np.where(np.sign(a) == np.sign(b), a, 0.0)
-    if op == "or":
-        return np.where(a != 0, a, b)
-    if op == "gate":
-        return np.where(b != 0, a, 0.0)
-    raise ValueError(f"unknown operator {op!r}")
+# `combine` and `OPERATORS` moved to `strategies.overlays.combo` so the combo label
+# grammar and the operator semantics live together, and so `strategies.registry.build`
+# can resolve an `A~B|op` label instead of silently returning None for it. Re-exported
+# here because the comment that used to sit on `combine` was right: there must be
+# exactly one definition, or the searcher and the report renderer drift on what `and`
+# means. It moved; it did not multiply.
+from strategies.overlays.combo import combine, OPERATORS   # noqa: F401,E402
 
-
-OPERATORS = ("vote", "and", "or", "gate")
 
 
 def position_for_row(row, df: pd.DataFrame, asset_class: str, timeframe: str,
@@ -124,7 +123,6 @@ def position_for(rule: str, df: pd.DataFrame, asset_class: str, timeframe: str,
         return None
 
     spec = CLASSES[asset_class]
-    from config import FLATTEN_EOD_TIMEFRAMES, TIMEFRAMES
     # Only at the day-trading horizons — see the note on FLATTEN_EOD_TIMEFRAMES. Applying
     # it to every intraday sheet removed the overnight drift, which is 65-95% of US
     # equity return, and made the flattening convention look like signal decay.
@@ -132,3 +130,56 @@ def position_for(rule: str, df: pd.DataFrame, asset_class: str, timeframe: str,
             and timeframe in FLATTEN_EOD_TIMEFRAMES):
         pos = vector.flatten_eod(pos, df.index)
     return pos
+
+
+# ------------------------------------------------------------------ position cache
+#
+# Generating positions is 68% of the cost of every stage (0.64 ms/cell against 0.30 ms to
+# score one), and seven stages generate the identical series from the identical bars. The
+# cache turns the second through seventh into a read.
+
+_CODE_FP: str | None = None
+
+
+def signal_code_fingerprint() -> str:
+    """SHA-256 over every module that can change what a rule means. Computed once."""
+    global _CODE_FP
+    if _CODE_FP is None:
+        _CODE_FP = poscache.code_fingerprint(paths.SIGNAL_SOURCES)
+    return _CODE_FP
+
+
+def sheet_cache(asset_class: str, timeframe: str, data: dict) -> poscache.Sheet:
+    """Cache handle for one loaded sheet. Cheap; fingerprints the bars once."""
+    return poscache.Sheet(paths.POSITION_CACHE, asset_class, timeframe, data,
+                          signal_code_fingerprint())
+
+
+def rule_positions(rule: str, data: dict, asset_class: str, timeframe: str,
+                   cache: poscache.Sheet | None = None,
+                   baseline_name: str | None = None) -> dict[str, np.ndarray | None]:
+    """Every symbol's position series for ONE rule, served from cache where possible.
+
+    One rule across all symbols, which is how every consumer in this repo loops and
+    therefore what the cache is laid out for — a single file open per rule. Peak memory
+    is one rule's worth (~28 MB on us_stocks 1d), never the 231-rule tensor that
+    `sweep.py`'s memory contract exists to avoid.
+
+    Symbols whose rule cannot be built map to `None`, exactly as `position_for` returns
+    it, so callers keep their existing `if pos is None: continue`. A `None` is *not*
+    cached: it can mean a genuinely inapplicable rule or a transient failure, and
+    persisting the second kind would make it permanent.
+    """
+    if cache is None or not cache.enabled:
+        return {s: position_for(rule, df, asset_class, timeframe, baseline_name)
+                for s, df in data.items()}
+
+    out: dict[str, np.ndarray | None] = {}
+    with cache.rule(rule) as rc:
+        for symbol, df in data.items():
+            pos = rc.get(symbol)
+            if pos is None:
+                pos = position_for(rule, df, asset_class, timeframe, baseline_name)
+                rc.put(symbol, pos)
+            out[symbol] = pos
+    return out

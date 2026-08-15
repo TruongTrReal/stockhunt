@@ -211,11 +211,18 @@ def push_point(sid: str, equity_pct: float, bench_pct: float,
 
 
 def push_trade(sid: str, ts: str, side: str, qty: float, price: float,
-               pnl: float = 0.0) -> None:
+               pnl: float = 0.0, symbol: str = "", ref: str = "") -> None:
+    """One fill. `symbol` defaults to the strategy's own when it holds only one.
+
+    A house rule trades a single instrument and never has to think about either argument;
+    an order-driven one must pass both, because they are what keep two genuinely distinct
+    fills from collapsing into one row. See `store.record_fill`.
+    """
     s = _strategies.get(sid)
     if s is None:
         return
-    store.record_fill(sid, ts, side, qty, price, pnl)
+    store.record_fill(sid, ts, side, qty, price, pnl,
+                      symbol=symbol or s.get("symbol") or "", ref=ref)
     # Re-read rather than append: on a warm-up replay the store drops the duplicate, and
     # appending here would show a fill in the UI that is not in the record.
     s["trades"] = store.recent_fills(sid)

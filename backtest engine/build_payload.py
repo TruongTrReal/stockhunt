@@ -25,10 +25,13 @@ from config import (BASELINE_NAME, CAPITAL_PER_TICKER, CLASSES, GATES,
                     scenarios)
 from engines import vector
 import metrics
+import report_schema
+import rule_logic
 import signals
 import td_loader
 
-from strategies.talib_signals import describe_signal
+from strategies.talib_signals import (GENERIC_FALLBACK_FUNCTIONS,
+                                      describe_signal)
 
 PAYLOAD_PATH = REPORT_DIR / "report_payload.json"
 
@@ -41,20 +44,37 @@ FREE = {"key": "gross", "commission_bps": 0.0, "half_spread_bps": 0.0,
 # is what gets trimmed. Trade records are the cheapest thing to lose — they are a
 # drill-down for the handful of leaders, not evidence anything is ranked on.
 CURVE_POINTS = 80
-CURVES_KEPT = 20
+# Was 20, which meant only 1,176 of 26,304 candidates (4.5%) had a curve and clicking any
+# of the other 25,128 showed an empty drill-down. Curves are pooled across assets, so a
+# curve costs the same whether the panel holds 20 names or 722 — raising this is ~12 MB
+# of payload and nothing else. 100 covers the rows anyone actually opens; it does NOT
+# cover all of them, and rows below the cut still have no curve by design.
+CURVES_KEPT = 50
 
 # The page must load as one file under a 16 MB ceiling, and with 56 panels every choice
 # here is a trade against that. Priority order, set deliberately:
 #
-#   1. ALL assets in the drill-down. Breadth is one of the four gates and cannot be
-#      judged from a sample, so this is not negotiable — 20 stocks / 10 pairs.
-#   2. Every single rule stays on the leaderboard. The 231 singles are the study.
-#   3. Combos are capped to the top COMBOS_KEPT by IR. All ~4,800 remain in
+#   1. Every single rule stays on the leaderboard. The 231 singles are the study, and a
+#      row is ~170 bytes, so this is cheap and non-negotiable.
+#   2. Combos are capped to the top COMBOS_KEPT by IR. All ~4,800 remain in
 #      results/combo_summary_*.csv; only the *page* is truncated, and it says so.
-#   4. Per-asset trade detail is kept for the top rule only. It is a drill-down, not
-#      evidence, and at 20 assets x 56 panels it was the single largest block.
-ASSETS_PER_RULE = None          # None = all assets
-TOP_N_TRADES = 1
+#   3. Curves next, because they do not scale with universe size.
+#   4. Per-asset trade detail last, because it is the only block that does.
+#
+# `ASSETS_PER_RULE = None` (all assets) was correct at 20 stocks and is not survivable at
+# 722.
+#
+# Per-asset trade detail is the one block that scales with universe size, and it was
+# already 3.31 MB — 28% of an 11.9 MB payload — for a *single* rule per panel across 20
+# names. At 722 names the same setting is ~120 MB before any other change, which is not a
+# tuning problem, it is a different artifact. So the drill-down is now capped per rule.
+#
+# The old comment called all-assets "not negotiable" because breadth is a gate. That
+# reasoning does not transfer: breadth is computed in `results/*.csv` from every asset and
+# is unaffected by what the page renders. This cap truncates a *display* table that nobody
+# can read 722 rows of anyway, and `n_assets` on the row still reports the true count.
+ASSETS_PER_RULE = 10
+TOP_N_TRADES = 2                # was 1 — 0.21% of candidates had any trade detail
 COMBOS_KEPT = 250
 MAX_TRADES_SHOWN = 12
 TICKER_CURVE_POINTS = 60
@@ -94,6 +114,29 @@ CLASS_TLDR = {
               "is severe (dead coins are absent) but largely cancels in the IR, since "
               "every asset is measured against buy-and-hold on itself.",
 }
+
+
+
+def _rule_logic_block() -> dict:
+    """Long-form explanation per TA-Lib rule: mechanics, family, exposure, failure mode."""
+    from strategies.talib_signals import get_all_indicator_names
+    out = {}
+    for name in get_all_indicator_names():
+        text = rule_logic.explain(name, describe_signal, GENERIC_FALLBACK_FUNCTIONS)
+        if text:
+            out[name] = text
+    return out
+
+
+def _strategy_logic_block() -> dict:
+    """The published catalog's own LOGIC blocks, with provenance."""
+    try:
+        from strategies.registry import CATALOG
+    except Exception:
+        return {}
+    return {name: {"rule": s.rule, "source": s.source, "family": s.family,
+                   "logic": s.logic, "note": s.note}
+            for name, s in CATALOG.items() if s.logic or s.note}
 
 
 def _sanitize(obj):
@@ -331,43 +374,43 @@ def _describe(r) -> str:
         return "Rule description unavailable."
 
 
-# Leaderboard rows ship as arrays against this shared field list, not as objects.
-# With ~1,300 rows x 52 panels, the repeated JSON key names alone were ~400 bytes a row —
-# roughly two thirds of the payload. `report.js` hydrates them back into objects on load.
-# Order is load-bearing: it is the wire format.
-ROW_FIELDS = [
-    "indicator", "rank", "is_baseline", "generic_fallback", "is_combo",
-    "op", "leg_a", "leg_b", "n_tickers",
-    "ir_net", "ir_hit_rate", "headroom", "t_stat", "loo_retention",
-    "gate_ir", "gate_breadth", "gate_headroom", "gate_t", "gates_passed",
-    "total_pnl_dollars", "avg_cagr", "avg_sharpe", "avg_max_drawdown",
-    "turnover_per_year", "n_trades",
-]
+# Leaderboard rows ship as arrays against a shared field list, not as objects. With
+# ~1,300 rows x many panels the repeated JSON key names alone were ~400 bytes a row —
+# roughly two thirds of the payload. `report.js` hydrates them back into objects.
+#
+# The list, the extraction, the rounding and the column header now all come from ONE
+# declaration per metric in `report_schema.REGISTRY`, because keeping them in two
+# parallel positional structures meant a mis-indexed edit shifted every later column and
+# rendered a plausible wrong number rather than failing.
+ROW_FIELDS = report_schema.ROW_FIELDS
 
 
 def _row_for_report(r, rank: int) -> list:
-    def num(v, dp=None):
-        if v is None or (isinstance(v, float) and not np.isfinite(v)):
-            return None
-        return round(float(v), dp) if dp is not None else float(v)
+    return _check_row_contract(
+        report_schema.build_row(r, {"rank": rank, "operators": signals.OPERATORS}))
 
-    op = r.get("op")
-    is_combo = isinstance(op, str) and op in signals.OPERATORS
-    return [
-        r["rule"], rank, bool(r["is_baseline"]), bool(r["generic_fallback"]), is_combo,
-        # Carried so pass 2 can rebuild a combo's position from its legs rather than
-        # trying to parse it back out of the label.
-        op if is_combo else None,
-        r.get("leg_a") if is_combo else None,
-        r.get("leg_b") if is_combo else None,
-        int(r["n_assets"]),
-        num(r["ir_net"], 4), num(r["ir_hit_rate"], 4), num(r["headroom"], 3),
-        num(r["t_stat"], 4), num(r["loo_retention"], 4),
-        bool(r["gate_ir"]), bool(r["gate_breadth"]),
-        bool(r["gate_headroom"]), bool(r["gate_t"]), int(r["gates_passed"]),
-        num(r["total_pnl_dollars"], 2), num(r["avg_cagr"], 4), num(r["avg_sharpe"], 3),
-        num(r["avg_max_drawdown"], 4), num(r["turnover_per_year"], 1), int(r["n_trades"]),
-    ]
+
+def _check_row_contract(row: list) -> list:
+    """The wire format is positional, so a mismatch corrupts data instead of failing.
+
+    `ROW_FIELDS` and the list `_row_for_report` builds are zipped together. Adding a
+    metric to one and not the other — or inserting it at a different index — shifts every
+    later column by one, so `ir_net` renders `headroom`'s number and the page is wrong in
+    a way that looks entirely plausible. `zip` truncates silently, so nothing raises.
+
+    This is the same failure shape as the IR-by-float-noise and empty-scenario bugs: it
+    does not crash, it produces a believable wrong answer. One assertion removes the whole
+    class, and it is the first thing to keep when adding a column here.
+    """
+    if len(row) != len(ROW_FIELDS):
+        raise ValueError(
+            f"payload row has {len(row)} values but ROW_FIELDS declares "
+            f"{len(ROW_FIELDS)}. Both are derived from `report_schema.REGISTRY`, so this "
+            f"means something appended to ROW_FIELDS directly instead of declaring a "
+            f"Metric. Add the metric to REGISTRY — appending is safe, inserting or "
+            f"reordering is not, because the wire format is positional and zip() "
+            f"truncates silently.")
+    return row
 
 
 def _as_dict(row: list) -> dict:
@@ -521,6 +564,14 @@ def build(classes=None, timeframes=None) -> dict:
     return {
         "demo": False,
         "row_fields": ROW_FIELDS,
+        "field_meta": report_schema.FIELD_META,
+        # Keyed by rule name and shared across every panel rather than repeated per row:
+        # the same rule appears in all 8 panels, and a one-line description is not enough
+        # to read a result. `MAXINDEX` tops us_stocks 1d and is a null-establishing row
+        # with no economic content — a reader who does not know that draws the opposite
+        # conclusion from the one the number supports.
+        "rule_logic": _rule_logic_block(),
+        "strategy_logic": _strategy_logic_block(),
         "tldr": tldr_cache,
         "classes": [c for c in classes_meta
                     if any(k.startswith(c["key"] + "|") for k in panels)],

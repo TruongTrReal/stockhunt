@@ -1,22 +1,20 @@
 # CLAUDE.md
 
 Guidance for Claude Code working in this directory. Read `../CLAUDE.md` first, and
-`../backtest engine/CLAUDE.md` too — the conventions come from there and apply unchanged.
+`../backtest engine/CLAUDE.md` too — the mechanics come from there and apply unchanged.
+**No results here** — the `results/` CSVs and the dashboard own those.
 
 ## What this is
 
 Everything that prices **selection**. The engine next door scores a *rule*; this folder
 scores *choosing* a rule, which is a different and much harder question.
 
-A single split has the whole test column visible when it picks its winner. Nobody trading
-in 2015 had that table. Here, parameters and rule identity are re-selected on each 3-year
-in-sample window and applied to the next 12 months — so the leaderboard pays for its own
-hindsight.
+A single split has the whole test column visible when it picks its winner. Here, parameters
+and rule identity are re-selected on each 3-year in-sample window and applied to the next 12
+months, so the leaderboard pays for its own hindsight.
 
-The result of doing that honestly: on 1d equities the gap between the two is **-0.21 IR**
-(-0.447 walk-forward vs -0.237 single-split), and per-fold parameter tuning lost on **all
-14** re-optimisable families, mean -0.083. **Quote IS#1 as the headline, not the best fixed
-rule.**
+This folder also owns the only place in the repo where a pass or fail exists:
+`riskmatch_wf.py` → `results/edge_standard.csv`.
 
 ## Files
 
@@ -27,10 +25,31 @@ walkforward.py   stage 1b: fold generation, champion picking, stitching, IS#1
 variants.py      stage 1c: 8 position transforms over the IS-shortlisted leaders
 prereg.py        stage 1d: 5 published rules, no free parameters, no selection at all
 strat_wf.py      stage 1e: the ../strategies/ catalog, 117 cells, + exposure controls
+focus_wf.py      stage 1f: ibs and macd_cross only, named in advance so N=2. The
+                 conditional-return test, era split, cost curve, floor sweep, regime panel
+riskmatch_wf.py  stage 1g: THE EDGE STANDARD. Sizes every rule to the benchmark's risk
+                 from trailing vol, credits cash at T-bills, charges financing, scores
+                 both long/flat and long/short -> results/edge_standard.csv
+portfolio_wf.py  stage 1h: the BOOK, not the median of its parts. PIT membership,
+                 block bootstrap, deflated Sharpe, factor alpha
+   |             --fill / --charge-bench / --stress-delisted / --n-trials are the
+   |             comparison controls; see the root CLAUDE.md section on comparing a
+   |             strategy to buy-and-hold before quoting anything this stage emits
+   |             --rules-file takes a label per line, because every pair label is
+   |             'LEG_A~LEG_B|operator' and 872 of them would need shell quoting
+make_book_rules.py   writes book_rules/<class>_<tf>.txt -- every rule on
+   |             edge_standard.csv, baseline first -- plus book_rules/starts.csv, the
+   |             --start each sheet needs. Regenerate both together
+run_book.sh      stage 1h for the WHOLE leaderboard: 8 sheets, ~400 rules each, on the
+   |             out-of-sample span -> results/book_<class>_<tf>.csv AND, via --curves,
+   |             results/book_curves_<class>_<tf>.json. Those are the leaderboard's book
+   |             columns and the dashboard's equity charts -- one computation, two shapes
+merge_book.py    ONE rule onto an existing book sheet, without re-scoring the rest. A
+   |             rule's book depends on its own positions and the bars, so the rows
+   |             already there are not stale; only the panel columns are. See below
 combo_wf.py      stage 2b: walk-forward pairs + leg-correlation diagnosis
 gate_calibration.py  power check: is a gate below its own noise ceiling?
-curves.py        equity curves for the top rules -> results/curves_*.json (dashboard)
-wf_vs_split.py   does the ranking actually move once it is walk-forward? (it does)
+wf_vs_split.py   does the ranking actually move once it is walk-forward?
 ```
 
 ## Commands
@@ -38,14 +57,153 @@ wf_vs_split.py   does the ranking actually move once it is walk-forward? (it doe
 ```powershell
 ..\.venv\Scripts\Activate.ps1        # or call ..\.venv\Scripts\python.exe directly
 python walkforward.py --class us_stocks --tf 1d
+python walkforward.py --class us_etfs --tf 1d 4h
 python variants.py --tf 1d 4h --top-k 12
 python prereg.py --tf 1d 4h --freeze
 python strat_wf.py --tf 1d 4h        # --list prints the catalog and exits
+python strat_wf.py --tf 1d --rules ibs        # one strategy, scoped -> *.partial.csv
+python strat_wf.py --tf 1d --rules ibs --promote    # ...as the sheet of record
+python focus_wf.py --tf 1d           # stage 1f, seconds not minutes
+python riskmatch_wf.py --tf 1d 4h    # stage 1g, the standard; ~2 min for all 6 sheets
+python riskmatch_wf.py --tf 1d --rules ibs --n-trials 1273    # scoped
+python riskmatch_wf.py --tf 1d --side long --cash-rate 0      # sensitivity knobs
+python portfolio_wf.py --tf 1d --pit --rules ibs
+python portfolio_wf.py --tf 1d --pit --fill close_lag         # fill-timing control
+python portfolio_wf.py --tf 1d --pit --stress-delisted 0.25   # survivorship bound
+python portfolio_wf.py --tf 1d --pit --catalog --n-trials 1273   # honest DSR
+python make_book_rules.py            # rule lists + the per-sheet --start
+./run_book.sh                        # BASH. the whole leaderboard, book-level, ~50 min
+python merge_book.py --class us_stocks --tf 1d --rules my_rule    # ...or just add one
+python merge_book.py --class us_stocks --tf 1d --rules x --dry-run  # prove it reproduces
 python combo_wf.py --tf 1d 4h --top-k 8
 python gate_calibration.py           # no args
 python wf_vs_split.py                # no args
-python curves.py --tf 1d 4h --top 15
 ```
+
+### The chart is the row, and that is enforced
+
+`portfolio_wf.py --curves` writes `book_curves_<class>_<tf>.json`: the strided equity
+series of every rule it scores, plus the basket and each index line, built from the same
+`build_book` result the CSV row comes from.
+
+There used to be a separate `curves.py` that redrew the portfolio from `signals` and
+`engines.vector`. It disagreed with the row on the same page — `ibs` on us_stocks 1d ended
+at **$270,661** there against **$308,442** here — because it paid no interest on idle cash
+(a rule invested 47% of the time holds bills the rest), ignored point-in-time membership,
+and measured Sharpe raw rather than over the bill rate, which handed the *weaker* book the
+*higher* Sharpe. Three conventions, no way to reason it out from the page. It is deleted;
+do not reintroduce a second portfolio builder.
+
+`main` re-reads its own JSON against the frame it just wrote and prints `MISMATCH vs csv`
+on any rule whose CAGR, Sharpe or drawdown differs by more than 0.05. That check is the
+only thing standing between this and the same drift, so it is loud and it never silently
+skips. Both undefined is agreement: a rule that never fires has no Sharpe, and `null`
+against `nan` is the same statement twice.
+
+### The verdict is computed here too, on the book (2026-08-13)
+
+`--curves` is not the only thing `run_book.sh` now produces. `_standard` runs
+`metrics.apply_edge_standard` — the same function, the same six criteria and the same
+thresholds the per-asset stage uses — over the book's own numbers, so the dashboard's
+`Standard` column and its `fees` column are account-level like everything beside them.
+
+Four things to know before touching it:
+
+* **S and T are computed per FOLD, not pooled** (`fold_edges`). The standard defines them
+  that way and its 0.10 threshold was calibrated on fold-to-fold sd. The pooled `dsharpe`
+  and the block-bootstrap `boot_t` stay on the row, and they are looser: `ibs` on
+  us_stocks 1d bootstraps to **3.87** and scores **2.81** across 21 folds. One of those
+  clears the bar and the other does not.
+* **The T bar is MEASURED, not Bonferroni** (`_t_bar`). Correcting for a search means
+  asking how high the best of ~400 candidates would score if none had an edge, and that
+  depends on how alike the candidates are — 231 indicators over one universe plus pairs
+  built from their own legs are nowhere near 400 independent chances. So the panel's
+  per-fold edges are sign-flipped at random, **all rules at once**, 20,000 times: the edge
+  dies, the correlation between rules survives, and the 95th percentile of the best rule's
+  t is the bar (Westfall & Young max-T). Exact for any correlation structure, no model of
+  it required.
+
+  **It is a correction, not a discount, and it can raise the bar.** Bonferroni takes a
+  normal quantile while a mean over 21 folds is a t with fatter tails, so on a genuinely
+  independent panel of this shape the honest bar is **4.42** against Bonferroni's 3.84. On
+  us_stocks 1d the measured bar is **3.76** — the two errors nearly cancel — and that near
+  match is not evidence of low redundancy: calibrated against simulated independent panels,
+  those 387 candidates behave like about **85** separate tests. `test_t_bar.py` holds that
+  calibration and measures the false-positive rate directly; run it after touching any of
+  this.
+
+  The family is the candidates only. `RANDOM_*`, `ALWAYS_*` and the baseline are excluded —
+  nobody was choosing between a real rule and a control they built on purpose, and padding
+  the family moves the bar for the wrong reason.
+* **Cost headroom is exact arithmetic, not seven backtests.** Every cost term is linear in
+  its rate, so the book at *k* times the schedule is `gross - k*(gross - net)`. `build_book`
+  keeps a zero-cost copy of each book for this.
+* **`curve_payload.matched` holds every benchmark scaled down to the book's own
+  volatility**, series and all — it is the second reading of the dashboard's equity chart,
+  behind a toggle. Computed for each plotted line, not just the class benchmark, because
+  the case worth seeing is the one the leaderboard has no column for: on us_stocks 1d QQQ
+  ends 26% above `ibs` at full size and a third of it at equal risk. Scaled down with cash
+  only; nothing here levers anything up. The strided blend is stored rather than left to
+  the page to derive, because the weight multiplies RETURNS bar by bar before they
+  compound — no transform of the published curve reproduces it.
+* **`vs_random` and the standard are panel passes.** They need every rule scored first —
+  `_vs_random` interpolates the RANDOM_* books' measured Sharpes, `_deflate` supplies the
+  trial count the t-criterion's Bonferroni bar needs — so the order in `main` is
+  `_deflate` → `_vs_random` → `_standard` and it is not interchangeable.
+* **A `--rules` shortlist cannot deliver an honest verdict.** Without the controls there is
+  no `vs_random`, and without the panel the trial count collapses to the handful of rules
+  you already believed in, which *lowers* the t bar. Run the full sheet or read the
+  standard as provisional.
+
+`--cash-rate 0` is what `run_book.sh` passes: idle capital earns nothing, on both sides of
+every comparison. See `build_book` for what that costs and why.
+
+### Adding one rule does not mean re-running the sheet (2026-08-13)
+
+`merge_book.py` scores the new rule alone and re-derives only what is a property of the
+PANEL. Nothing else on the sheet is stale: a book is built from its own positions and the
+price bars, so no row depends on which other rules exist. Four things do, and three of
+them are arithmetic over columns the sheet already stores — `vs_random` off the `RANDOM_*`
+rows, `t_bar_maxt` off every candidate's `fold_edges`, the trial count, and
+`metrics.apply_edge_standard` re-applied. It imports `_vs_random`, `_t_bar` and
+`_standard` from `portfolio_wf` rather than reimplementing them, for the same reason
+`curves.py` was deleted.
+
+Four properties of it are load-bearing:
+
+* **It proves it can reproduce the sheet before it writes to it.** The three passes are
+  run over the existing rows alone and every recomputed panel column must reproduce what
+  is stored. If it cannot, the sheet came from different code or different flags, merging
+  would put two studies on one row, and it aborts telling you to use `run_book.sh`. This
+  also recovers the sheet's fold count, which is not a column: `book_rules/starts.csv`
+  holds the fold count over the FULL history, while the run that wrote the sheet passed
+  `--start` and generated folds over the out-of-sample span alone. Both candidates are
+  tried and the one that reproduces `edge_powered` wins.
+* **Untouched cells are copied as bytes, never re-serialised.** Parsing a float column and
+  writing it back does not round-trip — the last digit moves — and doing that to a sheet
+  moves ~15,000 cells nothing touched, which buries the handful that did change. Only
+  recomputed cells are re-rendered, so `git diff` on the sheet is exactly the rules that
+  moved.
+* **The merged rule's DSR is honest; the rows already there keep theirs.** The scoped run
+  is given `--n-trials` and `--trial-dispersion` measured off the sheet, which is the
+  "pass both or neither" pair the root CLAUDE.md requires and the case the overrides exist
+  for. The pre-existing rows are NOT re-deflated: `_deflate` needs the book's per-bar
+  excess series, which it pops and never writes, and reimplementing the deflation from the
+  stored moments would be a second copy of `metrics.deflated_sharpe`. So their trial count
+  is short by however many rules were added — `expected_max_sharpe` grows like
+  sqrt(2 ln N), so it is a fraction of a percent, and it is printed at the end of every run
+  rather than left to be discovered. **The verdict does not depend on it**: `_standard`
+  takes the recomputed `t_bar_maxt` as its override.
+* **A scoped run's row arrives a criterion short, and that is what merging repairs.** With
+  no `RANDOM_*` controls in its panel, `_vs_random` cannot compute criterion R, so the row
+  lands with one gate uncomputable. It is scored properly the moment it joins a panel that
+  has the controls. This is why `--rules` alone can never deliver a verdict and merging
+  can.
+
+What it does **not** touch: `edge_standard.csv`, so `make_book_rules.py` will not carry the
+new label until `riskmatch_wf.py` runs; and `IS#1` on the `strat_wf`/`walkforward` sheets,
+which is a real backtest of the selection path over the candidate pool — a new candidate
+can win a fold, and no stored column can re-derive that. Those two still cost a stage.
 
 Run them **from this directory** — bare-name imports. Long sweeps exceed the 10-minute
 harness timeout; launch detached with output to `logs/`.
@@ -66,39 +224,86 @@ It also owns `RESULTS_DIR`. Every writer here imports it from `wfo_paths`, not f
 
 The engine's holds what a single split produces: `summary_*`, `per_asset_*`, `combo_*`,
 `parity`, `validation`. This folder's holds everything that prices selection: `wf_*`,
-`cwf_*`, `var_*`, `prereg_*`, `strat_*`, `curves_*`.
+`cwf_*`, `var_*`, `prereg_*`, `strat_*`, `book_*`, `edge_standard.csv`.
 
 The split is clean in one direction — **every read inside this folder is of a file this
-folder wrote**. `wf_vs_split.py` is the single exception, and comparing walk-forward
-against the single split is the entire point of it; it reaches across through
+folder wrote**. `wf_vs_split.py` is the single exception, and comparing walk-forward against
+the single split is the entire point of it; it reaches across through
 `wfo_paths.ENGINE_RESULTS` and nowhere else. Keep it that way.
 
-## Known problems in this folder
+## Scoped runs do not overwrite the verdict
 
-Both were flagged during the refactor and deliberately **not** fixed, because fixing them
-changes published numbers and that deserves its own task with the diff as the deliverable:
+`riskmatch_wf.py` writes `edge_standard.partial.csv` whenever the run is narrowed by
+`--rules` or by a subset of classes, leaving the real `edge_standard.csv` intact. `--promote`
+is the explicit opt-in to write the real file from a scoped run. Copy a `.partial.csv` you
+want to keep — the next scoped run overwrites it.
 
-- **`prereg.volmanaged` (`prereg.py:103`) carries a look-ahead leak.** `np.nanmedian` over
-  the whole series is future data — one scalar, but still future. Truncating the series
-  changed 11 of 93 cells' *past* positions. It is worth 0.084 IR at us_stocks 1d (-0.368
-  contaminated vs -0.284 clean). `variants._vol_scale` has the same bug.
-  **Stage 1c and 1d were not re-run.** Do not quote their vol-scaled rows.
-  `strategies.catalog._causal_median` is the fixed form, using an expanding median.
+`--n-trials` matters on a scoped run: the default counts the rules in *this* run, which is
+right for a full sweep and wrong for a shortlist drawn from a search that already happened.
+
+## The standard and the book measure different things, on different spans
+
+Both are on the dashboard leaderboard and neither is a version of the other. Reading one
+as the other is what made the buy-and-hold column look an order of magnitude too small.
+
+| | `edge_standard.csv` (1g) | `book_<class>_<tf>.csv` (1h) |
+|---|---|---|
+| unit | the **median asset**, scored one at a time | **one account** holding the whole universe |
+| weighting | none — each name funded with its own capital | equal weight, rebalanced every bar |
+| span | each name's OWN out-of-sample bars, so a membership spell | the sheet's whole out-of-sample calendar |
+| answers | did a typical stock respond to this rule | what would the account have made |
+
+The span gap is the one that surprises. `us_stocks` names enter and leave the top 100, so
+a name is scored over its spell rather than the study, and the per-asset `years` is far
+shorter than the calendar the book runs. Print them side by side without saying which is
+which and the same buy-and-hold appears twice at very different sizes.
+
+**`run_book.sh` passes `--start` and it is not optional.** Without it the book covers the
+full history including the bars every rule was selected on, and a leaderboard ranked on
+that is ranked on in-sample fit. The date is fold 0's `is_end` — the first bar that was
+ever out-of-sample. Folds are 3y-IS / 1y-OOS / 1y-step and contiguous, so the union of
+every fold's OOS window is a single span starting there, and a plain `--start` reproduces
+it exactly but for the final bar (`fold_masks` uses `< oos_end`). `make_book_rules.py`
+derives the date per sheet rather than hardcoding it; regenerate it after any change to
+the fold constants or the fetched span.
+
+`--walkforward` does **not** do this. It emits one `IS#1[cashmatch]` selection row — what
+picking the best rule each fold costs — not per-rule out-of-sample book numbers.
+
+## Mechanics that will bite you
+
+- **Segment trades on the position HELD, never on the target.** `vector.net_returns` does
+  `held[1:] = position[:-1]` — the return on bar *t* was earned by the position set at *t−1*.
+  Anything that slices a return series by position runs (win rate, profit factor, average
+  win, best/worst trade) must shift first, on the full array, before masking to the
+  out-of-sample union — masking breaks bar adjacency.
 - **Test causality by truncation, not by reading the code.** Build positions on the full
   series and on the series minus the last N bars, then assert the overlap is identical.
-  That is what caught the above; staring at `rolling()` calls did not.
-
-## Reading the output
-
-- **IS#1 is the number.** The `fixed` rows are what the best rule scored; the
-  `is1_selection` row is what *following the selection rule* scored, which is the only one
-  a person could have traded.
-- **Check `gate_calibration.py` before believing a null.** It reports the effective bar,
-  `max(IR gate, 2/sqrt(years), noise_ceiling(N, years))`. Only `us_stocks 1d` is coherent —
-  41 OOS years, ceiling +0.43 at 327 trials, under the 0.50 gate. Every other sheet carries
-  3.4–5.9 years where the ceiling is +0.95 to +1.26, well above the gate.
-- **`corr(IR, long_frac) = 0.881` on 1d equities.** The leaderboard is substantially a
-  ranking of time-in-market and `or` wins because it is the operator that spends the most.
-  `MININDEX~MAXINDEX|or` is long 100% — it is buy-and-hold wearing a rule's name. Crypto
-  does not behave this way (-0.12), so it is an equity-uptrend artifact, not a property of
-  the metric.
+  Staring at `rolling()` calls does not work; this is what caught the `nanmedian` leak.
+- **`prereg.volmanaged` (`prereg.py:103`) and `variants._vol_scale` carry a known look-ahead
+  leak**: `np.nanmedian` over the whole series is future data. Deliberately unfixed because
+  fixing it changes published numbers, and **stages 1c and 1d were not re-run** — do not
+  quote their vol-scaled rows. `strategies._indicators._causal_median` is the fixed form.
+- **`IS#1` is the row to quote**, not the best `fixed` row. The `fixed` rows are what the
+  best rule scored; `is1_selection` is what *following the selection rule* scored, which is
+  the only one a person could have traded.
+- **The cache switches bind on `walkforward.py` and `strat_wf.py` only.** `riskmatch_wf` and
+  `portfolio_wf` still call `signals.position_for` directly, so `STOCKHUNT_NO_POSCACHE` /
+  `STOCKHUNT_WORKERS` change nothing there. `strat_wf` cannot reuse
+  `signals.rule_positions` — that builds through `position_for`, which knows the 231
+  TA-Lib rules and nothing about `strategies/published/` — so it has its own cache-aware
+  loader writing into a `strat.` keyspace. The prefix is load-bearing: NTFS is
+  case-insensitive, so an unprefixed `ibs` and a TA-Lib `IBS` would be one file, and the
+  two are not the same series (`position_for` flattens end-of-day on intraday sheets,
+  `registry.build` does not).
+- **`strat_wf --rules` writes `*.partial.csv`.** `IS#1`, both noise ceilings and ranking
+  stability are defined over the catalog the run scored, so a narrowed run's are not a
+  full run's under a different name — they are different quantities. `--promote` is the
+  opt-in, same convention as `riskmatch_wf`. A scoped run also leaves `strat_meta.csv`
+  alone, because that file is where the ceilings are indexed.
+- **`wf_summary_*` carries `exposure`, `long_frac` and `short_frac`** on exactly
+  `combo_wf.py`'s definitions — mean over the union mask, averaged across assets, and
+  computed for the stitched pseudo-rules (`IS#1`, `FAMILY[WF]`) as well as the fixed ones.
+- **`us_etfs` is a real sheet here** (1d and 4h), separate from the frozen
+  `top 20 stocks/results/etf_wf_*`, which used 2 assets and a `cost_bps` grid rather than
+  named scenarios. Do not quote the two together.

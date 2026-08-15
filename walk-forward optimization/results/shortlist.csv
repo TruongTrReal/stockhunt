@@ -1,0 +1,108 @@
+rule,reason,metric,sheet,kind
+TEMA_1000,4/6 on the standard,1.3025805,crypto/1d,single
+"ibs@buy=0.3,sell=0.7","published grid cell, beats its exposure control",1.1729287521420897,strat_summary_commodities_4h,published
+ibs,"published strategy, beats its exposure control",1.060117938619043,strat_summary_commodities_4h,published
+ibs@sell=0.6,"published grid cell, beats its exposure control",1.043324351306642,strat_summary_commodities_4h,published
+sell_in_may@end_month=5,"published grid cell, beats its exposure control",0.8618255512358448,strat_summary_crypto_4h,published
+"sell_in_may@end_month=5,start_month=10","published grid cell, beats its exposure control",0.820902066295601,strat_summary_crypto_4h,published
+sell_in_may,"published strategy, beats its exposure control",0.7744934334212514,strat_summary_crypto_4h,published
+"macd_cross@fast_days=20.0,slow_days=50.0","published grid cell, beats its exposure control",0.7607861948657818,strat_summary_crypto_4h,published
+HT_PHASOR~LINEARREG_100|gate,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~ATR|gate,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~LINEARREG_INTERCEPT_50|or,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~MA_100|gate,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~LINEARREG_100|or,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~LINEARREG_INTERCEPT_50|gate,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~MAXINDEX|or,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR~ATR|or,top walk-forward pair,0.6471064758111335,cwf_summary_crypto_4h,combo
+HT_PHASOR,top single rule,0.6471064758111335,wf_summary_crypto_4h,single
+"dyn_breakout2@hi_days=40.0,lo_days=10.0,vol_days=60.0","published grid cell, beats its exposure control",0.6309898671611295,strat_summary_crypto_4h,published
+"ibs@buy=0.1,sell=0.9","published grid cell, beats its exposure control",0.6173426812215772,strat_summary_commodities_4h,published
+macd_cross,"published strategy, beats its exposure control",0.6144973581581783,strat_summary_crypto_4h,published
+"golden_cross@fast_days=10.0,slow_days=50.0","published grid cell, beats its exposure control",0.6016174372459671,strat_summary_crypto_4h,published
+dyn_breakout2,"published strategy, beats its exposure control",0.5888519065124012,strat_summary_crypto_4h,published
+"dyn_breakout2@base_days=40.0,hi_days=80.0","published grid cell, beats its exposure control",0.5792821065601075,strat_summary_crypto_4h,published
+donchian_s1,"published strategy, beats its exposure control",0.536948873529395,strat_summary_crypto_4h,published
+"golden_cross@fast_days=20.0,slow_days=100.0","published grid cell, beats its exposure control",0.5302691504119229,strat_summary_crypto_4h,published
+CDL3BLACKCROWS,4/6 on the standard,0.4895468125,crypto/4h,single
+MININDEX~MULT|or,top walk-forward pair,0.3691633599102969,cwf_summary_crypto_1d,combo
+MININDEX~CCI|or,top walk-forward pair,0.3681682578515312,cwf_summary_crypto_1d,combo
+CDL2CROWS,4/6 on the standard,0.3389156111111111,crypto/4h,single
+connors_rsi,4/6 on the standard,0.3174772129356997,crypto/1d,published
+CDLTRISTAR,4/6 on the standard,0.3077375,crypto/1d,single
+"ichimoku@kijun_days=13.0,senkou_days=26.0,tenkan_days=5.0","published grid cell, beats its exposure control",0.298517427972366,strat_summary_crypto_1d,published
+CORREL,4/6 on the standard,0.2656432690719897,crypto/1d,single
+MAXINDEX~SUB|or,top walk-forward pair,0.254496195072368,cwf_summary_crypto_1d,combo
+trend_factor,"published strategy, beats its exposure control",0.2524913823896062,strat_summary_crypto_1d,published
+MAXINDEX~TRANGE|or,top walk-forward pair,0.2524553825120569,cwf_summary_crypto_1d,combo
+tsmom12,"published strategy, beats its exposure control",0.2497033383249273,strat_summary_crypto_1d,published
+supertrend_regime@ma_days=50.0,"published grid cell, beats its exposure control",0.2482247454509462,strat_summary_crypto_1d,published
+MININDEX,top single rule,0.2464154504821243,wf_summary_crypto_4h,single
+MAXINDEX~TRANGE|vote,top walk-forward pair,0.2322304345180868,cwf_summary_crypto_1d,combo
+MAXINDEX~SUB|vote,top walk-forward pair,0.2321890404889557,cwf_summary_crypto_1d,combo
+SUB,top single rule,0.2251427104208213,wf_summary_crypto_4h,single
+CDLRISEFALL3METHODS,4/6 on the standard,0.2219671666666666,commodities/1d,single
+TRANGE,top single rule,0.2207735677607016,wf_summary_crypto_4h,single
+CDLHOMINGPIGEON,4/6 on the standard,0.2162630569828721,crypto/4h,single
+rsi2_raw,5/6 on the standard,0.2082817510282849,crypto/1d,published
+ATR,top single rule,0.204336005834286,wf_summary_crypto_4h,single
+HT_TRENDMODE,top single rule,0.199143949492473,wf_summary_crypto_4h,single
+NATR,top single rule,0.1970691764863631,wf_summary_crypto_4h,single
+DIV,top single rule,0.189574602458328,wf_summary_crypto_4h,single
+st_reversal,"published strategy, beats its exposure control",0.1718945258965006,strat_summary_us_stocks_4h,published
+"rsi2_raw@buy=15.0,exit_ma_days=10.0","published grid cell, beats its exposure control",0.1715421271660654,strat_summary_us_etfs_4h,published
+CDLGAPSIDESIDEWHITE,4/6 on the standard,0.167324725490196,commodities/1d,single
+SAR~MAXINDEX|and,4/6 on the standard,0.16212385,commodities/4h,combo
+SAREXT~MAXINDEX|and,4/6 on the standard,0.16212385,commodities/4h,combo
+ADX,4/6 on the standard,0.1597944900536523,crypto/1d,single
+DX,top single rule,0.1509314834202261,wf_summary_crypto_1d,single
+ASIN,4/6 on the standard,0.1480326543116606,crypto/1d,single
+st_reversal@lookback_weeks=4.0,"published grid cell, beats its exposure control",0.1456830012983695,strat_summary_us_etfs_4h,published
+st_reversal@lookback_weeks=0.5,"published grid cell, beats its exposure control",0.1357175313775361,strat_summary_us_etfs_4h,published
+voltgt_tsmom,4/6 on the standard,0.1349884081860553,crypto/1d,published
+bollinger_mr@period_days=50.0,"published grid cell, beats its exposure control",0.1296259872304851,strat_summary_us_etfs_4h,published
+CDLSTALLEDPATTERN,4/6 on the standard,0.1124921296296296,commodities/1d,single
+"macd_cross@fast_days=5.0,signal_days=5.0,slow_days=35.0","published grid cell, beats its exposure control",0.1113108170484032,strat_summary_commodities_1d,published
+SUM,4/6 on the standard,0.1096160116715029,crypto/1d,single
+golden_cross@slow_days=150.0,"published grid cell, beats its exposure control",0.0946096391509576,strat_summary_commodities_1d,published
+MAXINDEX~MAMA|or,top walk-forward pair,0.0905183301891783,cwf_summary_commodities_4h,combo
+golden_cross,"published strategy, beats its exposure control",0.0885563244585227,strat_summary_commodities_1d,published
+dual_thrust,"published strategy, beats its exposure control",0.0808462962778244,strat_summary_commodities_1d,published
+SAR~MAXINDEX|vote,top walk-forward pair,0.0553438042650142,cwf_summary_commodities_4h,combo
+SAREXT~MAXINDEX|vote,top walk-forward pair,0.0542388749887657,cwf_summary_commodities_4h,combo
+MAXINDEX~MINMAXINDEX|gate,top walk-forward pair,0.0355357270122229,cwf_summary_commodities_4h,combo
+MAXINDEX~SAREXT|gate,top walk-forward pair,0.0330964923533972,cwf_summary_commodities_4h,combo
+MAXINDEX,top single rule,0.0330964923533972,wf_summary_commodities_4h,single
+MAXINDEX~HT_DCPHASE|gate,top walk-forward pair,0.0330964923533972,cwf_summary_commodities_4h,combo
+MAXINDEX~MAMA|gate,top walk-forward pair,0.0330964923533972,cwf_summary_commodities_4h,combo
+MININDEX~HT_TRENDMODE|vote,4/6 on the standard,0.0228743971836419,crypto/1d,combo
+MININDEX~HT_TRENDMODE|or,4/6 on the standard,0.0228743971836419,crypto/1d,combo
+SAR,top single rule,0.0141577820247347,wf_summary_commodities_4h,single
+SAREXT,top single rule,0.0135010994999511,wf_summary_commodities_4h,single
+MININDEX~HT_PHASOR|or,top walk-forward pair,0.0102568406480295,cwf_summary_us_etfs_1d,combo
+BBANDS,4/6 on the standard,0.0082220333333333,commodities/1d,single
+supertrend_dual,4/6 on the standard,-0.0074915364250143,crypto/1d,published
+MAXINDEX~TSF_9|or,top walk-forward pair,-0.0238676341664673,cwf_summary_us_etfs_1d,combo
+MAXINDEX~MININDEX|or,top walk-forward pair,-0.0255376583413019,cwf_summary_us_stocks_1d,combo
+MAXINDEX~MININDEX|vote,top walk-forward pair,-0.0255376583413019,cwf_summary_us_stocks_1d,combo
+LINEARREG_21~LINEARREG_9|gate,top walk-forward pair,-0.0432454089887013,cwf_summary_commodities_1d,combo
+LINEARREG_21~TEMA_21|gate,top walk-forward pair,-0.0435033297803416,cwf_summary_commodities_1d,combo
+LINEARREG_21~DEMA_9|gate,top walk-forward pair,-0.0435033297803416,cwf_summary_commodities_1d,combo
+LINEARREG_21~TEMA_21|or,top walk-forward pair,-0.0435033297803416,cwf_summary_commodities_1d,combo
+LINEARREG_21~DEMA_21|gate,top walk-forward pair,-0.0435033297803416,cwf_summary_commodities_1d,combo
+LINEARREG_21~LINEARREG_9|or,top walk-forward pair,-0.0435033297803416,cwf_summary_commodities_1d,combo
+LINEARREG_21,top single rule,-0.0435033297803416,wf_summary_commodities_1d,single
+STOCH,top single rule,-0.0470522116437222,wf_summary_commodities_1d,single
+TSF_21,top single rule,-0.0584190270860428,wf_summary_commodities_1d,single
+MAXINDEX~CDLDOJI|vote,top walk-forward pair,-0.0588299193864326,cwf_summary_us_etfs_1d,combo
+MAXINDEX~CDLDOJI|or,top walk-forward pair,-0.0588299193864326,cwf_summary_us_etfs_1d,combo
+DEMA_9,top single rule,-0.0627090780915694,wf_summary_commodities_1d,single
+MAXINDEX~PLUS_DM|or,top walk-forward pair,-0.0999851371915089,cwf_summary_us_etfs_4h,combo
+MAXINDEX~MINUS_DM|or,top walk-forward pair,-0.0999851371915089,cwf_summary_us_etfs_4h,combo
+MAXINDEX~MINUS_DI|or,top walk-forward pair,-0.0999851371915089,cwf_summary_us_etfs_4h,combo
+MAXINDEX~LINEARREG_9|or,top walk-forward pair,-0.1102463425863982,cwf_summary_us_etfs_4h,combo
+MIDPRICE_200,top single rule,-0.1885859147932251,wf_summary_us_etfs_1d,single
+LINEARREG_INTERCEPT_1000,top single rule,-0.4294060333987369,wf_summary_us_etfs_4h,single
+TSF_9,top single rule,-0.4414438380120626,wf_summary_us_etfs_4h,single
+faber_gtaa,"pre-registered, no free parameters",-9000000000.0,prereg_commodities_1d,published
+volmanaged,"pre-registered, no free parameters",-9000000000.0,prereg_commodities_1d,published

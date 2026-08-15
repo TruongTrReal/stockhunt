@@ -1,9 +1,8 @@
-/* Three sections, hash-routed, so any of them can be bookmarked and sent on its own:
+/* Two sections, hash-routed, so either can be bookmarked and sent on its own:
  *   #/paper                     every strategy running in the sandbox
  *   #/paper/<id>                one strategy's live paper progress
- *   #/backtest                  research leaderboards, 20 mega-caps and 10 crypto pairs
+ *   #/backtest                  research leaderboards, per asset class and timeframe
  *   #/backtest/<cls>/<tf>/<rule>  one rule, broken down asset by asset
- *   #/method                    the four gates and how to read an IR
  *
  * Paper and backtest are separate sections rather than two panels on one screen. They
  * are different periods and different sample sizes — weeks of simulated fills against
@@ -19,7 +18,16 @@ const fmtPct = (v, d = 2) => v == null ? "—"
 const fmtIR = v => v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);
 /* Annualised growth, printed unsigned: 17.51% reads as a rate, +17.51% reads as a gain. */
 const fmtCagr = (v, d = 1) => v == null ? "—" : v.toFixed(d) + "%";
+/* A CAGR *difference*, always signed, and with the typographic minus `fmtDelta` uses so
+ * the two comparison columns line up against each other. */
+const fmtCagrDelta = (v, d = 1) => v == null ? "—"
+  : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
 const fmtNum = (v, d = 1) => v == null ? "—" : Number(v).toFixed(d);
+/* Signed, with the typographic minus the rest of the page uses. `toFixed` emits an ASCII
+ * hyphen, which sits a different height and width to "−" and makes a column of numbers
+ * look misaligned next to one formatted by fmtIR. */
+const fmtSigned = (v, d = 2) => v == null ? "—"
+  : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
 
 /* ---------- P&L: what a fixed stake became ----------
  * A percentage return over 41 years is unreadable (+74,735%) and a percentage-point gap
@@ -76,8 +84,138 @@ const statusChip = s => { let [c, l] = STATUS[s.status] || ["mut", s.status];
 const fmtUnits = v => !v ? "—" : Math.abs(v) >= 100 ? v.toFixed(2)
   : Math.abs(v) >= 1 ? v.toFixed(3) : v.toFixed(6);
 const stateCell = s => `<span class="pos-${s.state}">${s.state}</span>`;
-const gatePips = g => { const n = g.filter(Boolean).length;
-  return `<span class="gates${n ? "" : " none"}" title="Information ratio, Breadth, Headroom, t-statistic">${n}/4</span>`; };
+/* ---------- the acceptance standard, on the row ----------
+ * `D.edge_criteria` comes from `config.GATES`, so the letters and their order are whatever
+ * the standard currently says rather than a copy here that can drift from it.
+ */
+/* `n of 6`, not the STRCWH letter strip. The strip encoded which criteria passed in a
+ * six-character monogram nobody could read without the legend, and the legend was the
+ * column header — so the header stopped naming the column and started being a key. The
+ * count is the number a reader actually wants; *which* six is a tooltip, where detail
+ * that matters occasionally belongs. */
+const edgeCount = e => {
+  if (e == null) return '<span class="gates none">—</span>';
+  const named = (D.edge_criteria || []).map((c, i) =>
+    `${e.gates[i] ? "✓" : "✗"} ${c.k}  ${c.target}  ${c.name}`).join("\n");
+  const cls = e.verdict === "PASS" ? "" : " none";
+  /* The T criterion's printed target is ">= 2.0", which is the bar for a single
+   * pre-specified test and not for this one: searching ~400 candidates raises it. A
+   * reader seeing T failed beside "target >= 2.0" and a t of 2.81 is owed the number it
+   * actually had to clear, and where that number came from. */
+  const bar = e.t_bar == null ? "" :
+    `\n\nT is scored against ${e.t_bar.toFixed(2)}, not 2.0: ${
+      e.n_candidates ? e.n_candidates + " candidates were" : "the panel was"} searched${
+      e.t_bar_source === "maxT"
+        ? `, and that bar is measured by sign-flip permutation of this sheet's own per-fold edges${
+            e.t_bar_bonferroni
+              ? ` — Bonferroni would have assumed ${e.t_bar_bonferroni.toFixed(2)}` : ""}`
+        : ""}.`;
+  const why = (e.verdict === "underpowered"
+    ? `too few folds to resolve — cannot tell, not "no"\n\n${named}` : named) + bar;
+  return `<span class="gates${cls}" title="${esc(why)}">${e.passed}/${e.n}</span>`;
+};
+
+/* A figure shown against the benchmark's own value rather than alone, and coloured by that
+ * comparison. Raw Sharpe especially: on a rising market it largely measures how much of the
+ * time a rule was invested, so a bare 0.66 looks like skill until you see buy-and-hold
+ * scored 0.63 over the same bars. The comparison is the number; the level is context.
+ * Blanks on a missing value rather than colouring an em-dash. */
+const vsCell = (v, bench, fmt, better, tip) => {
+  if (v == null) return '<td class="flat">—</td>';
+  const cls = bench == null ? "" : better(v, bench) ? "gain" : "loss";
+  const t = bench == null ? "" : ` title="${esc(`buy & hold: ${fmt(bench)}${tip ? " — " + tip : ""}`)}"`;
+  return `<td class="${cls}"${t}>${fmt(v)}</td>`;
+};
+const fmtSharpe = v => fmtNum(v, 3);
+const fmtDD = v => fmtNum(v, 1) + "%";
+/* ---------- book cells ----------
+ *
+ * The leaderboard reads one measurement now: `r.book`, from `book_<class>_<tf>.csv`. These
+ * are the shared renderers for it. Every one blanks when there is no book record — never
+ * falls back to `r.edge`, which is the median single asset over a different span. Mixing
+ * the two inside one column is the defect this replaced, and a fallback would restore it
+ * invisibly on exactly the rows where the book run is missing.
+ */
+const bookExposure = r => (r.book && r.book.exposure != null) ? r.book.exposure : null;
+const bookNum = (r, v, fmt) => v == null
+  ? `<td class="flat">—</td>` : `<td>${fmt(v)}</td>`;
+/* The book's drawdown against the same universe held passively. `sh.book_bench.dd` is one
+ * figure for the whole sheet — the passive book is the same portfolio on every row — so it
+ * is passed in rather than read off the row, which carries no benchmark drawdown of its
+ * own. Rows with no book run print an em-dash rather than falling back to the per-asset
+ * number, which would put two different measurements in one column. */
+const bookDdCell = (r, bench) => vsCell(r.book && r.book.dd, bench, fmtDD, (a, b) => a > b,
+  "worst peak-to-trough fall of the passive book over the same bars");
+/* Profit factor is scored against 1.0, not against the benchmark: buy-and-hold holds one
+ * position for the whole window, so it has no closed losing trade to divide by and no
+ * profit factor to compare with. Break-even is the only honest reference. */
+/* How many positions the rule opened on a typical asset. Not coloured — trading a lot is
+ * neither good nor bad on its own — but it is what makes the profit factor beside it
+ * readable: 1,283 trades is a distribution, 3 is an anecdote. Counted per asset because
+ * the sheet pools twenty symbols and a combined total cannot be sized against a holding
+ * period. */
+const tradesCell = e => {
+  const v = e && e.trades;
+  if (v == null) return '<td class="flat">—</td>';
+  const why = v < 30
+    ? `${v} trades on a typical asset — too few to read the profit factor as a rate`
+    : `${v} positions opened on a typical asset, out-of-sample`;
+  return `<td class="flat" title="${esc(why)}">${Math.round(v).toLocaleString()}</td>`;
+};
+
+/* What the median asset's $10,000 became, with its benchmark on the SAME basis in the
+ * tooltip — the median asset held, not the mean.
+ *
+ * That distinction is the whole reason this cell needs a tooltip at all. The sheet's prose
+ * used to quote the benchmark as $16.4M, which is `wf_summary`'s figure and is a MEAN
+ * across assets; this column is a MEDIAN, and the median asset held becomes $1.65M. A
+ * reader comparing the column against the quoted number was comparing a median against a
+ * mean and would conclude a rule beating buy-and-hold by 6.9x had lost to it by a third.
+ * Same $10,000, same twenty assets, two different summary statistics an order of magnitude
+ * apart — quote the one that matches the column. */
+/* The book's terminal wealth, coloured against the book's OWN buy-and-hold.
+ *
+ * The colour is the RAW money question — did this account end up with more than holding —
+ * and deliberately not the risk-matched one, even though the risk-matched figure is what
+ * the table is ranked on. The two genuinely disagree and the split is the point: on
+ * us_stocks 1d `MAXINDEX~HT_PHASOR|and` clears holding by +1.44%/yr at equal risk while
+ * ending on $81k against the benchmark's $191k, because it was only invested 46% of the
+ * time. Colour that cell green and the reader is told they made money they did not make;
+ * put the risk-matched verdict in its own column, in its own colour, and both facts
+ * survive. Money here, skill next door.
+ *
+ * Not coloured against the per-asset benchmark either — that is the median asset over
+ * different bars, so a rule would be painted for clearing a bar it was never compared
+ * with. That column is gone from this table for the same reason. */
+const bookWealthCell = b => {
+  if (b == null) return '<td class="flat">—</td>';
+  const bw = b.bench_wealth;
+  const cls = bw == null ? "" : b.wealth > bw ? "gain" : "loss";
+  const mult = bw > 0 ? b.wealth / bw : null;
+  const t = (bw == null ? "" : `holding the same universe over the same bars returns ${
+      fmtMoney(bw)}${mult ? ` — this is ${fmtNum(mult, 2)}x that` : ""}`)
+    + (b.exposure == null ? "" : `, and it was invested ${fmtNum(b.exposure * 100, 0)}% of the time`)
+    + (b.cm_excess_cagr == null ? ""
+      : `. At equal risk: ${fmtPct(b.cm_excess_cagr * 100, 2)}/yr`
+        + (b.cm_ratio ? `, ${fmtNum(b.cm_ratio, 1)}x the money` : ""));
+  return `<td class="${cls}" title="${esc(t)}">${fmtMoney(b.wealth)}</td>`;
+};
+
+const pfCell = (e, longFrac) => {
+  const v = e && e.profit_factor;
+  if (v == null) return '<td class="flat">—</td>';
+  // A rule that is in the market ~always closes almost nothing, so its profit factor is a
+  // couple of trades rather than a distribution — the same reason the benchmark has none.
+  // Greyed rather than hidden: the number is real, it is just not comparable with the
+  // 1,283-trade rule above it, and the Long % flag on the same row says why.
+  const uncountable = longFrac != null && longFrac > 0.9;
+  const cls = uncountable ? "flat" : v > 1 ? "gain" : "loss";
+  const why = uncountable
+    ? "barely closes a trade at this exposure — not comparable with a rule that turns over"
+    : "gross winnings ÷ gross losses, per closed trade — 1.00 is break-even. "
+      + "Buy-and-hold never closes a trade, so it has none to compare.";
+  return `<td class="${cls}" title="${esc(why)}">${fmtNum(v, 2)}</td>`;
+};
 
 /* ---------- charts: plain SVG, no library, legible in both themes ---------- */
 function sparkline(series, w = 260, h = 30) {
@@ -122,11 +260,17 @@ function equityChart(sets, labels, dates, h = 230) {
     <text x="${pad.l - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="9"
       fill="var(--muted)" font-family="var(--mono)">${v >= 1000 ? (v / 1000) + "k" : v}</text>`).join("");
 
-  const colors = ["var(--ink)", "var(--muted)"];
+  // Three series, and the third needs its own stroke: `colors[2]` was undefined, which SVG
+  // renders as no line at all rather than as an error. `--ink-2` sits between the solid
+  // rule and the muted basket, and a longer dash keeps the two dashed lines apart at the
+  // scale these are drawn — the legend alone cannot do it when both are grey.
+  const colors = ["var(--ink)", "var(--muted)", "var(--ink-2)"];
+  const dashes = ["", '4 3', '1.5 3'];
   const lines = sets.map((s, k) => `
     <polyline points="${s.map((v, i) => `${x(i)},${y(v)}`).join(" ")}" fill="none"
-      stroke="${colors[k]}" stroke-width="${k ? 1.1 : 1.7}"
-      ${k ? 'stroke-dasharray="4 3"' : ""} vector-effect="non-scaling-stroke"/>`).join("");
+      stroke="${colors[k] || "var(--muted)"}" stroke-width="${k ? 1.1 : 1.7}"
+      ${dashes[k] ? `stroke-dasharray="${dashes[k]}"` : ""}
+      vector-effect="non-scaling-stroke"/>`).join("");
 
   const first = dates && dates[0], last = dates && dates[dates.length - 1];
   const axis = first ? `
@@ -142,51 +286,148 @@ function equityChart(sets, labels, dates, h = 230) {
       <span>log scale · growth of 100</span></div>`;
 }
 
-/* One asset's thumbnail: the rule against holding that same asset. Same log treatment, no
- * axis furniture — at this size a gridline is noise and the numbers sit underneath. */
-function miniChart(a, b, w = 300, h = 62) {
-  const all = [...a, ...b].filter(v => v > 0);
-  if (all.length < 2) return "";
-  const lo = Math.log10(Math.min(...all)), hi = Math.log10(Math.max(...all));
-  const span = (hi - lo) || 1;
-  const pts = s => s.map((v, i) =>
-    `${(i / Math.max(s.length - 1, 1)) * w},${h - ((Math.log10(Math.max(v, 1e-9)) - lo) / span) * (h - 6) - 3}`).join(" ");
-  const base = h - ((Math.log10(100) - lo) / span) * (h - 6) - 3;
-  return `<svg class="mini" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
-    ${base > 0 && base < h ? `<line x1="0" x2="${w}" y1="${base}" y2="${base}"
-      stroke="var(--hair)" stroke-width="1" vector-effect="non-scaling-stroke"/>` : ""}
-    <polyline points="${pts(b)}" fill="none" stroke="var(--muted)" stroke-width="1"
-      stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>
-    <polyline points="${pts(a)}" fill="none" stroke="var(--ink)" stroke-width="1.5"
-      vector-effect="non-scaling-stroke"/></svg>`;
+/* The equity chart, with every benchmark held at the strategy's own volatility.
+ *
+ * There is one sizing here and it is the risk-matched one. The chart briefly offered both
+ * — "as traded" beside "at equal risk" — and a toggle is the wrong shape for this: full
+ * size ranks lines by who took the most risk, so leaving it on screen invites the reading
+ * the rest of the page exists to prevent. On us_stocks 1d QQQ ends 26% above `ibs` at full
+ * size and a third of it at equal risk; only the second of those is about the strategy.
+ *
+ * A benchmark is scaled DOWN with cash, never levered up — no margin, no borrow, nothing
+ * that needs an account upgrade. The weight is on every legend entry, so the line can
+ * never be mistaken for the instrument itself, and the caption carries the full-size
+ * figure so that fact is stated rather than hidden.
+ *
+ * The blended series comes from `portfolio_wf`; it cannot be derived here, because the
+ * weight multiplies each bar's RETURN before it compounds.
+ */
+function equitySection(c, r, drawn, names) {
+  const mm = c.matched || {};
+  const byLabel = {};
+  (mm.lines || []).forEach(l => { if (l.curve && l.curve.length) byLabel[l.label] = l; });
+  // The CHART takes the index lines only — `equityChart` has three distinct strokes and
+  // four lines on a log axis is a tangle. The TABLE has no such limit, so it gets every
+  // matched line including the sheet's own basket, which is what the leaderboard's
+  // verdict is scored against and therefore has to stay a column.
+  const matched = drawn.map(i => byLabel[i.symbol]).filter(Boolean);
+  const all = (mm.lines || []).filter(l => l && l.metrics);
+
+  // No matched line means a book with no volatility to match anything to — a rule that
+  // barely trades. Draw it against the basket at full size rather than nothing, and say so.
+  if (!matched.length) {
+    return { matched: [], all, html: `<div class="panel">${equityChart(
+        [c.curve, c.bench], [esc(r.rule), "Equal-weight basket"], c.dates)}
+      <p class="sec-note">This book holds almost nothing, so there is no volatility to
+      match a benchmark to; the basket is drawn at full size.</p></div>` };
+  }
+
+  const labels = [esc(r.rule),
+                  ...matched.map(l => `${esc(l.label)} · ${fmtNum(l.weight * 100, 0)}%`)];
+  const full = matched.filter(l => l.raw_wealth);
+  return { matched, all, html: `<div class="panel">${
+    equityChart([c.curve, ...matched.map(l => l.curve)], labels, c.dates)}
+    <p class="sec-note">Every line starts at 100 and covers the same out-of-sample bars,
+    and <b>every benchmark is held at ${mm.vol_pct == null ? "the book's own"
+      : fmtNum(mm.vol_pct, 1) + "%"} volatility — the strategy's — with the rest in
+    cash</b>. Scaled down, never levered up: no margin, no borrow. What is left between the
+    lines is the signal rather than the risk taken to get it.${full.length
+      ? ` At full size these same instruments end on ${full.map(l =>
+          `<b>${esc(l.label)}</b> ${fmtMoney(l.raw_wealth)}`).join(", ")}, against
+      ${fmtMoney((mm.strategy || {}).wealth)} for the strategy — more, in some cases, and
+      more risk with it. Closing that gap the other way means gearing the strategy up,
+      which needs margin and is not tested anywhere here.` : ""}
+    This is the <b>book</b>: the same series the <b>$10k / book</b> column is computed
+    from. Idle capital earns nothing, on every line.${
+      r.per_asset && r.per_asset.length
+      ? ` How the rule did name by name is the <em>Asset by asset</em> table below —
+      single-name backtests, which will not add up to this.`
+      /* A pair has no per-symbol rows to point at, so it gets the breadth figure it does
+         have instead of a pointer to a table that is not on the page. */
+      : ` A pair has no per-name table — the sweep records leg diagnostics instead — so
+      breadth is all this sheet knows about where it worked.`}</p></div>` };
 }
 
-function lineChart(sets, labels) {
-  const w = 640, h = 172, pad = { l: 6, r: 6, t: 10, b: 16 };
-  const all = sets.flat(), lo = Math.min(...all), hi = Math.max(...all), span = hi - lo || 1;
-  const n = Math.max(...sets.map(s => s.length));
-  const x = i => pad.l + (i / (n - 1)) * (w - pad.l - pad.r);
-  const y = v => pad.t + (1 - (v - lo) / span) * (h - pad.t - pad.b);
-  const colors = ["var(--ink)", "var(--muted)"];
-  const grid = [0, 1].map(f => {
-    const gy = pad.t + f * (h - pad.t - pad.b);
-    return `<line x1="${pad.l}" x2="${w - pad.r}" y1="${gy}" y2="${gy}"
-      stroke="var(--hair)" stroke-width="1"/>`; }).join("");
-  const lines = sets.map((s, k) =>
-    `<polyline points="${s.map((v, i) => `${x(i)},${y(v)}`).join(" ")}" fill="none"
-      stroke="${colors[k]}" stroke-width="${k ? 1.2 : 1.8}"
-      ${k ? 'stroke-dasharray="4 3"' : ""} vector-effect="non-scaling-stroke"/>`).join("");
-  return `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
-      role="img" aria-label="${labels.join(" versus ")}">${grid}
-    <line x1="${pad.l}" x2="${w - pad.r}" y1="${y(100)}" y2="${y(100)}"
-      stroke="var(--hair-2)" stroke-width="1"/>${lines}</svg>
-    <div class="legend">${labels.map((l, k) =>
-      `<span><i class="sw" style="background:${colors[k]}"></i>${esc(l)}</span>`).join("")}</div>`;
-}
+/* `lineChart` lived here and drew its reference line at 100 — an INDEX baseline. Its
+ * only caller was the paper detail page, whose series is cumulative P&L in percent, so
+ * the reference was off the top of every chart it drew. `pnlLive` replaced it and the
+ * function went with the bug rather than staying as a second convention nobody wants. */
 
 function bindGo(root) {
   root.querySelectorAll("[data-go]").forEach(el =>
     el.onclick = () => { location.hash = el.dataset.go; });
+  enhanceTables(root);
+}
+
+/* ---------- a way across a wide table ----------
+ * The leaderboard is twelve columns and does not fit a laptop. `overflow-x:auto` alone is
+ * a silent affordance: the scrollbar appears only once you are already scrolling, and on a
+ * trackpad it never appears at all, so the last four columns read as "not there" rather
+ * than "further right".
+ *
+ * Applied here rather than in the six templates that draw a table: the markup stays a
+ * plain `<table>` in a plain wrap, and a table added later is covered without being told
+ * about any of this. Called from bindGo, so it re-applies after every repaint — paintPaper
+ * rewrites innerHTML on each tick and takes the wrappers with it.
+ */
+function enhanceTables(root) {
+  root.querySelectorAll(".tbl-wrap").forEach(wrap => {
+    if (wrap.parentElement && wrap.parentElement.classList.contains("tbl-scroll")) return;
+
+    const box = document.createElement("div");
+    box.className = "tbl-scroll";
+    wrap.parentNode.insertBefore(box, wrap);
+    box.appendChild(wrap);
+
+    for (const side of ["l", "r"]) {
+      // The button lives outside the scroller, in a full-height rail, so it holds its
+      // place while the columns move underneath it.
+      const rail = document.createElement("div");
+      rail.className = `tbl-rail ${side}`;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tbl-btn";
+      b.setAttribute("aria-label", side === "l" ? "Scroll columns left" : "Scroll columns right");
+      b.textContent = side === "l" ? "‹" : "›";
+      // Four fifths of a screenful, not a pixel count: one press moves the same fraction
+      // of the table on a phone as on a wide monitor, and the overlap keeps a column of
+      // context either side of the jump.
+      b.onclick = () => wrap.scrollBy({
+        left: (side === "l" ? -1 : 1) * wrap.clientWidth * 0.8, behavior: "smooth" });
+      rail.appendChild(b);
+      box.appendChild(rail);
+    }
+
+    // Measured now, before `.wide` exists, and never again: once the table has been let
+    // out of the text column it is stretched to fill whatever it was given, so its width
+    // stops saying anything about what it needs. `natural` is the honest number, and
+    // comparing it against the *parent* — which the breakout does not touch — keeps the
+    // test stable instead of oscillating in and out of its own effect.
+    const natural = wrap.scrollWidth;
+
+    // Each edge shows a button only when there is table behind it, so a narrow table that
+    // already fits shows nothing at all — and on a wide screen the breakout is usually
+    // what removes the overflow, leaving no buttons to press.
+    // The section's heading rule follows the table out of the text column, so the underline
+    // ends where the last column does. Read back off the DOM rather than from `natural`, so
+    // a section holding two tables is wide if either of them is, whichever synced last.
+    const sec = wrap.closest(".sec");
+    const secHead = sec && sec.querySelector(":scope > .sec-head");
+
+    const sync = () => {
+      const room = box.parentElement ? box.parentElement.clientWidth : wrap.clientWidth;
+      box.classList.toggle("wide", natural > room + 1);
+      if (secHead) secHead.classList.toggle("wide", !!sec.querySelector(".tbl-scroll.wide"));
+      const max = wrap.scrollWidth - wrap.clientWidth;
+      box.classList.toggle("has-l", wrap.scrollLeft > 1);
+      box.classList.toggle("has-r", wrap.scrollLeft < max - 1);
+    };
+    wrap.addEventListener("scroll", sync, { passive: true });
+    // The measurement that matters is the container's width, and that changes on resize
+    // and on rotate without any scroll event firing.
+    if (window.ResizeObserver) new ResizeObserver(sync).observe(wrap);
+    sync();
+  });
 }
 
 /* Filters swap only the data region. Re-rendering the whole view on every click
@@ -202,7 +443,56 @@ const pills = (opts, active, attr) => opts.map(([v, label]) =>
   `<button class="pill ${active === v ? "on" : ""}" ${attr}="${v}">${esc(label)}</button>`).join("");
 
 /* ================================ PAPER ================================ */
-let pf = { cls: "all", tf: "all" };
+/* No "all" on any of the three. A desk that runs four classes at two horizons for several
+ * people has no useful "everything" view — it is a pile, and the strip above it then
+ * averages numbers that are not comparable. Each filter opens on a real selection. */
+let pf = { cls: "us_stocks", tf: "1d", who: "mine" };
+
+/* The paper filter is built from whatever classes are actually on the desk, not from a
+ * hard-coded pair. It was `All / Equities / Crypto`, which was the whole desk until the
+ * research gained ETFs and commodities — after which those systems ran, published, and
+ * could only be seen under "All", with the strip counting them as neither. A list derived
+ * from the data cannot fall behind the desk that way.
+ *
+ * The order is the research's own, so the pills read the same way as the backtest section's
+ * rather than in whatever order the systems happened to register. */
+const PAPER_CLASS_ORDER = ["us_stocks", "us_etfs", "crypto", "commodities"];
+const PAPER_CLASS_LABEL = {
+  us_stocks: "Top 100 stocks", us_etfs: "ETFs", crypto: "Crypto", commodities: "Commodities",
+  /* Pre-2026-08-11 records, and any replay written from one, carry the old two-valued
+   * class. Labelled rather than renamed: the sid is what identifies a system, so an old
+   * row still belongs to the same record and is still worth showing under its own name. */
+  equity: "Equities (legacy)",
+};
+/* Every class the desk CAN run, not just the ones something is deployed on today. The
+ * list used to be derived from the live rows, which meant a class you had not promoted
+ * anything to yet was simply absent — so there was no way to look at ETFs and see that
+ * nothing was running there, which is a fact worth being able to check. Anything unknown
+ * that does show up is appended, so an old record still has a home. */
+const paperClasses = () => {
+  const seen = new Set(D.strategies.map(s => s.cls).filter(Boolean));
+  return [...PAPER_CLASS_ORDER,
+          ...[...seen].filter(c => !PAPER_CLASS_ORDER.includes(c)).sort()];
+};
+const paperClassPills = () =>
+  paperClasses().map(c => [c, PAPER_CLASS_LABEL[c] || c]);
+
+/* Mine versus everybody else's. The rows carry an `account`, `D.account` says who is
+ * looking, and `D.house` names the desk's own — a promoted book belongs to the desk
+ * rather than to a person, so the owner reads it as theirs.
+ *
+ * A member never receives another member's rows at all, so for them this is Mine versus
+ * the desk's. The owner does receive everybody's, which is why the split exists: it keeps
+ * their page the same SHAPE as a member's, one group at a time, instead of one long
+ * mixed list nobody else ever sees. */
+const isMine = s => {
+  const a = String(s.account || D.house || "00");
+  return a === String(D.account) || (D.is_admin && a === String(D.house || "00"));
+};
+const paperWhoPills = () => [
+  ["mine", D.is_admin ? "Mine & the desk" : "Mine"],
+  ["others", D.is_admin ? "Members" : "The desk"],
+];
 
 /* Nothing is running until the Nautilus node has filled an order and written
  * `results/paper_state.json`. That is the honest state, and it gets its own screen rather
@@ -219,8 +509,8 @@ function paperEmpty() {
     <div class="stat"><span class="k">Systems live</span><span class="v">0</span>
       <span class="s">node not started</span></div>
     <div class="stat"><span class="k">Data feed</span>
-      <span class="v ${D.feed.status === "ok" ? "gain" : ""}">${esc(D.feed.status)}</span>
-      <span class="s">${esc(D.feed.source)} · ${esc(D.feed.plan)}</span></div>
+      ${feedValue()}
+      ${feedNote(`${esc(D.feed.source)} · ${esc(D.feed.plan)}`)}</div>
     <div class="stat"><span class="k">Sandbox equity</span>
       <span class="v">${money(D.venue.equity)}</span>
       <span class="s">${esc(D.venue.name)}</span></div>
@@ -238,6 +528,46 @@ function paperEmpty() {
  * has to be labelled every time it appears, or the first person to screenshot this page
  * reports a 283% gain as a live result. */
 const isReplay = () => D.feed.status === "backtest";
+
+/* ---------- is anyone home? ----------
+ * `feed.status` is whatever the node last published, and a process that dies publishes
+ * nothing further — so a dead desk keeps showing the state it happened to be in when it
+ * went, which for a node killed during start-up is "starting", forever. Read at face value
+ * that is indistinguishable from a node still warming its indicators, and this page showed
+ * exactly that for five hours.
+ *
+ * `generated_at` is the heartbeat instead: `run_paper.start_marker` rewrites it once a
+ * minute for as long as the process lives. Three marks of slack, because the window is
+ * one API call wide and a single failed poll must not raise a false alarm. A replay has no
+ * feed and no heartbeat, so it is exempt. */
+const STALE_AFTER_MS = 180000;
+function feedAgeMs() {
+  // "2026-08-11 08:57 UTC" -> parseable. Anything unrecognised returns null, which every
+  // comparison below treats as "cannot tell" rather than as stale.
+  const t = Date.parse(String(D.generated_at || "").trim()
+                        .replace(" UTC", "Z").replace(" ", "T"));
+  return Number.isFinite(t) ? Date.now() - t : null;
+}
+/* `__SNAPSHOT__` is the one-file build, which embeds `live.json` and cannot refresh — it is
+ * *meant* to be read months later, so age there says nothing about whether a desk is up. */
+const feedStale = () =>
+  !isReplay() && !window.__SNAPSHOT__ && feedAgeMs() > STALE_AFTER_MS;
+const fmtAge = ms => {
+  const m = Math.round(ms / 60000);
+  return m < 90 ? `${m} min` : (m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`);
+};
+const feedValue = () => feedStale()
+  ? `<span class="v loss">stale</span>`
+  : `<span class="v ${D.feed.status === "ok" ? "gain" : ""}">${esc(D.feed.status)}</span>`;
+const feedNote = sub => feedStale()
+  ? `<span class="s loss">no update in ${fmtAge(feedAgeMs())}</span>`
+  : `<span class="s">${sub}</span>`;
+const staleBanner = () => feedStale()
+  ? `<div class="note"><b>The desk is not running.</b> Nothing has been published for
+     ${fmtAge(feedAgeMs())} — the last word from the node was
+     "${esc(D.feed.status)}" at ${esc(D.generated_at)}. Every figure below is that
+     snapshot, not a live number. Restart with <code>python run_paper.py</code>.</div>`
+  : "";
 const replayBanner = () => isReplay()
   ? `<div class="note"><b>Replay, not live.</b> These figures come from running the live
      strategy over cached historical bars inside Nautilus — the run that proves bars,
@@ -258,14 +588,17 @@ function paperMaster() {
   </div>
 
   ${replayBanner()}
+  ${staleBanner()}
 
   <div id="paper-strip"></div>
 
   <div class="filters">
+    <span class="f-group"><span class="f-label">Whose</span>
+      ${pills(paperWhoPills(), pf.who, "data-who")}</span>
     <span class="f-group"><span class="f-label">Asset</span>
-      ${pills([["all", "All"], ["equity", "Equities"], ["crypto", "Crypto"]], pf.cls, "data-cls")}</span>
+      ${pills(paperClassPills(), pf.cls, "data-cls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${pills([["all", "All"], ["1d", "1d"], ["4h", "4h"]], pf.tf, "data-tf")}</span></div>
+      ${pills([["1d", "1d"], ["4h", "4h"]], pf.tf, "data-tf")}</span></div>
 
   <div id="paper-body"></div>`;
 
@@ -275,62 +608,77 @@ function paperMaster() {
     b.onclick = () => { pf.cls = b.dataset.cls; setActive("data-cls", pf.cls); paintPaper(); });
   document.querySelectorAll("[data-tf]").forEach(b =>
     b.onclick = () => { pf.tf = b.dataset.tf; setActive("data-tf", pf.tf); paintPaper(); });
+  document.querySelectorAll("[data-who]").forEach(b =>
+    b.onclick = () => { pf.who = b.dataset.who; setActive("data-who", pf.who); paintPaper(); });
 }
 
 /* The headline figures live in their own container because the tick repaint rewrites only
- * the region it is given. They used to sit outside it, so every number here — desk P&L,
- * mean, fill count, feed status — stayed frozen at page load while the rows underneath
- * updated several times a second. */
+ * the region it is given. They used to sit outside it, so every number here stayed frozen
+ * at page load while the rows underneath updated several times a second.
+ *
+ * It used to be five stat tiles, two of which added the desk up: a mean P&L across every
+ * system and a dollar total on the capital deployed. Both are gone on purpose. **Nobody
+ * decides anything with them.** The desk is not a fund and its systems are not a
+ * portfolio — they are 24 separate forward tests that happen to run in one process, so
+ * their sum is an artifact of how many are switched on, and their mean says a rule is
+ * "flat" when half are up and half are down. What is left is the housekeeping a reader
+ * needs to trust the rows below: how many are live, how many fills exist, and whether the
+ * feed is up. The performance is per system, downstairs, where it means something. */
 function paperStrip() {
   const host = document.getElementById("paper-strip");
   if (!host) return;
-  const live = D.strategies.filter(s => s.status === "running").length;
-  const mean = D.strategies.length
-    ? D.strategies.reduce((a, s) => a + (s.paper_pnl_pct || 0), 0) / D.strategies.length : 0;
-  // Summed from the systems' own books, not read off `D.venue`. The tick stream pushes a
-  // per-system equity on every print but the venue totals only refresh on the 20-second
-  // `live.json` poll, so the percentage moved live while the dollar figure lagged behind
-  // it — two views of one number disagreeing on screen. Deriving both from the same array
-  // also makes them agree by construction, which is the bug that put a $10,000 phantom
-  // loss on the desk when one system had not reported yet.
-  const deployed = D.strategies.reduce((a, s) => a + (s.capital || 0), 0) || D.venue.balance;
-  const equity = D.strategies.reduce(
-    (a, s) => a + (s.equity != null ? s.equity : (s.capital || 0)), 0);
-  const pnl = equity - deployed;
+  const running = D.strategies.filter(s => isReplay() || s.status === "running");
+  const fills = D.strategies.reduce((a, s) => a + (s.paper_trades || 0), 0);
+  const since = (D.strategies[0] || {}).since;
   host.innerHTML = `
-  <div class="strip">
-    <div class="stat"><span class="k">${isReplay() ? "Systems" : "Systems live"}</span>
-      <span class="v">${countSystems(D.strategies.filter(s => isReplay() || s.status === "running"))} / ${countSystems(D.strategies)}</span>
-      <span class="s">${countSystems(D.strategies.filter(s => s.cls === "crypto"))} crypto ·
-        ${countSystems(D.strategies.filter(s => s.cls === "equity"))} equity ·
-        ${D.strategies.length} instances over ${new Set(D.strategies.map(s => s.symbol)).size} assets</span></div>
-    <div class="stat"><span class="k">${isReplay() ? "Replay P&amp;L, mean" : "Paper P&amp;L, mean"}</span>
-      <span class="v ${sign(mean)}">${fmtPct(mean)}</span>
-      <span class="s">since ${(D.strategies[0] || {}).since || "—"}</span></div>
-    <div class="stat"><span class="k">Total fills</span>
-      <span class="v">${D.strategies.reduce((a, s) => a + (s.paper_trades || 0), 0)}</span>
-      <span class="s">orders that reached a position</span></div>
-    <div class="stat"><span class="k">P&amp;L</span>
-      <span class="v ${sign(pnl)}">${(pnl >= 0 ? "+" : "−") + money(Math.abs(pnl))}</span>
-      <span class="s ${sign(pnl)}">${fmtPct((equity / deployed - 1) * 100)} on
-        ${money(deployed)} deployed</span></div>
-    <div class="stat"><span class="k">Data feed</span>
-      <span class="v ${D.feed.status === "ok" ? "gain" : ""}">${esc(D.feed.status)}</span>
-      <span class="s">${esc(D.feed.source)}</span></div>
-  </div>`;
+  <p class="deskline">
+    <span><b>${countSystems(running)}</b> of ${countSystems(D.strategies)}
+      ${isReplay() ? "systems" : "systems live"}</span>
+    <span>${paperClasses().map(c =>
+        `${countSystems(D.strategies.filter(s => s.cls === c))} ${PAPER_CLASS_LABEL[c] || c}`
+      ).join(" · ")}</span>
+    <span><b>${fills}</b> fills${since ? ` since ${esc(since)}` : ""}</span>
+    <span>feed ${feedValue()}${feedStale() ? "" : ` · ${esc(D.feed.source)}`}</span>
+  </p>`;
 }
 
-function paintPaper() {
+/* ---------- the order of the list ----------
+ * These are 24 independent forward tests, and the only question a reader brings to them is
+ * "which of mine is working" — so they are ranked on their own P&L rather than by name.
+ *
+ * The catch is that the numbers move several times a second on the tick stream, and a list
+ * that re-sorts under the cursor cannot be read: a row you are reaching for slides away.
+ * So the ranking is FROZEN. It is recomputed when the reader does something — opens the
+ * view, clicks a filter — and every tick repaint in between reuses the same order while the
+ * figures inside the rows keep moving. A system that appears mid-session (a promotion) has
+ * no frozen rank and goes to the bottom until the next re-rank, which is visible rather
+ * than surprising. */
+let paperRank = null;
+function orderSystems(rows, refreeze) {
+  const keys = [...new Set(rows.map(systemKey))];
+  if (refreeze || !paperRank) {
+    paperRank = new Map();
+    keys.map(k => [k, aggregate(rows.filter(s => systemKey(s) === k)).mean])
+        .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+        .forEach(([k], i) => paperRank.set(k, i));
+  }
+  const at = k => paperRank.has(k) ? paperRank.get(k) : Number.MAX_SAFE_INTEGER;
+  return keys.sort((a, b) => at(a) - at(b) || a.localeCompare(b));
+}
+
+function paintPaper(refreeze = true) {
   paperStrip();
   const rows = D.strategies.filter(s =>
-    (pf.cls === "all" || s.cls === pf.cls) && (pf.tf === "all" || s.tf === pf.tf));
+    s.cls === pf.cls && s.tf === pf.tf
+    && (pf.who === "mine" ? isMine(s) : !isMine(s)));
   const host = document.getElementById("paper-body");
   host.innerHTML = `
   <section class="sec">
     <div class="sec-head"><h2>${isReplay() ? "Replayed systems" : "Running systems"}</h2>
-      <span class="sec-note">${countSystems(rows)} systems · ${rows.length} deployments · open a system, then a universe</span></div>
+      <span class="sec-note">${countSystems(rows)} systems, best first · each one is its
+        own record · open a system for its holdings</span></div>
 
-    ${groupedStrategies(rows)}
+    ${groupedStrategies(rows, orderSystems(rows, refreeze))}
   </section>
 
   <p class="sec-note" style="max-width:62ch">${isReplay()
@@ -416,6 +764,79 @@ function pnlSpark(curve, bench, w = 560, h = 96) {
     ${sets.map((s, k) => line(s, k)).reverse().join("")}</svg>`;
 }
 
+/* ---------- the live record, per system ----------
+ * `paper_curve` is what the desk actually did: cumulative P&L in PERCENT since this
+ * system's first fill, chained across restarts by `paper_state.lifetime_curve`. Zero-based,
+ * so the reference line is 0 and not 100 — it is money made on the desk, not an index, and
+ * it is the one series on this page that is neither simulated nor a backtest.
+ *
+ * `curve_breaks` marks the points where the desk was down. The line is CUT there rather
+ * than drawn straight through: a straight segment across an outage is a claim that nothing
+ * happened during it, when the truth is that nobody was watching. */
+function pnlLive(curve, bench, breaks, w = 620, h = 128) {
+  const cur = (curve || []).filter(v => isFinite(v));
+  if (cur.length < 2) return "";
+  const bn = (bench || []).filter(v => isFinite(v));
+  const all = cur.concat(bn, [0]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  // A desk one day old is flat at exactly 0.00 on every line, and a degenerate range pins
+  // that to the bottom of the box — a line on the floor reads as a loss. Give it half a
+  // point either side so nothing-yet is drawn through the middle.
+  if (hi - lo < 1e-9) { const mid = (hi + lo) / 2; lo = mid - 0.5; hi = mid + 0.5; }
+  const span = hi - lo;
+  const pad = 7;
+  const x = i => (i / Math.max(cur.length - 1, 1)) * w;
+  const y = v => pad + (1 - (v - lo) / span) * (h - pad * 2);
+  const cut = new Set(breaks || []);
+  const line = (s, dashed) => {
+    const ink = dashed ? "var(--muted)"
+      : (cur[cur.length - 1] >= 0 ? "var(--gain)" : "var(--loss)");
+    const parts = []; let run = [];
+    s.forEach((v, i) => {
+      if (cut.has(i) && run.length) { parts.push(run); run = []; }
+      run.push([x(i), y(v)]);
+    });
+    if (run.length) parts.push(run);
+    // A segment of ONE point is drawn as a dot rather than dropped. A young system with a
+    // restart in it has exactly that shape — two points either side of a gap — and a
+    // polyline-only renderer drew nothing at all for it, which reads as "no record" when
+    // the record is simply short.
+    return parts.map(p => p.length > 1
+      ? `<polyline points="${p.map(([a, b]) => `${a},${b}`).join(" ")}" fill="none"
+          stroke="${ink}" stroke-width="${dashed ? 1 : 1.7}"
+          ${dashed ? 'stroke-dasharray="3 2"' : ""} vector-effect="non-scaling-stroke"/>`
+      : `<circle cx="${p[0][0]}" cy="${p[0][1]}" r="${dashed ? 1.2 : 1.8}"
+          fill="${ink}"/>`).join("");
+  };
+  return `<svg class="pnl-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
+      aria-hidden="true">
+    <line x1="0" x2="${w}" y1="${y(0)}" y2="${y(0)}" stroke="var(--hair-2)"
+      stroke-width="1" vector-effect="non-scaling-stroke"/>
+    ${bn.length > 1 ? line(bn, true) : ""}${line(cur, false)}</svg>`;
+}
+
+/* One curve for the SYSTEM, from however many deployments it has. Books are one row and
+ * come through unchanged; a rule spread over twenty names is averaged equal-weight, which
+ * is the same weighting `aggregate` reports its P&L on, so the line and the number beside
+ * it are the same statistic.
+ *
+ * Aligned at the TAIL. A system deployed later has a shorter record, and stretching it to
+ * the longest would invent history for it; the early bars are simply averaged over
+ * whoever was trading then. */
+function systemCurve(rows, field) {
+  const cs = rows.map(s => s[field]).filter(c => Array.isArray(c) && c.length > 1);
+  if (cs.length < 2) return cs[0] || [];
+  const n = Math.max(...cs.map(c => c.length));
+  return Array.from({ length: n }, (_, i) => {
+    let sum = 0, k = 0;
+    for (const c of cs) { const j = i - (n - c.length); if (j >= 0) { sum += c[j]; k++; } }
+    return k ? sum / k : 0;
+  });
+}
+// Breaks belong to ONE curve. Averaging several deployments blends their gaps together, so
+// the marks are kept only where they can still be read literally: a single record.
+const systemBreaks = rows => rows.length === 1 ? (rows[0].curve_breaks || []) : [];
+
 function pnlPanel(entry, label, withBench) {
   if (!entry) return `<p class="sec-note">No simulated history for this window.</p>`;
   const d = entry.dates || [];
@@ -432,20 +853,63 @@ function pnlPanel(entry, label, withBench) {
 }
 
 
-function groupedStrategies(rows) {
+/* "1 assets" is a lie about a book. A book is ONE strategy row that holds a whole class
+ * internally, so the count the reader wants is the names inside it, not the number of
+ * rows — a $100,000 account over the top 100 was reading as a single asset. */
+function assetCount(rows) {
+  const books = rows.filter(s => s.kind === "book");
+  if (!books.length) return `${rows.length} assets`;
+  const names = books.reduce((a, s) => a + (s.names || 0), 0);
+  const held = books.reduce((a, s) => a + (s.held || 0), 0);
+  const rest = rows.length - books.length;
+  return `${names} names, ${held} held` + (rest ? ` · ${rest} assets` : "");
+}
+
+
+/* A book is one strategy holding a whole class, so it expands into one row PER NAME
+ * rather than the single row every other system gets.
+ *
+ * Every name is listed, held or not. "46 of 100 held" only reads if the other 54 are
+ * visible as waiting — a name the rule is out of is holding its slice in cash, which is a
+ * state and not an absence. Held names sort to the top because they are the ones doing
+ * something; the rest stay alphabetical so a reader can find one. */
+function bookRows(s) {
+  const rows = (s.holdings || []);
+  if (!rows.length) {
+    return `<tr><td class="l" colspan="8">${esc(s.symbol || "the book")} —
+      no holdings published yet</td></tr>`;
+  }
+  const rank = h => (Math.abs(h.units || 0) > 0 ? 0 : 1);
+  const sorted = [...rows].sort(
+    (a, b) => rank(a) - rank(b) || a.symbol.localeCompare(b.symbol));
+  const num = v => v == null ? "—"
+    : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return sorted.map(h => `
+    <tr>
+      <td class="l">${esc(h.symbol)}</td>
+      <td class="l">${h.warming ? "warming" : esc(h.state)}</td>
+      <td>${fmtUnits(h.units)}</td>
+      <td>${num(h.entry)}</td>
+      <td>${num(h.mark)}</td>
+      <td class="${h.pnl_pct == null ? "" : sign(h.pnl_pct)}">${
+        h.pnl_pct == null ? "—" : fmtPct(h.pnl_pct)}</td>
+      <td>${h.trades || 0}</td>
+      <td class="l">${h.warming ? "waiting for bars"
+        : (Math.abs(h.units || 0) > 0 ? "holding" : "in cash")}</td></tr>`).join("");
+}
+
+
+function groupedStrategies(rows, systems) {
   const groups = (D.paper_groups && D.paper_groups.length ? D.paper_groups
     : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
        { key: "etf", label: "ETFs" }]);
   const groupLabel = {};
   groups.forEach(g => { groupLabel[g.key] = g.label; });
 
-  // Systems first. A system is the thing that was researched and the thing you would keep
-  // or drop; the assets under it are where it happens to be deployed. Ordered by class,
-  // horizon and name rather than by P&L — on a page updating several times a second, a
-  // list that re-sorts itself cannot be read.
-  const systems = [...new Set(rows.map(systemKey))].sort();
-
-  const blocks = systems.map(key => {
+  // A system is the thing that was researched and the thing you would keep or drop; the
+  // assets under it are where it happens to be deployed. The order comes in frozen from
+  // `orderSystems` — see the note there.
+  const blocks = (systems || [...new Set(rows.map(systemKey))].sort()).map(key => {
     const mine = rows.filter(s => systemKey(s) === key);
     if (!mine.length) return "";
     const [cls, tf, rule] = key.split("|");
@@ -465,7 +929,7 @@ function groupedStrategies(rows) {
       <details class="sym" data-key="grp:${key}|${g.key}">
         <summary>
           <span class="sym-name">${esc(groupLabel[g.key] || g.key)}</span>
-          <span class="sym-meta">${gs.length} assets · ${ga.open} with a position ·
+          <span class="sym-meta">${assetCount(gs)} · ${ga.open} with a position ·
             ${ga.fills} fills</span>
           <span class="sym-pnl num ${sign(ga.mean)}">${fmtPct(ga.mean)}</span>
         </summary>
@@ -474,7 +938,7 @@ function groupedStrategies(rows) {
             <th>Entry</th><th>Mark</th>
             <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
             <th>Trades</th><th class="l">Status</th></tr></thead>
-          <tbody>${gs.map(s => `
+          <tbody>${gs.map(s => s.kind === "book" ? bookRows(s) : `
             <tr data-go="#/paper/${s.id}">
               <td class="l">${esc(s.symbol)}</td>
               <td class="l">${stateCell(s)}</td>
@@ -504,29 +968,71 @@ function groupedStrategies(rows) {
       </details>`;
     }).join("");
 
+    /* The system's OWN record, which is what this page is for. `live` is cumulative paper
+     * P&L in percent since its first fill; `bench` is the same basket held over the same
+     * bars, so the gap between the two lines is the signal and not the market. */
+    const live = systemCurve(mine, "paper_curve");
+    const bench = systemCurve(mine, "bench_curve");
+    const breaks = systemBreaks(mine);
+    const since = (mine[0] || {}).since;
+    const days = Math.max(...mine.map(s => s.days || 0), 0);
+    const benchLast = bench.length ? bench[bench.length - 1] : null;
+    const sim = pcurves && pcurves[key] && pcurves[key].system;
+
     return `
     <details class="grp" data-key="sys:${key}">
       <summary>
         <span class="grp-id"><span class="grp-name">${esc(rule)}</span>
-          <span class="grp-meta">${esc(tf)} · ${esc(cls)} · ${a.n} assets</span></span>
-        <span class="grp-hist">${PC_WINDOWS.map(([w, label]) => {
-          const e = pcurves && pcurves[key] && pcurves[key].system && pcurves[key].system[w];
-          if (!e) return `<span class="hist-cell"></span>`;
-          const beat = e.pnl_pct - (e.bench_pnl_pct ?? 0);
-          return `<span class="hist-cell">
-            <span class="hist-lbl">${label}</span>
-            ${pnlSpark(e.curve, e.bench, 200, 30)}
-            <span class="hist-nums">
-              <span class="hist-row"><b class="${sign(e.pnl_pct)}">${fmtPct(e.pnl_pct)}</b>
-                <b class="${sign(beat)}">${fmtPct(beat)}</b></span>
-              <span class="hist-row hist-sub">hold ${fmtPct(e.bench_pnl_pct)}</span>
-            </span>
-          </span>`; }).join("")}</span>
+          <span class="grp-meta">${esc(tf)} · ${esc(cls)} · ${assetCount(mine)} ·
+            ${a.fills} fill${a.fills === 1 ? "" : "s"}</span></span>
+        <span class="grp-live">${live.length > 1
+          ? pnlLive(live, bench, breaks, 300, 34)
+          : `<span class="hist-lbl">no curve yet</span>`}</span>
         <span class="grp-pnl num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
       </summary>
-      <p class="sec-note pnl-caveat">Charts are simulated from history — solid the system,
-        dashed the same basket held. The desk is days old; this is how it <em>would</em>
-        have traded. Live P&amp;L is the figure on the right.</p>
+
+      <div class="sys-live">
+        <div class="pnl-wrap">
+          <div class="pnl-head">
+            <span class="pnl-val num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
+            <span class="pnl-lbl">cumulative ${isReplay() ? "replay" : "paper"} P&amp;L${
+              since ? ` since ${esc(since)}` : ""}${benchLast == null ? ""
+                : ` · the same basket held ${fmtPct(benchLast)}`}</span>
+          </div>
+          ${live.length > 1 ? pnlLive(live, bench, breaks) : ""}
+          ${live.length > 1
+            ? `<div class="pnl-axis"><span>${esc(since || "start")}</span>
+                 <span>${days ? `${days} day${days === 1 ? "" : "s"} in` : "today"}</span></div>`
+            : `<p class="sec-note">Nothing to draw yet — this system has closed
+                 ${live.length} bar${live.length === 1 ? "" : "s"} since it started, and a
+                 line needs two. The figure above is live either way.</p>`}
+        </div>
+        <div class="sys-facts">
+          <span><b>${a.fills}</b> fill${a.fills === 1 ? "" : "s"}</span>
+          ${(() => { const books = mine.filter(s => s.kind === "book");
+            if (!books.length) return `<span><b>${a.open}</b> of ${mine.length}
+              with a position</span>`;
+            const held = books.reduce((x, s) => x + (s.held || 0), 0);
+            const names = books.reduce((x, s) => x + (s.names || 0), 0);
+            return `<span>holding <b>${held}</b> of ${names} names</span>`; })()}
+          <span>${mine.length === 1 ? statusChip(mine[0])
+            : `${a.live} of ${mine.length} live`}</span>
+          ${(mine[0] || {}).turnover == null ? ""
+            : `<span>turnover <b>${mine[0].turnover.toFixed(1)}</b>/yr</span>`}
+        </div>
+      </div>
+
+      ${sim ? `
+      <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
+        pnlPanel(sim[w], label, true)).join("")}</div>
+      <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: the same
+        rule over the same instruments' recent history, solid the system and dashed the
+        basket held. They say how it <em>would</em> have gone; the chart above it is what
+        it did.</p>`
+      : `<p class="sec-note pnl-caveat">No simulated history for this system —
+        <code>python paper_curves.py</code> has not been run since it was promoted, so
+        there is nothing to show beside the live record.</p>`}
+
       <div class="syms">${inner}</div>
     </details>`;
   }).join("");
@@ -566,7 +1072,15 @@ function paperDetail(id) {
     <div class="sec-head"><h2>${isReplay() ? "Replayed progress" : "Live progress"}</h2>
       <span class="sec-note">${s.days} days of simulated fills</span></div>
     ${s.paper_curve && s.paper_curve.length > 1
-      ? `<div class="panel">${lineChart([s.paper_curve, s.bench_curve], ["Strategy", "Buy & hold"])}
+      /* `pnlLive`, not `lineChart`: this series is cumulative P&L in PERCENT, and
+         `lineChart` draws its reference line at 100 — an index baseline, off the top of a
+         chart that runs either side of zero. It also knows about `curve_breaks`. */
+      ? `<div class="panel sys-live">
+          ${pnlLive(s.paper_curve, s.bench_curve, s.curve_breaks)}
+          <div class="legend"><span><i class="sw"
+              style="background:${(s.paper_pnl_pct || 0) >= 0 ? "var(--gain)" : "var(--loss)"}"></i>
+              Cumulative P&amp;L</span>
+            <span><i class="sw" style="background:var(--muted)"></i>Buy &amp; hold</span></div>
           <p class="sec-note">${isReplay()
             ? `Historical bars, so this <em>is</em> long enough to look at — but it is the
                same period the research already scored, not new evidence. Its job here is
@@ -597,25 +1111,48 @@ function paperDetail(id) {
 }
 
 /* ================================ BACKTEST ================================ */
-let bf = { cls: "stocks", tf: "1d", kind: "single" };
+/* One leaderboard per asset class. Single rules and pairs are ranked together because they
+ * are the same kind of object — a strategy, walked forward over the same folds and scored
+ * against the same benchmark — and which of the two sweeps emitted a row is a fact about
+ * this repo's plumbing, not about whether the thing is worth trading. What does change from
+ * tab to tab is the price series, the fee schedule and the benchmark, so asset class and
+ * timeframe are the only two filters. */
+let bf = { cls: "stocks", tf: "1d" };
 const sheetOf = (cls, tf) => D.backtest[cls].sheets.find(s => s.timeframe === tf);
+/* Keyed by the GROUP key from `dash_config.GROUPS`, which is not the class name for three
+ * of the four. `CLASS_ARG` maps back, and it is not decoration: it is what the two empty
+ * states print as the command to run, so a key missing from it tells a reader to run
+ * `walkforward.py --class undefined`. Add to both when adding a tab. */
+const CLASS_LABEL = { stocks: "Top 100 US Stocks", crypto: "Crypto", etf: "ETFs",
+                      commodities: "Commodities" };
+const CLASS_ARG = { stocks: "us_stocks", crypto: "crypto", etf: "us_etfs",
+                    commodities: "commodities" };
+const universePills = () => Object.keys(D.backtest).map(k => [k, CLASS_LABEL[k] || k]);
 
 function backtestMaster() {
+  if (!D.backtest[bf.cls]) bf.cls = Object.keys(D.backtest)[0];
   app.innerHTML = `
   <div class="hero">
     <h1>Backtest results</h1>
-    <p class="lede">Every TA-Lib rule run independently on each asset, walk-forward: parameters
+    <p class="lede">Every strategy run independently on each asset, walk-forward: parameters
     re-picked on each in-sample window and applied to the next. Scored as information ratio
-    against buy-and-hold on the same asset — zero means matching it, positive means beating it.</p>
+    against buy-and-hold on the same asset — zero means matching it, positive means beating it.
+    Single rules and pairs of rules are ranked in one list; only the asset class separates
+    them, because only the asset class changes the prices, the costs and the benchmark.</p>
   </div>
 
-  <div class="filters">
-    <span class="f-group"><span class="f-label">Universe</span>
-      ${pills([["stocks", "Top 20 US stocks"], ["crypto", "Top 10 crypto"]], bf.cls, "data-bcls")}</span>
+  <div id="bt-head"></div>
+
+  ${/* The filters sit below the summary and its notes rather than under the hero, because
+      the thing they switch is the table: reaching for another asset class happens while
+      reading the ranking, and up beside the lede they were a screenful of prose away from
+      it. They stay outside both painted regions so the buttons survive a repaint — and so
+      a sheet that does not exist still leaves you something to click. */""}
+  <div class="filters wide">
+    <span class="f-group"><span class="f-label">Asset class</span>
+      ${pills(universePills(), bf.cls, "data-bcls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${pills([["1d", "1d"], ["4h", "4h"]], bf.tf, "data-btf")}</span>
-    <span class="f-group"><span class="f-label">Rules</span>
-      ${pills([["single", "Single"], ["combo", "Combinations"]], bf.kind, "data-bkind")}</span></div>
+      ${pills([["1d", "1d"], ["4h", "4h"]], bf.tf, "data-btf")}</span></div>
 
   <div id="bt-body"></div>`;
 
@@ -624,188 +1161,593 @@ function backtestMaster() {
     b.onclick = () => { bf.cls = b.dataset.bcls; setActive("data-bcls", bf.cls); paintBacktest(); });
   document.querySelectorAll("[data-btf]").forEach(b =>
     b.onclick = () => { bf.tf = b.dataset.btf; setActive("data-btf", bf.tf); paintBacktest(); });
-  document.querySelectorAll("[data-bkind]").forEach(b =>
-    b.onclick = () => { bf.kind = b.dataset.bkind; setActive("data-bkind", bf.kind); paintBacktest(); });
 }
 
-/* Pairs of rules joined by an operator (`or`, `and`, `vote`, `gate`).
- *
- * These sort ABOVE every single rule on equities — the best 1d combination scores IR
- * -0.057 against -0.224 for the best single — and that is the single most misleading
- * number in the whole study. `corr(IR, long_frac)` is +0.88 on this sheet: the ranking is
- * very largely a ranking of time spent invested, `or` wins because it is the operator
- * that spends the most, and `MININDEX~MAXINDEX|or` is long 100% of the time, which is to
- * say it is buy-and-hold wearing a rule's name. IR against buy-and-hold approaches zero
- * from below as a strategy approaches always-long, and zero is the ceiling, not a win.
- *
- * So exposure sits immediately beside the IR, and the correlation is stated above the
- * table. Crypto behaves differently (correlation near zero), which is why it is computed
- * per sheet rather than asserted once. */
-/* `HT_TRENDMODE~MAXINDEX|or` carries its operator in the name; the table gives that its
- * own column, so strip it here rather than print it twice. */
-const comboName = r => String(r).split("|")[0];
-/* `IS#1[combo]` — the re-selected-each-fold pseudo-rule — has no single operator, and the
- * CSV therefore carries a NaN that stringifies to the literal "nan". */
-const opLabel = o => !o || o === "nan" || o === "None" ? "—" : o;
+/* A pair is two rules joined by an operator (`or`, `and`, `vote`, `gate`) and carries that
+ * operator inside its own name — `HT_TRENDMODE~MAXINDEX|or`. The table prints the stem and
+ * shows the operator as a chip, which is also what marks the row as a pair rather than a
+ * single rule; there is no separate type column, because the two are not separate lists. */
+const stemName = r => String(r).split("|")[0];
+const opLabel = o => !o || o === "nan" || o === "None" ? "" : o;
+const pctOr = v => v == null ? "—" : (v * 100).toFixed(0) + "%";
 
-function paintCombos(host, grp, sh) {
-  if (!sh.combos || !sh.combos.length) {
-    host.innerHTML = `<div class="note">No walk-forward combinations have been scored for
-      this sheet yet. Run <code>python combo_wf.py --tf ${sh.timeframe}</code> in
-      <code>backtest engine/</code>.</div>`;
-    return;
+/* ---------- the leaderboard's columns ----------
+ * Declared as a list rather than written inline, because the phone and the desktop want
+ * them in a different order and a table cannot reorder its own columns in CSS.
+ *
+ * Sixteen columns never fit a phone, and the three that decide whether a row is worth
+ * opening at all — how much Sharpe it added over holding, how much money that was, and how
+ * much of the standard it cleared — were sitting behind ten columns of diagnostics, so the
+ * first screenful of the ranking showed nothing you could rank on. `lead` marks those
+ * three; on a narrow screen they move up beside the frozen name and everything else keeps
+ * its order behind them. Derived from the desktop list rather than written out twice, so a
+ * column added later cannot go missing from one order and not the other.
+ *
+ * The table ranks on RAW SHARPE, and the six acceptance criteria take no part in the
+ * ordering. Ranking and validation answer different questions — "which of these looks
+ * best" against "can this sheet support the claim at all" — and sorting by the second
+ * buries a strong rule under a weak one that happened to sit on a longer sheet. The
+ * Standard column still rides on every row, so nothing is hidden; it is a column, not a
+ * sort key.
+ *
+ * Raw Sharpe must never be read without its benchmark, which is why `bench_sharpe` prints
+ * in the same cell and the benchmark is spliced into the list as its own row. That is the
+ * job ΔSharpe used to do by leading the table, and it still sits two columns away.
+ *
+ * Expectancy is a column and deliberately NOT the tiebreak. It is per trade, so it rewards
+ * trading rarely: buy-and-hold scores +894% on the one position it holds for 23 years, and
+ * a coin-flip opening 72 positions beats a real rule opening 642. Trades sits beside it for
+ * that reason and must not be dropped.
+ */
+const numCell = (e, v, f) => e == null ? '<td class="flat">—</td>'
+  : `<td class="${sign(v)}">${f(v)}</td>`;
+
+/* Each column carries three things beyond how it draws a cell:
+ *
+ * `doc` is what it means, shown on hover. It used to be one caption under the table —
+ * eight hundred words of legend that a reader either read before they had a question or
+ * scrolled past forever. Same text, asked for a column at a time. A function where the
+ * answer depends on the sheet (its folds, its universe, its benchmark), a plain string
+ * where it does not.
+ *
+ * `sv` is the value the ranking sorts on when the header is clicked, and `bsv` is the
+ * benchmark row's value for the same column — null where buy-and-hold has none, which is
+ * the same set of columns that print an em-dash on its row. `text: true` marks the two
+ * columns that sort alphabetically and therefore ascend on the first click. */
+const LB_COLS = [
+  { h: "Strategy", l: true, cell: r => {
+      const op = opLabel(r.op);
+      return `<td class="l">${esc(stemName(r.rule))}${op
+        ? ` <span class="chip mut">${esc(op)}</span>` : ""}</td>`; },
+    doc: `The rule, and what it is made of. A chip after the name marks a <b>pair</b> and
+      gives its operator: <code>or</code> takes a position if either leg does (the most
+      exposed), <code>and</code> only when both agree, <code>vote</code> by majority,
+      <code>gate</code> uses one leg as a filter on the other. Single rules and pairs are
+      ranked in one list because they are the same kind of object — same folds, same
+      benchmark, same six criteria. Everything here is <b>walk-forward</b>: parameters are
+      re-picked on each in-sample window and applied to the next, so what you are reading
+      is out-of-sample.`,
+    text: true, sv: r => stemName(r.rule).toLowerCase() },
+  /* `Side` used to sit here and is gone (2026-08-13). It named the side the per-asset
+   * standard picked — long/flat or long/short, whichever scored better on a typical name.
+   * Now that the verdict is computed on the book and the book is built long/flat only,
+   * every row would read "long/flat" and the column would be a constant that still
+   * implied a choice had been made. The short-side scores survive in `edge_standard.csv`;
+   * scoring long/short BOOKS would double the run and is a separate decision. */
+  /* Every column from here down is the BOOK — one account holding the whole universe —
+   * unless its `doc` says otherwise. Until 2026-08-13 most of them were the MEDIAN SINGLE
+   * ASSET out of `edge_standard.csv`, which is a different portfolio over a different span
+   * (11.99 years against 23.6 on us_stocks 1d), so a row mixed two measurements and the
+   * chart on the detail page agreed with neither. `bookNum` is the shared renderer: it
+   * blanks on rows with no book run rather than falling back to the per-asset figure,
+   * because a column holding two different measurements is the bug being fixed. */
+  { h: "Long %", cell: r =>
+      `<td class="${bookExposure(r) != null && bookExposure(r) > 0.9 ? "loss" : ""}">${
+        pctOr(bookExposure(r))}</td>`,
+    bh: () => `<td class="flat">100%</td>`,
+    doc: ({ sh }) => `Share of bars <b>the book</b> holds a position, weighted across every
+      name it holds — how much of the time its capital was at work. <b>Read it before any
+      money column.</b> Anything above 90% is flagged: at that point the rule is
+      approximately buy-and-hold, and it scores near the benchmark for that reason rather
+      than through skill.${
+        sh.exposure_corr == null ? "" : ` On this sheet exposure and IR correlate at
+      <b>${fmtSigned(sh.exposure_corr, 2)}</b>${sh.exposure_corr > 0.5
+        ? " — so the old IR ranking was largely a ranking of time invested, which is why"
+          + " this table is ranked on the Standard column instead, broken by a"
+          + " risk-matched figure, with ROE/yr beside ROI/yr to show"
+          + " what the capital earned while it was actually deployed."
+        : ", so the ranking here is not simply a ranking of exposure — unlike the equity"
+          + " sheets, where it is."}`}`,
+    sv: r => bookExposure(r), bsv: () => 1 },
+  { h: "&Delta;Sharpe",
+    cell: r => bookNum(r, r.book && r.book.dsharpe, fmtIR),
+    // Zero by construction — the benchmark measured against itself. This is the number
+    // that places the row, and the line every rule above it has cleared.
+    bh: () => `<td class="flat">0.000</td>`,
+    doc: `<b>The book's</b> Sharpe minus the same universe held passively — one account
+      against one account, computed <b>per fold and then averaged</b>, which is how
+      <code>config.EDGE_STANDARD</code> defines the criterion the <b>Standard</b> column
+      scores. The pooled version (one Sharpe over all bars, minus one) is stored beside it
+      and runs a little higher; a per-fold mean weights every fold equally where pooling
+      weights every bar equally. Sharpe is used rather than information ratio throughout
+      because IR compares a part-time rule against a full-time one and scores capital
+      deployment as much as skill.
+      <br><br><b>Idle capital earns nothing here.</b> A rule that sits out half the time
+      is credited with no interest for those bars, and neither is the passive book it is
+      measured against — the two lose the credit together, so what goes is a return that
+      was never the signal's. The per-asset version of this
+      number lives in <code>edge_standard.csv</code> and is what the <b>Standard</b>
+      column still counts; it is a median across names rather than an account, so the two
+      do not have to agree.`,
+    sv: r => r.book && r.book.dsharpe, bsv: () => 0 },
+  { h: "t", cell: r => bookNum(r, r.book && r.book.t, v => fmtSigned(v, 2)),
+    doc: ({ sh }) => `How reliable the ΔSharpe beside it is: its mean divided by its own
+      standard error <b>across the book's walk-forward folds</b>. <b>t ≥ 2 is the bar</b>,
+      and the <b>Standard</b> column raises it for multiplicity — with ~400 candidates
+      searched the bar lands near 3.8, so a row can clear 2.0 here and still fail that
+      criterion. Hover <b>Standard</b> for the bar this sheet measured.
+      <br><br><b>The bar is measured, not assumed.</b> Correcting for a search means
+      asking how high the BEST of ~400 candidates would score if none of them had an edge,
+      and that depends on how alike the candidates are — dozens of near-identical candle
+      patterns are not dozens of separate chances. So the sheet's own per-fold edges are
+      sign-flipped at random, all rules at once, ten of thousands of times: the edge is
+      destroyed, the correlation between rules is preserved, and the 95th percentile of
+      the best rule's t under that null is the bar. It is exact for any correlation
+      structure and needs no assumption about it.
+      <br><br>It can move the bar either way. On us_stocks 1d it lands at <b>3.76</b>
+      where Bonferroni asked <b>3.84</b> — nearly the same number for two cancelling
+      reasons: Bonferroni is too strict about independence and too lenient about the fat
+      tails of a 21-fold average. Measured against simulated independent panels, those 387
+      candidates behave like about <b>85</b> separate tests, not 387.
+      <br><br>Measured across <b>time</b>, never across assets. The account IS every name
+      at once, so breadth cannot inflate it — which is the failure mode a per-asset t has
+      to be defended against, since twenty stocks that move together are not twenty
+      independent tests.
+      <br><br>A block bootstrap over the same book is also stored and is <b>looser</b>:
+      <code>ibs</code> on us_stocks 1d bootstraps to +3.87 and scores +2.81 across its 21
+      folds. The threshold was calibrated on fold-to-fold spread, so this is the number the
+      verdict reads; the bootstrap is a second opinion, not a better one.
+      <br><br><b>Clearing the bar is not the same as clearing luck.</b> This asks whether
+      one rule beat its benchmark reliably; the deflated Sharpe prices how many rules were
+      looked at before it was picked, and lives in
+      <code>portfolio_wf.py --n-trials --trial-dispersion</code>.`,
+    sv: r => r.book && r.book.t },
+  { h: "Expectancy", cell: r => bookNum(r, r.book && r.book.expectancy,
+      v => fmtSigned(v * 100, 2) + "%"),
+    doc: `What one <b>trade</b> is worth on average, as a percentage:
+      <code>win% × avg win − loss% × avg loss</code>, pooled across every name the book
+      holds. A trade is one position held from open to close, not one bar.
+      <b>Only readable beside Trades.</b> It rewards trading rarely, so it is a column and
+      never the sort key: buy-and-hold shows a huge expectancy on the single position it
+      holds for the whole window, and a coin-flip rule that opens 72 positions beats a real
+      one that opens 642. High expectancy with a handful of trades is a small sample, not an
+      edge.`,
+    sv: r => r.book && r.book.expectancy },
+  { h: "Win %", cell: r => bookNum(r, r.book && r.book.win_rate,
+      v => fmtNum(v * 100, 1) + "%"),
+    doc: `Share of the book's trades that closed profitably, pooled across its names.
+      Deliberately <b>not</b> a ranking metric and not a virtue on its own — it is one half
+      of expectancy, and the half that can be pushed arbitrarily high by cutting winners
+      early and holding losers. Read it against the average win and loss it is paired
+      with.`,
+    sv: r => r.book && r.book.win_rate },
+  { h: "ROI/yr", cell: r => bookNum(r, r.book && r.book.cagr,
+      v => fmtSigned(v * 100, 1) + "%"),
+    // The passive book's own annual rate, from the sheet rather than the row: holding is
+    // one portfolio, so it is the same figure opposite every rule.
+    bh: (b, sh) => `<td class="flat">${sh.book_bench && sh.book_bench.cagr != null
+      ? fmtSigned(sh.book_bench.cagr * 100, 1) + "%" : "—"}</td>`,
+    doc: `Annualised return of <b>the book</b> — what the whole account earned, including
+      the time its capital sat in cash earning <b>nothing</b>. This is the honest "what
+      did I make" number, and it is the one that penalises a rule for being out of the
+      market — the more so since 2026-08-13, when the T-bill credit came off both
+      sides. It is the same series the equity chart on the detail page draws, so the two
+      cannot disagree.`,
+    sv: r => r.book && r.book.cagr,
+    bsv: (b, sh) => sh.book_bench && sh.book_bench.cagr },
+  { h: "ROE/yr", cell: r => bookNum(r, r.book && r.book.roe_ann,
+      v => fmtSigned(v * 100, 1) + "%"),
+    // Identical to ROI on this row and that is the point: buy-and-hold is never idle, so
+    // it has no gap between what the account earned and what the deployed money earned.
+    bh: (b, sh) => `<td class="flat">${sh.book_bench && sh.book_bench.cagr != null
+      ? fmtSigned(sh.book_bench.cagr * 100, 1) + "%" : "—"}</td>`,
+    doc: `The book's return on capital <b>while it was actually deployed</b>: the interest
+      earned on the idle fraction is stripped out, and what is left is annualised over
+      <i>deployed</i> years — calendar years × time invested — rather than calendar years.
+      ROI asks what the account earned; this asks what the money earned when it was at
+      work, and the two differ by exactly the idle time. It is here because exposure and IR
+      correlate at 0.881 on daily equities, so an account-level ranking is substantially a
+      ranking of who stayed invested longest. Buy-and-hold's ROI and ROE are identical
+      because it is never idle; a rule holding 46% of the time can earn far more per
+      deployed dollar and still show a smaller ROI.`,
+    sv: r => r.book && r.book.roe_ann,
+    bsv: (b, sh) => sh.book_bench && sh.book_bench.cagr },
+  { h: "Sharpe", lead: true,
+    cell: r => vsCell(r.book && r.book.sharpe, r.book && r.book.sharpe_bench, fmtSharpe,
+      (a, b) => a > b, "the same universe held passively, over the same bars"),
+    bh: (b, sh) => `<td class="flat">${fmtNum(
+      sh.book_bench && sh.book_bench.sharpe, 3)}</td>`,
+    doc: `The book's return per unit of volatility. Idle capital earns nothing, so a rule
+      is not paid for the bars it sat out. Coloured against <b>the same
+      universe held passively over the same bars</b> rather than against nothing, and
+      hovering the cell gives that value: raw Sharpe largely rewards time in the market, so
+      0.66 reads like skill until you see the benchmark scored 0.63. The level is context;
+      the comparison is the number.
+      <br><br><b>Measured at the optimistic fill.</b> Every figure on this row is computed
+      buying at the same close whose high, low and close produced the signal — a price
+      nobody knew when the decision was made. Removing that costs real performance, and how
+      much depends on whether you can trade the closing auction: with a market-on-close
+      order and the signal computed minutes early it is a small haircut, and if you have to
+      wait for the next open it is a large one. Treat this column as the <b>top</b> of a
+      range, not a result. <code>portfolio_wf.py --fill</code> prices both ends.`,
+    sv: r => r.book && r.book.sharpe,
+    bsv: (b, sh) => sh.book_bench && sh.book_bench.sharpe },
+  /* The BOOK's drawdown, not the median asset's, since 2026-08-13.
+   *
+   * They are wildly different numbers and the page was showing the less useful one: `ibs`
+   * on us_stocks 1d falls 39.6% as a typical single stock and 18.7% as the book, because
+   * 189 names falling on different days is the whole point of holding 189 names. Nobody
+   * trades the median asset, so nobody ever lived through its drawdown. This column now
+   * matches the equity chart on the detail page — same series, same number — and the
+   * per-asset figure is one line down in the doc for anyone who wants it. */
+  { h: "Max DD", cell: (r, sh) => bookDdCell(r, sh && sh.book_bench && sh.book_bench.dd),
+    bh: (b, sh) => `<td class="flat">${sh.book_bench && sh.book_bench.dd != null
+      ? fmtNum(sh.book_bench.dd, 1) + "%" : "—"}</td>`,
+    doc: ({ sh }) => `The worst peak-to-trough fall of <b>the book</b> — one account
+      holding every name at once — against the same universe held passively${
+        sh.book_bench && sh.book_bench.dd != null
+          ? `, which fell <b>${fmtNum(sh.book_bench.dd, 1)}%</b> over these bars` : ""}.
+      Hover a cell for the comparison.
+      <br><br><b>This is not the drawdown of a typical single stock</b>, which is the
+      figure this column used to carry and is roughly twice as deep: individual names fall
+      on different days, so a book of them falls far less than any of its parts. The
+      per-asset figure still exists in <code>edge_standard.csv</code>; it is just not what
+      anyone would have experienced. A rule that sits out part of the time ought to fall
+      less than one that never does; many here do not, and that is worth knowing before
+      the money columns are believed.`,
+    // Drawdowns are negative, so the largest number is the shallowest fall — sorting
+    // descending puts the least painful first, like every other column here.
+    sv: r => r.book && r.book.dd, bsv: (b, sh) => sh.book_bench && sh.book_bench.dd },
+  { h: "Trades/asset", cell: r => tradesCell(r.book && {
+      trades: r.book.trades_per_asset }),
+    bh: () => `<td class="flat" title="one position, opened at the start and never closed">1</td>`,
+    doc: `The book's trades divided by the ${""}names it holds — positions opened on a
+      typical name over the whole out-of-sample window. Not good or bad on its own; it is
+      <b>what makes the profit factor beside it readable</b>. 1,283 trades is a
+      distribution; 3 is an anecdote, and a rule that trades three times can post a profit
+      factor of 32 without having found anything. Buy-and-hold shows 1: opened at the
+      start, never closed.`,
+    sv: r => r.book && r.book.trades_per_asset, bsv: () => 1 },
+  { h: "Profit factor", cell: r => pfCell(r.book, bookExposure(r)),
+    doc: `Gross winnings ÷ gross losses across the book's closed trades, pooled over its
+      names. Scored against <b>1.00</b>, not against the benchmark, because buy-and-hold
+      holds one position throughout and never closes a trade — it has no profit factor to
+      compare with, and inventing one would be worse than leaving the cell blank. Greyed
+      above 90% invested, where a rule barely closes anything. Read it with
+      Trades/asset.`,
+    sv: r => r.book && r.book.profit_factor },
+  { h: "vs random", cell: r => bookNum(r, r.book && r.book.vs_random, fmtIR),
+    doc: `The book's Sharpe above a <b>signal-free control invested exactly as often</b>,
+      at random. Being in the market pays in a rising market whether or not you were right,
+      so this prices that handicap and leaves what the signal itself did. A rule that
+      cannot beat its own coin-flip has found exposure, not an edge.
+      <br><br>The controls are not a model: <code>RANDOM_25/50/75/90</code> are backtested
+      as books by the same run, on the same bars and fees, and the curve through their
+      measured Sharpes is read at this rule's own exposure. Each of them therefore scores
+      exactly +0.000 here, which is the check that the curve is honest.`,
+    sv: r => r.book && r.book.vs_random },
+  { h: "vs constant", cell: r => bookNum(r, r.book && r.book.vs_constant, fmtIR),
+    doc: `The same question asked a second way: return per unit of drawdown (CAGR ÷ max
+      drawdown) against simply <b>owning less of the same basket, all the time</b>, at the
+      book's own average weight and the rest in cash. Anyone can hold 47% of a basket
+      and keep the rest in cash — a rule has to beat that before its timing is worth
+      anything.`,
+    sv: r => r.book && r.book.vs_constant },
+  /* `$10k / asset` and a per-asset `vs B&H` used to sit here, and they are gone
+   * (2026-08-13). Both were the MEDIAN SINGLE NAME — a portfolio nobody holds, over a
+   * ~12-year membership spell rather than the sheet's 23.6-year out-of-sample span — and
+   * the two columns immediately below ask the identical questions of the account that a
+   * reader would actually have owned: what it became, and what it beat holding by once
+   * the risk was matched. Two money columns on two different measurements invited exactly
+   * one mistake, which is reading them as a bigger and a smaller version of one number.
+   * The per-asset figures survive in `edge_standard.csv` and in the per-asset table on
+   * each detail page, where the header says what they are. */
+  { h: "$10k / book", lead: true, cell: r => bookWealthCell(r.book),
+    bh: (b, sh) => `<td class="flat">${fmtMoney(sh.book_bench && sh.book_bench.wealth)}</td>`,
+    doc: ({ sh }) => {
+      const bb = sh.book_bench;
+      if (!bb) return `No book run covers this sheet, so every row prints an em-dash.
+        The columns to the left are per-asset medians and remain the sheet's only money.`;
+      return `What $10,000 became in <b>one account holding the whole universe</b> —
+        ${bb.n_names} names, equal-weighted, rebalanced every bar, held only on the dates
+        each was actually a member — over <b>${fmtNum(bb.years, 1)} years</b>
+        (${esc(bb.start)} to ${esc(bb.end)}).
+        <br><br>This is the number a reader means by "what would I have made". It is
+        <b>not</b> a bigger version of <i>$10k / asset</i>: that one is the median single
+        stock over its own membership spell, this is the portfolio over the sheet's whole
+        out-of-sample span, and diversification, rebalancing and universe churn all live in
+        the gap. Holding this universe passively over these bars returned
+        <b>${fmtMoney(bb.wealth)}</b>${bb.index_wealth
+          ? `, against ${fmtMoney(bb.index_wealth)} for ${esc(bb.index_symbol)} — the
+        purchasable index — over the same bars` : ""}.
+        <br><br><b>Green here and green in <i>book vs B&amp;H</i> are different claims,
+        and rows routinely have one without the other.</b> This column is coloured on raw
+        money — did the account end with more than holding. The next one is coloured on
+        the risk-matched comparison. A rule invested half the time can clear holding
+        comfortably per unit of risk and still finish with far less money, because it was
+        only ever exposed to half the market. Neither number is the trick; read them
+        together.
+        <br><br>Scored on the same walk-forward out-of-sample bars as everything else on
+        the table: the run starts at the first bar that was ever out-of-sample, so no rule
+        is credited with the history it was selected on.`;
+    },
+    sv: r => r.book && r.book.wealth, bsv: (b, sh) => sh.book_bench && sh.book_bench.wealth },
+  { h: "book vs B&amp;H", lead: true,
+    cell: r => numCell(r.book, r.book && r.book.cm_excess_cagr != null
+      ? r.book.cm_excess_cagr * 100 : null, v => fmtPct(v, 2)),
+    bh: () => `<td class="flat">+0.00%</td>`,
+    doc: `<b>The tiebreak this table is ordered by</b>, inside each tier of the Standard
+      column. Annual return of the book above the
+      same universe held passively, after the passive side has been scaled <i>down</i> with
+      cash to the rule's own volatility — never levered up, so no margin and no borrow.
+      <br><br>Matching the risk first is what makes it a measure of skill rather than of
+      nerve. <code>corr(IR, long_frac)</code> is 0.881 on daily equities, so ranking on
+      plain return is largely ranking on who stayed invested longest; a rule in the market
+      47% of the time is compared here with holding 47% of the market and the rest in
+      cash. A rule that beats holding only by taking more risk scores +0.00% here, which
+      is the honest answer.`,
+    sv: r => r.book && r.book.cm_excess_cagr, bsv: () => 0 },
+  { h: "fees", cell: r => bookNum(r, r.book && r.book.headroom, v => fmtNum(v, 1) + "x"),
+    doc: `Cost headroom: how many times the modelled commission and spread could rise
+      before <b>the book</b> stops beating the same basket held at its own volatility.
+      <b>0.0x means it already does not</b>, at the real cost. A high-turnover rule with a
+      thin edge dies here first, which is why the number sits on the row rather than in an
+      appendix.
+      <br><br>Measured, not extrapolated: every term in the cost model is linear in its
+      own rate, so the account at 5x the schedule is its zero-cost book minus five times
+      its measured drag — exact arithmetic on the same series, not a re-fit. The ladder is
+      0.5, 1, 2, 3, 5, 10, 20 and it stops at the first multiple that fails.`,
+    sv: r => r.book && r.book.headroom },
+  { h: "Standard", l: true, lead: true,
+    cell: r => `<td class="l">${edgeCount(r.book && r.book.standard)}</td>`,
+    doc: ({ sh }) => `<b>The column this table is ranked on.</b> How many of the <b>six
+      acceptance criteria</b> the row cleared — hover the cell for which ones, with each
+      target. All six or it is not an edge; nothing here has cleared them. This is the only
+      verdict on the page, and it is computed on the book with idle capital earning
+      nothing. A row the standard has not scored prints em-dashes rather than
+      being dropped, and a sheet with too few folds says <i>cannot tell</i> rather than
+      <i>no</i>.${sh.powered === false ? `
+      <br><br><b>This sheet is one of those</b>: the book spans ${sh.book_folds
+        ? `<b>${sh.book_folds} fold${sh.book_folds === 1 ? "" : "s"}</b>` : "too few folds"}
+      against the 20 the threshold was calibrated on, so neither a pass nor a fail in this
+      column means anything here. The money columns are unaffected — what the account did
+      is a measurement, and only this one needs statistical power it does not have.` : ""}
+      <br><br><b>Computed on the BOOK</b>, like every other column here — the six criteria
+      are the same and so are their thresholds (<code>metrics.apply_edge_standard</code> is
+      shared with the per-asset stage), but they are fed the account's numbers. Four of
+      them are columns you can read on this row: <i>ΔSharpe</i>, <i>vs random</i>,
+      <i>vs constant</i> and <i>fees</i>. The fifth is the money above the
+      volatility-matched basket, and the sixth is the <i>t</i> beside them.
+      <br><br><b>Two of the six are not the same statistic they are per asset.</b> ΔSharpe
+      here is the difference of two pooled Sharpes, not the mean of per-fold differences;
+      and <i>t</i> is a block bootstrap over the book's bars, not a t across folds. Both
+      are still measured across <b>time</b> — a book cannot borrow significance from
+      breadth, since it is every name at once — but a bootstrap over 5,900 bars is a
+      looser test than 54 folds, and rows pass here that do not pass per asset.
+      <br><br>It is a <b>coarse</b> key — six integer tiers, and nothing reaches the top
+      one — so most of the visible order comes from the tiebreak inside each tier, which is
+      <b>${sh.ranked_tiebreak === "book_cm_excess_cagr" ? "book vs B&amp;H"
+        : "Sharpe"}</b> on this sheet. Read the tiers as how much evidence a row has and
+      the order within one as how much money it made at equal risk; a rule cannot climb a
+      tier by earning more.
+      <br><br>Buy-and-hold clears none of the six and is drawn where that puts it. It is
+      not competing: the six are measured <i>against</i> it, so it cannot pass its own
+      test, and the rows above it are the ones with something the standard could score.`,
+    sv: r => r.book && r.book.standard && r.book.standard.passed },
+];
+
+/* ---------- what a click on a header does ----------
+ * Re-orders **the rows the Standard ranking already selected**. It does not go back to the
+ * sheet and fetch the same number of best rows by the clicked column — `payload.py` cut the
+ * list long before the page saw it. That distinction is the difference between reading a
+ * leaderboard and selecting on a test column, which this repo has done once and had to
+ * retract, so the note above the table says which of the two you are looking at whenever
+ * the order is not the default.
+ *
+ * Missing is not small. An unscored row, and the benchmark in the columns where it has no
+ * comparable value, sink to the bottom in BOTH directions rather than winning an ascending
+ * sort with a blank. Ties keep the delivered order they arrived in. */
+let lbSort = null;
+
+function lbOrder(sh, benchEdge, sort) {
+  const rows = sh.rows.map(row => ({ row }));
+  if (!sort) {
+    // The delivered order, with the benchmark spliced in at the rank ITS OWN SHARPE earns:
+    // where that line falls in the list IS the result.
+    //
+    // Must key off the same column the list is sorted by. It used to find the first row
+    // with a negative ΔSharpe, which was right while ΔSharpe did the ranking and became
+    // wrong the moment raw Sharpe did: on us_stocks 1d the benchmark landed at 0.460
+    // ABOVE `volmanaged` at 0.489, because `volmanaged` has a negative per-fold ΔSharpe
+    // while still out-Sharpe-ing the benchmark overall. The two disagree because ΔSharpe
+    // is the mean of per-fold differences and this column is the pooled ratio — a real
+    // distinction, but not one that may reorder the table against its own sort key.
+    //
+    // The key is now the standard's own count, so the benchmark is placed by that count
+    // and not by the tiebreak beneath it. It clears NONE of the six — not because it is
+    // bad but because it is the bar the six are measured against — so it sits below every
+    // rule that cleared at least one criterion and above every rule that cleared none.
+    // That keeps the line monotone with the column the table is sorted on; placing it by
+    // the tiebreak instead would drop it into the middle of a tier, above rows that
+    // cleared more of the standard than it did.
+    const below = sh.ranked_on === "edge_passed"
+      ? sh.rows.findIndex(r => r.book && r.book.standard
+                               && r.book.standard.passed <= 0)
+      : sh.ranked_on === "book_cm_excess_cagr"
+      ? sh.rows.findIndex(r => r.book && r.book.cm_excess_cagr != null
+                               && r.book.cm_excess_cagr < 0)
+      : sh.rows.findIndex(r => r.edge && r.edge.sharpe != null
+                               && r.edge.sharpe < benchEdge.bench_sharpe);
+    if (benchEdge) rows.splice(below < 0 ? rows.length : below, 0, { bench: true });
+    return rows;
   }
-  const best = sh.combos[0], bestSingle = sh.rows[0];
-  const corr = sh.combo_corr;
-  const drivenByExposure = corr != null && corr > 0.5;
-
-  host.innerHTML = `
-  <div class="strip">
-    <div class="stat"><span class="k">Combinations</span><span class="v">${sh.n_combos}</span>
-      <span class="s">pairs joined by or / and / vote / gate</span></div>
-    <div class="stat"><span class="k">Best combination</span>
-      <span class="v ${sign(best.ir_net)}">${fmtIR(best.ir_net)}</span>
-      <span class="s">${esc(comboName(best.rule))}</span></div>
-    <div class="stat"><span class="k">Time invested</span>
-      <span class="v">${best.long_frac == null ? "—" : (best.long_frac * 100).toFixed(0) + "%"}</span>
-      <span class="s">of bars, long</span></div>
-    <div class="stat"><span class="k">Best single</span>
-      <span class="v ${sign(bestSingle.ir_net)}">${fmtIR(bestSingle.ir_net)}</span>
-      <span class="s">${esc(bestSingle.rule)}</span></div>
-    <div class="stat"><span class="k">Cleared all gates</span>
-      <span class="v">${sh.combos.filter(r => r.gates.every(Boolean)).length}</span>
-      <span class="s">of ${sh.combos.length} shown</span></div>
-  </div>
-
-  <div class="note">${drivenByExposure
-    ? `<b>Read the exposure column before the IR column.</b> Across all ${sh.n_combos}
-       combinations on this sheet, IR and time-invested correlate at <b>+${corr.toFixed(2)}</b> —
-       so this is largely a ranking of how often a rule is in the market, not of skill. The
-       best one here is long <b>${(best.long_frac * 100).toFixed(0)}%</b> of the time. IR against
-       buy-and-hold rises toward zero as a strategy approaches always-long, and zero is the
-       ceiling, not a win: a combination that beats every single rule this way has not found
-       an edge, it has found its way back to buy-and-hold.`
-    : `On this sheet IR and time-invested correlate at <b>${corr == null ? "—" : corr.toFixed(2)}</b>,
-       so the ranking is not simply a ranking of exposure — unlike the equity sheets, where it
-       is. Exposure is still shown beside the IR so the two can be read together.`}</div>
-
-  <div class="note"><b>These are walk-forward numbers, and they are lower than the older
-  single-split ones.</b> An earlier report showed a handful of combinations clearing 2 of 4
-  gates — <code>MININDEX or HT_DCPHASE</code> at IR +0.069 on stocks, <code>MAXINDEX gate
-  MA_50</code> at +0.153 on crypto. Two things about that. The gates they cleared were
-  breadth and cost headroom, never IR and never the t-statistic: across all 1,104 candidates
-  in that run, those two passed <b>zero</b> times. And under walk-forward the same pairs do
-  not survive — <code>MAXINDEX~TRIMA_50|gate</code>, the nearest relative that still exists,
-  falls from +0.153 to −0.196, while the other is not even in the candidate set because its
-  leg never earned a place on in-sample rank. The single split chose its winners with the
-  test period already visible; that is what walk-forward exists to price.</div>
-
-  <section class="sec">
-    <div class="sec-head"><h2>Combination leaderboard</h2>
-      <span class="sec-note">top ${sh.combos.length} of ${sh.n_combos} · luck threshold +${sh.combo_ceiling}</span></div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th class="l">Combination</th><th class="l">Op</th>
-        <th>Long %</th><th>IR vs buy &amp; hold</th>
-        <th>$10k became</th><th>P&amp;L vs B&amp;H</th>
-        <th>CAGR</th><th>Breadth</th><th>t-stat</th><th class="l">Gates</th></tr></thead>
-      <tbody>${sh.combos.map(r => {
-        const delta = pnlDelta(r.net_pct, r.bh_pct);
-        return `
-        <tr><td class="l">${esc(comboName(r.rule))}</td>
-          <td class="l">${esc(opLabel(r.op))}</td>
-          <td class="${r.long_frac != null && r.long_frac > 0.9 ? "loss" : ""}">${
-            r.long_frac == null ? "—" : (r.long_frac * 100).toFixed(0) + "%"}</td>
-          <td class="${sign(r.ir_net)}">${fmtIR(r.ir_net)}</td>
-          <td>${fmtMoney(grew(r.net_pct))}</td>
-          <td class="${sign(delta)}">${fmtDelta(delta)}</td>
-          <td>${fmtCagr(r.net_cagr)}</td>
-          <td>${r.ir_hit_rate == null ? "—" : (r.ir_hit_rate * 100).toFixed(0) + "%"}</td>
-          <td class="${sign(r.t_stat)}">${r.t_stat == null ? "—" : r.t_stat.toFixed(2)}</td>
-          <td class="l">${gatePips(r.gates)}</td></tr>`; }).join("")}</tbody>
-      <caption><b>Long %</b> is the share of bars the combination holds a long position;
-      anything above 90% is flagged, because at that point it is approximately buy-and-hold
-      and its IR is approaching zero for that reason rather than through skill. Operators:
-      <code>or</code> takes a position if either leg does (the most exposed),
-      <code>and</code> only when both agree, <code>vote</code> by majority,
-      <code>gate</code> uses one leg as a filter on the other. Combinations have no
-      asset-by-asset page — the sweep records their leg-correlation diagnostics rather than
-      per-asset rows.</caption>
-    </table></div>
-  </section>`;
+  const c = LB_COLS[sort.i];
+  if (benchEdge) rows.push({ bench: true });
+  const val = e => {
+    const v = e.bench ? (c.bsv ? c.bsv(benchEdge, sh) : null) : c.sv(e.row);
+    return v == null || (typeof v === "number" && !isFinite(v)) ? null : v;
+  };
+  return rows.map((e, i) => ({ e, i, v: val(e) }))
+    .sort((a, b) => (a.v == null) - (b.v == null)
+      || (a.v == null ? a.i - b.i
+        : (typeof a.v === "string" ? sort.dir * a.v.localeCompare(b.v)
+                                   : sort.dir * (a.v - b.v)) || a.i - b.i))
+    .map(x => x.e);
 }
 
+/* Buy-and-hold, rendered into the ranking at the position the sort key gives it — under
+ * the Standard ranking, below every rule that cleared a criterion it could not.
+ *
+ * It is not a candidate and is deliberately absent from `edge_standard.csv` — scoring the
+ * benchmark as one of the things being selected would add it to the trial count and let it
+ * win its own comparison. But leaving it off the page entirely made the reader hold the
+ * benchmark in their head while scanning 25 rows, which is exactly the arithmetic people
+ * get wrong. So it is drawn, from the `bench_*` figures every scored row already carries,
+ * and marked as the bar rather than a competitor: no verdict, no link, muted throughout.
+ *
+ * Only the columns that are genuinely the benchmark's own are filled. `t`, `vs random` and
+ * `vs constant` are left blank rather than set to zero: an exposure-matched control at 100%
+ * long IS buy-and-hold, so those comparisons are degenerate, not passed. Same for the
+ * standard — it is the bar, so it does not clear it.
+ */
+const benchRow = (bench, cols, sh) => {
+  if (bench == null) return "";
+  /* Under the Standard ranking the benchmark has no count to be placed by, so it falls to
+   * the bottom of every sheet — nothing has ever cleared zero criteria. Last place on a
+   * leaderboard reads as "worst", and on this repo that is the one conclusion the page
+   * must not imply by accident: the whole finding is that nothing beats holding. So the
+   * row says it is not in the ranking rather than leaving its position to speak. */
+  const unranked = sh.ranked_on === "edge_passed"
+    ? ` <span class="chip mut" title="The six criteria measure a rule AGAINST buy-and-hold, so the benchmark cannot clear them and has no count to be ranked by. Its position here is not a score.">not ranked</span>`
+    : "";
+  const cells = cols.map((c, i) => i === 0
+    ? `<td class="l">Buy &amp; hold <span class="chip mut">benchmark</span>${unranked}</td>`
+    : c.bh ? c.bh(bench, sh) : `<td class="flat">—</td>`).join("");
+  return `<tr class="bench-row">${cells}</tr>`;
+};
+
+/* Must stay in step with the phone breakpoint in `app.css` — that is where the first
+ * column is frozen, and the lead columns are only worth moving because they land against
+ * a name that stays put. */
+const NARROW = matchMedia("(max-width:760px)");
+
+const lbCols = () => {
+  if (!NARROW.matches) return LB_COLS;
+  const [name, ...rest] = LB_COLS;
+  return [name, ...rest.filter(c => c.lead), ...rest.filter(c => !c.lead)];
+};
+
+/* Two painted regions with the filter row parked between them: `bt-head` is the sheet's
+ * summary and the caveats that qualify it, `bt-body` is the ranking itself. Split only so
+ * the filters can sit against the table they change; both are rewritten together on every
+ * click, and neither owns the buttons. */
 function paintBacktest() {
+  const head = document.getElementById("bt-head");
   const host = document.getElementById("bt-body");
   const grp = D.backtest[bf.cls], sh = sheetOf(bf.cls, bf.tf);
-  if (bf.kind === "combo") { paintCombos(host, grp, sh); bindGo(host); return; }
-  const best = sh.rows[0];
-  const passing = sh.rows.filter(r => r.gates.every(Boolean)).length;
-  host.innerHTML = `
+  if (!sh) {
+    head.innerHTML = "";
+    host.innerHTML = `<div class="note">No walk-forward sheet for ${esc(grp.label)} at
+      ${bf.tf}. Run <code>python walkforward.py --class ${CLASS_ARG[bf.cls]} --tf ${bf.tf}</code>
+      in <code>walk-forward optimization/</code>.</div>`;
+    return;
+  }
+  const best = sh.rows[0], cols = lbCols();
+  /* Buy-and-hold does not depend on the rule, so its row is taken off the first scored row
+   * rather than recomputed — one benchmark for the whole sheet. */
+  const benchEdge = (sh.rows.find(r => r.edge) || {}).edge ?? null;
+  head.innerHTML = `
   <div class="strip">
-    <div class="stat"><span class="k">Universe</span><span class="v">${grp.n}</span>
-      <span class="s">${esc(grp.label)}</span></div>
+    ${/* Both counts report what the TABLE rests on, not what the sheet knows about.
+        * `grp.n` is every symbol in the universe list and `sh.n_rules` every candidate
+        * ranked; the scored columns ran on neither. On us_stocks 1d the standard scored
+        * 614 of 751 names — the quarantined impostors and the names without enough
+        * post-2000 history are gone — and 89 of 416 strategies. Advertising only the
+        * larger number made the evidence look broader than it is, which is the one
+        * direction a header must never round. */""}
+    <div class="stat"><span class="k">Universe</span>
+      <span class="v">${sh.n_assets_scored != null ? sh.n_assets_scored : grp.n}</span>
+      <span class="s">${sh.n_assets_scored != null && sh.n_assets_scored !== grp.n
+        ? `scored, of ${grp.n} in ${esc(grp.label)}` : esc(grp.label)}</span></div>
     <div class="stat"><span class="k">Out-of-sample</span><span class="v">${sh.years.toFixed(1)}y</span>
-      <span class="s">${sh.folds} walk-forward folds</span></div>
-    <div class="stat"><span class="k">Best rule</span>
-      <span class="v ${sign(best.ir_net)}">${fmtIR(best.ir_net)}</span>
-      <span class="s">${esc(best.rule)} · IR vs buy &amp; hold</span></div>
-    <div class="stat"><span class="k">$10k became</span>
+      <span class="s">per asset · ${sh.folds} walk-forward folds</span></div>
+    ${/* The book's span is a DIFFERENT number and it sits here so the two money columns
+        * are never read against one shared header. The per-asset figure above is each
+        * name's own out-of-sample bars — a membership spell, ~12y on us_stocks — while the
+        * book runs the whole out-of-sample calendar, ~23.6y. That is why the same
+        * buy-and-hold appears twice on the table at very different sizes. */""}
+    ${sh.book_bench ? `<div class="stat"><span class="k">Book span</span>
+      <span class="v">${fmtNum(sh.book_bench.years, 1)}y</span>
+      <span class="s">${sh.book_bench.n_names} names held as one account</span></div>` : ""}
+    <div class="stat"><span class="k">Strategies</span>
+      <span class="v">${sh.n_scored != null ? sh.n_scored : sh.n_rules}</span>
+      <span class="s">${sh.n_scored != null && sh.n_scored !== sh.n_rules
+        ? `scored, of ${sh.n_rules} ranked` : ""}</span></div>
+    ${/* ΔSharpe of the BOOK, not IR across assets. IR compares a part-time rule with a
+        * full-time benchmark and so pays for exposure; and it was the one card here still
+        * quoting a per-asset statistic above a table that is now entirely account-level. */""}
+    <div class="stat"><span class="k">Best strategy</span>
+      <span class="v ${sign(best.book && best.book.dsharpe)}">${
+        fmtIR(best.book && best.book.dsharpe)}</span>
+      <span class="s">${esc(stemName(best.rule))} · &Delta;Sharpe as a book</span></div>
+    <div class="stat"><span class="k">Time invested</span>
+      <span class="v">${pctOr(best.book ? best.book.exposure : best.long_frac)}</span>
+      <span class="s">of bars, by the book — read this first</span></div>
+    ${/* The BOOK where there is one, the median asset only as a fallback.
+        *
+        * This card sits directly above the leaderboard and is the figure a reader quotes,
+        * so it has to be the account-level one. On the median-asset basis it read "$35k vs
+        * $26k held", which is true of a typical single stock and roughly an order of
+        * magnitude below what holding the actual universe returned over the same study —
+        * a headline that disagrees with the column beneath it by that much is worse than
+        * no headline. The sub-line names the basis either way. */""}
+    ${best.book ? `<div class="stat"><span class="k">$10k became</span>
+      <span class="v">${fmtMoney(best.book.wealth)}</span>
+      <span class="s">as a book, vs ${fmtMoney(sh.book_bench && sh.book_bench.wealth)} held${
+        best.book.cm_excess_cagr == null ? ""
+          : ` · ${fmtPct(best.book.cm_excess_cagr * 100, 2)}/yr at equal risk`}</span></div>`
+    : `<div class="stat"><span class="k">$10k became</span>
       <span class="v">${fmtMoney(grew(best.net_pct))}</span>
-      <span class="s">vs ${fmtMoney(grew(best.bh_pct))} held · ${fmtDelta(pnlDelta(best.net_pct, best.bh_pct))}${
+      <span class="s">median asset · vs ${fmtMoney(grew(best.bh_pct))} held · ${
+        fmtDelta(pnlDelta(best.net_pct, best.bh_pct))}${
         pnlRatio(best.net_pct, best.bh_pct) == null ? ""
-          : " · " + fmtRatio(pnlRatio(best.net_pct, best.bh_pct)) + " the profit"}</span></div>
-    <div class="stat"><span class="k">Its return</span>
-      <span class="v">${fmtCagr(best.net_cagr)}</span>
-      <span class="s">a year, vs ${fmtCagr(best.bh_cagr)} holding</span></div>
+          : " · " + fmtRatio(pnlRatio(best.net_pct, best.bh_pct)) + " the profit"}</span></div>`}
     <div class="stat"><span class="k">Luck threshold</span><span class="v">+${sh.noise_ceiling}</span>
-      <span class="s">best of ${sh.n_rules} worthless rules</span></div>
-    <div class="stat"><span class="k">Cleared all gates</span><span class="v">${passing}</span>
-      <span class="s">of ${sh.rows.length} rules shown</span></div>
-  </div>
+      <span class="s">best of ${sh.n_rules} worthless strategies</span></div>
+  </div>`;
 
-  <div class="note">The best rule here scores <b class="${sign(best.ir_net)}">${fmtIR(best.ir_net)}</b>,
-  ${best.ir_net < sh.noise_ceiling ? `below the <b>+${sh.noise_ceiling}</b> that the best of
-  ${sh.n_rules} worthless rules would reach by chance. Nothing on this sheet is distinguishable
-  from luck.` : `above the <b>+${sh.noise_ceiling}</b> luck threshold for ${sh.n_rules} rules —
-  worth a second look.`}
-  ${best.cagr_gap != null && best.cagr_gap > 0 && best.ir_net <= 0 ? `<br><br>Note the two
-  figures disagree: it returned <b>${fmtCagr(best.net_cagr)}</b> a year against buy-and-hold's
-  <b>${fmtCagr(best.bh_cagr)}</b>, yet still scores negative. That is what a losing rule looks
-  like in a rising market — more return bought with more risk. The IR is the one to trust.` : ""}</div>
-
+  host.innerHTML = `
   <section class="sec">
     <div class="sec-head"><h2>Leaderboard</h2>
-      <span class="sec-note">tap a rule for its asset-by-asset breakdown</span></div>
+      <span class="sec-note" id="lb-note"></span></div>
+    ${/* The `powered: false` banner used to sit here — a paragraph above the table on
+        * every underpowered sheet, which is five of the eight. It said the standard cannot
+        * resolve an edge on this few folds, which is true and is still said: the fact moved
+        * into the `Standard` column's own `doc`, WITH the sheet's fold count, so it is
+        * asked for rather than read past. Nothing was dropped; see that column. */""}
+    ${/* Where a hovered header answers itself. Absolutely positioned over the top of the
+        * ranking rather than pushed into the flow above it: a block that opens on hover and
+        * moves the table down moves the header out from under the cursor, which closes it
+        * again. */""}
+    <div id="lb-doc" class="coldoc" hidden></div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th class="l">Rule</th><th>IR vs buy &amp; hold</th>
-        <th>$10k became</th><th>P&amp;L vs B&amp;H</th>
-        <th>CAGR</th><th>vs B&amp;H</th>
-        <th>Breadth</th><th>t-stat</th><th class="l">Gates</th></tr></thead>
-      <tbody>${sh.rows.map(r => {
-        const delta = pnlDelta(r.net_pct, r.bh_pct);
-        return `
-        <tr data-go="#/backtest/${bf.cls}/${bf.tf}/${slug(r.rule)}">
-          <td class="l">${esc(r.rule)}</td>
-          <td class="${sign(r.ir_net)}">${fmtIR(r.ir_net)}</td>
-          <td>${fmtMoney(grew(r.net_pct))}</td>
-          <td class="${sign(delta)}">${fmtDelta(delta)}</td>
-          <td>${fmtCagr(r.net_cagr)}</td>
-          <td class="${sign(r.cagr_gap)}">${r.cagr_gap == null ? "—"
-            : (r.cagr_gap >= 0 ? "+" : "−") + Math.abs(r.cagr_gap).toFixed(2) + " pp"}</td>
-          <td>${(r.ir_hit_rate * 100).toFixed(0)}%</td>
-          <td class="${sign(r.t_stat)}">${r.t_stat.toFixed(2)}</td>
-          <td class="l">${gatePips(r.gates)}</td></tr>`; }).join("")}</tbody>
-      <caption>Benchmark for this whole sheet: <b>$10,000 held becomes
-      ${fmtMoney(grew(best.bh_pct))}</b>, ${fmtCagr(best.bh_cagr)} a year over
-      ${sh.years.toFixed(1)} out-of-sample years. It is stated once here rather than repeated
-      down a column, because it is the same figure on every row.
-      <b>$10k became</b> is the rule's P&amp;L on the same stake and <b>P&amp;L vs B&amp;H</b>
-      is how much more or less money that is than holding. <b>CAGR</b> and <b>vs B&amp;H</b>
-      say the same thing as an annual rate and a gap in points. Read all of it beside the IR
-      and never alone — money made rewards being in the market, so a rule can earn more and
-      still score negative because it took more risk to do it. Breadth is the share of the
-      ${grp.n} assets on which the rule has a positive IR; a high IR carried by one name is a
-      fitted result.</caption>
+      <thead><tr>${cols.map(c =>
+        `<th${c.l ? ' class="l"' : ""}${c.doc || c.sv
+          ? ` data-doc="${LB_COLS.indexOf(c)}"` : ""}>${c.h}</th>`).join("")}</tr></thead>
+      ${/* A row the standard has not scored prints em-dashes rather than being dropped.
+          * The sweep universe and the scored universe can differ, and hiding the gap would
+          * read as "everything here was judged" — each cell handles its own null edge. */""}
+      <tbody id="lb-body"></tbody>
     </table></div>
   </section>
 
@@ -814,7 +1756,130 @@ function paintBacktest() {
       <span class="sec-note">${esc(grp.label)}</span></div>
     <p class="universe">${grp.universe.map(esc).join(" · ")}</p>
   </section>`;
+
+  /* Re-sorting rewrites the body and nothing else. The header cells survive, so the
+   * explanation does not blink out from under the cursor that just clicked, and the
+   * horizontal scroll position of a sixteen-column table is not thrown away. */
+  const paintRows = () => {
+    const body = host.querySelector("#lb-body");
+    body.innerHTML = lbOrder(sh, benchEdge, lbSort).map(e => e.bench
+      ? benchRow(benchEdge, cols, sh)
+      // `sh` is passed as a second argument for the columns whose comparison value is a
+      // property of the SHEET rather than of the row — the book's passive drawdown is one
+      // portfolio for the whole table, so every row would otherwise re-derive it or, as
+      // Max DD did, quietly show a different measurement instead.
+      : `<tr data-go="#/backtest/${bf.cls}/${bf.tf}/${slug(e.row.rule)}">${
+          cols.map(c => c.cell(e.row, sh)).join("")}</tr>`).join("");
+    host.querySelectorAll("th[data-doc]").forEach(th => {
+      const on = lbSort && lbSort.i === Number(th.dataset.doc);
+      th.classList.toggle("sort-desc", !!on && lbSort.dir < 0);
+      th.classList.toggle("sort-asc", !!on && lbSort.dir > 0);
+    });
+    const by = lbSort ? LB_COLS[lbSort.i].h : null;
+    // The basis is named rather than assumed, and BOTH keys are named. It has changed
+    // three times — ΔSharpe, raw Sharpe, the book's risk-matched excess — and each time a
+    // hardcoded caption survived the change and described the previous one. It is now the
+    // standard's count with the old basis demoted to the tiebreak, which is a distinction
+    // a reader cannot recover from the rows: six integer tiers look like no ordering at
+    // all until the caption says what is ordering inside them.
+    const tie = sh.ranked_tiebreak === "book_cm_excess_cagr"
+      ? "book vs B&amp;H" : "Sharpe";
+    const basis = sh.ranked_on === "edge_passed"
+      ? `ranked on Standard, ties on ${tie}`
+      : sh.ranked_on === "book_cm_excess_cagr"
+      ? "ranked on book vs B&amp;H, risk-matched" : "ranked on Sharpe";
+    const picked = sh.ranked_on === "edge_passed" ? `Standard, then ${tie}`
+      : sh.ranked_on === "book_cm_excess_cagr" ? "book vs B&amp;H" : "Sharpe";
+    host.querySelector("#lb-note").innerHTML =
+      `top ${sh.rows.length} of ${sh.n_rules} · ${sh.n_shown_pairs} of them pairs · ${by
+        ? `picked on ${picked}, re-ordered by ${by} — <b>not</b> the best ${
+            sh.rows.length} by ${by}`
+        : basis}${sh.n_flat_dropped
+        ? ` · ${sh.n_flat_dropped} rule${sh.n_flat_dropped === 1 ? "" : "s"} that never
+            opened a position removed` : ""} · tap a row for its detail`;
+    bindGo(body);
+  };
+  paintRows();
   bindGo(host);
+  bindColHeaders(host, { sh, grp, bench: benchEdge?.bench_wealth ?? null }, i => {
+    // First click puts the best value at the top — descending for every figure here,
+    // ascending for the two text columns. Second flips it, third gives the sheet back the
+    // order it was delivered in, which is the only one the note can call a ranking.
+    const first = LB_COLS[i].text ? 1 : -1;
+    lbSort = !lbSort || lbSort.i !== i ? { i, dir: first }
+      : lbSort.dir === first ? { i, dir: -first } : null;
+    paintRows();
+  });
+}
+
+/* A column explains itself when it is dwelt on, and sorts the ranking on click. Two
+ * behaviours on one target, but they answer the two things a reader does with a header they
+ * do not recognise — ask what it is, then ask who wins on it.
+ *
+ * The pause in front of the explanation is the load-bearing part. A popover that opens the
+ * instant the cursor crosses a header fires on the way to a different one, so reading down
+ * a sixteen-column table sets off a flicker of panels nobody asked for. Three seconds is
+ * long enough that appearing means it was wanted.
+ *
+ * A phone has no hover at all, so the same explanation is on press-and-hold — and the tap
+ * that ends it is swallowed, because a long press is not a click that took a while. */
+const DOC_DWELL_MS = 3000;   // pointer: how long a header must be held under the cursor
+const DOC_HOLD_MS = 500;     // touch: how long a finger must stay down
+
+function bindColHeaders(host, ctx, onSort) {
+  const panel = host.querySelector("#lb-doc");
+  const sec = panel.closest(".sec");
+  const show = th => {
+    const c = LB_COLS[Number(th.dataset.doc)];
+    if (!c.doc) return;
+    panel.innerHTML = `<div class="coldoc-h">${c.h}</div>
+      <p>${typeof c.doc === "function" ? c.doc(ctx) : c.doc}</p>`;
+    panel.hidden = false;
+    // Hung under the header it explains and clamped to the table's own box, which on a wide
+    // screen is wider than the section the panel lives in. Measured after it is visible,
+    // because a hidden element has no width to clamp against.
+    const sr = sec.getBoundingClientRect();
+    const tr = th.getBoundingClientRect();
+    const box = (sec.querySelector(".tbl-scroll") || sec).getBoundingClientRect();
+    // Width is set rather than left to the layout: an absolutely positioned box
+    // shrink-to-fits the space between its `left` and the section's right edge, so the
+    // explanation of the last column would come out half the width of the first one's.
+    const w = Math.min(520, box.width);
+    panel.style.width = `${w}px`;
+    panel.style.top = `${tr.bottom - sr.top + 8}px`;
+    panel.style.left = `${Math.max(box.left - sr.left,
+      Math.min(tr.left - sr.left, box.right - sr.left - w))}px`;
+  };
+  let timer = null, held = false;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  const hide = () => { cancel(); panel.hidden = true; };
+  const dwell = th => { cancel(); timer = setTimeout(() => show(th), DOC_DWELL_MS); };
+
+  host.querySelectorAll("th[data-doc]").forEach(th => {
+    th.onpointerenter = e => { if (e.pointerType === "mouse") dwell(th); };
+    th.onpointerleave = e => { if (e.pointerType === "mouse") hide(); };
+    th.onpointerdown = e => {
+      if (e.pointerType === "mouse") return;
+      held = false;
+      cancel();
+      timer = setTimeout(() => { held = true; show(th); }, DOC_HOLD_MS);
+    };
+    // A finger that lifts, or slides off, before the hold is up wanted the sort.
+    th.onpointerup = th.onpointercancel = e => { if (e.pointerType !== "mouse") cancel(); };
+    th.onclick = () => {
+      if (held) { held = false; return; }
+      onSort(Number(th.dataset.doc));
+      // The cursor has not gone anywhere, so the dwell starts again rather than waiting for
+      // the reader to leave and come back before the column will explain itself.
+      dwell(th);
+    };
+  });
+
+  // A press anywhere else puts the explanation away. On a phone there is no pointerleave to
+  // do it, so the panel would otherwise sit over the ranking until the next long press.
+  host.addEventListener("pointerdown", e => {
+    if (!e.target.closest("th[data-doc]")) hide();
+  }, true);
 }
 
 /* ---------- curve loading ----------
@@ -859,77 +1924,474 @@ const mval = (m, key, dp, suffix) => {
   return Number(v).toFixed(dp) + (suffix || "");
 };
 
-function metricsSection(m, bm) {
+/* Which strategy the stored curve is. The book stage builds long/flat only, so this is
+ * "long" for everything it writes; the key is kept because the file carries it and a
+ * long/short book is a plausible thing to add later. */
+const curveSide = c => (c && c.side) || "long";
+
+/* The comparison instruments stored with a curve, as a list, whatever shape the file is in.
+ *
+ * `portfolio_wf.py` emits `indexes: [{symbol, curve, metrics}, ...]` — benchmark first,
+ * then any extra (QQQ beside SPY on the US stock sheets). Files written by the old
+ * `curves.py` carry a single `index` / `index_metrics` / `index_symbol` trio, and reading
+ * both costs two lines. Absent means no index is cached for the class, which is a real
+ * state — crypto and commodities can hit it. */
+const curveIndexes = c => Array.isArray(c && c.indexes) ? c.indexes
+  : (c && c.index ? [{ symbol: c.index_symbol, curve: c.index, metrics: c.index_metrics }]
+                  : []);
+
+/* Two is what `equityChart` has distinct strokes for, and three lines is already the most a
+ * reader can follow on a log scale at this width. Extras are dropped from the CHART only —
+ * the metrics table below it still carries every one of them as a column. */
+const CHART_INDEXES = 2;
+
+/* `r` is the leaderboard row, and it is here only to be CONTRADICTED in print.
+ *
+ * This table and the strip at the top of the page report the same-named quantities off
+ * two different measurements, and until they said so the page simply looked wrong: `ibs`
+ * on us_stocks 1d carries Sharpe 1.251 and a -23.0% drawdown here while its own row says
+ * 0.552 and -50.4%. Neither is a mistake. This section is the EQUAL-WEIGHT BOOK — one
+ * portfolio holding every name at once, which is what `curves.py` builds — and the row is
+ * the MEDIAN ASSET, one of N independent single-name backtests at risk-matched size.
+ *
+ * The gap is diversification and it is the whole argument of `portfolio_wf.py`: idiosyncratic
+ * noise cancels in a book and a median cannot see it, so a median across per-symbol
+ * backtests describes a thing nobody owns and is biased low. Printing both without naming
+ * either is what made them look like a bug.
+ */
+function metricsSection(m, matched, r) {
   if (!m) return "";
+  /* One column per benchmark, each HELD AT THE STRATEGY'S OWN VOLATILITY — the same
+   * sizing as the chart above, because a table on a different basis from the picture over
+   * it is the mistake this page spent a day removing. The basket is one of these columns
+   * now rather than a special case: at equal risk it is just another thing you could have
+   * held instead.
+   *
+   * What matching does and does not move is worth knowing while reading this: with idle
+   * cash earning nothing, scaling a benchmark by `w` scales its mean and its standard
+   * deviation together, so **Sharpe and Sortino are unchanged** from the full-size
+   * instrument. Volatility, drawdown, CAGR and terminal wealth all move, and volatility
+   * lands on the strategy's own by construction — that is the point, not a coincidence. */
+  const ix = (matched || []).filter(i => i && i.metrics);
+  const names = ix.map(i => `${esc(i.label)}${i.weight == null ? ""
+    : ` <span class="mut">${fmtNum(i.weight * 100, 0)}%</span>`}`);
   return `
   <section class="sec">
     <div class="sec-head"><h2>Performance metrics</h2>
-      <span class="sec-note">strategy against buy &amp; hold, same window</span></div>
+      <span class="sec-note">the book against every benchmark <b>at its own volatility</b>,
+        same window</span></div>
+    ${/* Gated on the per-asset ROWS, not on `asset_n`: a pair carries the count (it is the
+        * sheet's universe size) but ships no per-symbol table, so keying on `asset_n` would
+        * point a reader at an "Asset by asset" section that is not on the page. */""}
+    ${r && r.asset_n && r.per_asset && r.per_asset.length
+      ? `<div class="note">One portfolio holding all ${r.asset_n} names
+    at once, at 1&times; size. These are the same numbers as the strip at the top of this
+    page and the same as the row on the leaderboard &mdash; one book, measured once. The
+    per-name breakdown is the <em>Asset by asset</em> table below, and those are ${r.asset_n}
+    separate single-name backtests: they do not add up to this, because a book
+    diversifies and a list of backtests cannot.</div>` : ""}
     <div class="tbl-wrap"><table>
-      <thead><tr><th class="l">Metric</th><th>Strategy</th><th>Buy &amp; hold</th>
+      <thead><tr><th class="l">Metric</th><th>Strategy</th>${
+        names.map(n => `<th>${n}</th>`).join("")}
         <th class="l">What it means</th></tr></thead>
       <tbody>${METRIC_ROWS.map(([k, name, help, dp, sfx]) => `
         <tr><td class="l">${name}</td>
-          <td>${mval(m, k, dp, sfx)}</td>
-          <td>${bm && k in bm ? mval(bm, k, dp, sfx) : "—"}</td>
+          <td>${mval(m, k, dp, sfx)}</td>${
+          ix.map(i => `<td>${k in i.metrics ? mval(i.metrics, k, dp, sfx) : "—"}</td>`).join("")}
           <td class="l" style="white-space:normal;color:var(--muted);font-size:12.5px">${help}</td>
         </tr>`).join("")}</tbody>
-      <caption>Trade-level statistics (profit factor, win rate, average win and loss) have no
+      <caption>Every benchmark column is that instrument <b>held at the strategy's own
+      volatility</b>, the rest in cash — so the volatility row is the same across the table
+      by construction, and drawdown, CAGR and total return are directly comparable. Scaled
+      down, never levered up.
+      ${ix.length ? `<br><br><b>Sharpe and Sortino are unchanged by the matching</b> and
+      are the full-size instrument's own: with idle cash earning nothing, holding less of
+      something divides its return and its volatility by the same number. If a benchmark's
+      Sharpe beats the strategy's here, it beat it at any size.` : ""}
+      <br><br>Trade-level statistics (profit factor, win rate, average win and loss) have no
       buy-and-hold counterpart — holding is a single trade that is still open, so its win rate
-      is either 100% or 0% and its profit factor is undefined. Sharpe, Calmar and drawdown are
-      computed identically for both and are directly comparable. None of these replace the
-      IR: a strategy can carry a better Sharpe than the benchmark and still lose to it, which
-      is exactly what most rows on this sheet do.</caption>
+      is either 100% or 0% and its profit factor has no denominator. None of these replace
+      the verdict: a strategy can carry a better Sharpe than every column here and still fail
+      the standard, which is exactly what the best rows on this sheet do.</caption>
     </table></div>
   </section>`;
+}
+
+/* ---------- what the strategy actually does ----------
+ *
+ * The single most common complaint about this page was that it named a strategy and then
+ * showed fifteen numbers about it without ever saying what it did. `payload.strategy_logic`
+ * ships prose for all 262 names — hand-written for the published catalogue, derived from
+ * the indicator family for the TA-Lib rules.
+ *
+ * A pair has no entry of its own and never will: `MAXINDEX~MININDEX|or` is not a strategy
+ * anyone wrote down, it is two rules and an operator. So it resolves each leg separately
+ * and explains the operator, which is the only honest reading of that row. */
+const OP_PROSE = {
+  and:  "Long only when BOTH legs are long — the strictest operator, and the one that spends the least time invested.",
+  or:   "Long when EITHER leg is long. This is the operator that spends the MOST time invested, which on a rising benchmark is most of why `or` rows top equity leaderboards.",
+  vote: "Long on the majority of the two legs, ties resolved to flat.",
+  gate: "The first leg decides direction; the second may only veto it.",
+};
+
+function legsOf(rule) { return String(rule).split("~").map(s => s.split("|")[0].trim()); }
+
+function renderLogic(text) {
+  /* The blocks are "Heading\n    indented body". A heading is a short unindented line;
+   * anything else is body. Guessing wrong only costs a bold, never content. */
+  const lines = String(text).replace(/\r/g, "").split("\n");
+  let html = "", open = false;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const isHead = !/^\s/.test(raw) && line.length < 60 && !/[.:]$/.test(line);
+    if (isHead) {
+      if (open) html += "</p>";
+      html += `<h4 class="logic-h">${esc(line)}</h4><p class="logic-p">`;
+      open = true;
+    } else {
+      html += (open ? " " : "<p class=\"logic-p\">") + esc(line);
+      open = true;
+    }
+  }
+  return html + (open ? "</p>" : "");
+}
+
+function logicSection(r) {
+  const L = D.logic || {};
+  const direct = L[r.rule] || L[stemName(r.rule)];
+  if (direct) {
+    const prov = [direct.source, direct.family].filter(Boolean).join(" · ");
+    return `<section class="sec"><div class="sec-head"><h2>How it works</h2>
+      ${prov ? `<span class="sec-note">${esc(prov)}</span>` : ""}</div>
+      <div class="logic">${renderLogic(direct.logic || "")}
+      ${direct.note ? `<p class="logic-p mut"><b>Note.</b> ${esc(direct.note)}</p>` : ""}</div>
+    </section>`;
+  }
+  if (r.kind !== "pair") return "";
+  const op = (r.op || "").toLowerCase();
+  const legs = legsOf(r.rule).map(n => ({ name: n, e: L[n] })).filter(x => x.e);
+  if (!legs.length) return "";
+  return `<section class="sec"><div class="sec-head"><h2>How it works</h2>
+    <span class="sec-note">two rules joined by <code>${esc(op)}</code></span></div>
+    <div class="logic">
+      ${OP_PROSE[op] ? `<p class="logic-p"><b>The operator.</b> ${esc(OP_PROSE[op])}</p>` : ""}
+      ${legs.map(l => `<h4 class="logic-h">${esc(l.name)}</h4>
+         <div class="logic-leg">${renderLogic(l.e.logic || "")}</div>`).join("")}
+    </div></section>`;
+}
+
+/* The off-side note is gone (2026-08-13), with the measurement it explained.
+ *
+ * The page used to print `edge_standard`'s verdict — which picks whichever of long/flat and
+ * long/short scored better on a typical name — beside diagnostics that are long/flat
+ * always, so on a short-endorsed rule one row was half one strategy and half another.
+ * Now every figure on this page, the verdict included, is the long/flat BOOK, so there is
+ * no second side in play and nothing to disclaim. `payload._drop_offside_diagnostics` still
+ * blanks the per-asset columns it always did; nothing rendered reads them.
+ */
+/* ---------------------------------------------------------------- the paper switch
+ *
+ * DESIGN PREVIEW. It renders the real shape and the real numbers and is deliberately not
+ * connected to anything: clicking it says so. The point is to agree the wording and the
+ * placement before the desk starts moving a hundred thousand dollars on a click.
+ *
+ * The name counts are constants here and will come from `catalog.json` once this is
+ * wired — the desk publishes its universe there already. They are the DESK's rosters, not
+ * the research universe: `us_stocks` is the live top 100, where the research scored 216
+ * names over their whole history. */
+/* Filled from `catalog.json` and `/v1/house/strategies` on load. Null until then, which
+ * is why the switch renders nothing rather than a guess: a name count on the face of this
+ * control is a promise about what a click will do, and a stale one is a lie. */
+let BOOK = null;          // {capital, timeframes, names:{cls:n}, benchmark:{cls:sym}}
+let PROMOTED = null;      // {"<cls>-<tf>-<rule>": registration}
+
+async function loadBookState() {
+  try {
+    const [cat, mine] = await Promise.all([
+      fetch("/catalog.json", { cache: "no-store", credentials: "same-origin" }),
+      fetch("/v1/house/strategies", { cache: "no-store", credentials: "same-origin" }),
+    ]);
+    if (!cat.ok) return;                       // not served by the API: no switch at all
+    BOOK = (await cat.json()).book || null;
+    PROMOTED = {};
+    if (mine.ok) for (const s of await mine.json()) PROMOTED[s.name] = s;
+    render();
+  } catch { /* offline build, or the one-file dist: leave the switch out */ }
+}
+
+/* The board's tab key is not the engine's class name — this page says `stocks` and `etf`
+ * where the desk says `us_stocks` and `us_etfs`. Every lookup and every request has to be
+ * in the DESK's spelling, and the map is published in the catalog rather than restated
+ * here, because it is defined in `dash_config.GROUPS` and would drift if copied. */
+const deskClass = cls => ((BOOK && BOOK.class_map) || {})[cls] || cls;
+
+const bookName = (cls, tf, rule) => `${deskClass(cls)}-${tf}-${rule.toLowerCase()}`;
+
+function bookSwitch(r, cls, tf, isPair) {
+  /* A pair is rebuilt from two legs by `signals.position_for_row`, which needs the
+   * leaderboard row. A live strategy holds only a label, so there is nothing for it to
+   * reconstruct — shown and explained rather than hidden, because the whole top of the
+   * crypto 1d board is pairs. */
+  if (isPair) {
+    return `<div class="promote blocked">
+      <div class="promote-top"><span class="promote-label">Not tradable live</span>
+        <span class="sw off"></span></div>
+      <div class="promote-sub">A pair is rebuilt from two legs and has no single
+        definition a live strategy can hold.</div>
+      <div class="promote-state bad">unavailable</div></div>`;
+  }
+  if (!BOOK) return "";                       // not behind the API, or not loaded yet
+  if (!(BOOK.timeframes || ["1d"]).includes(tf)) {
+    return `<div class="promote blocked">
+      <div class="promote-top"><span class="promote-label">1d only, for now</span>
+        <span class="sw off"></span></div>
+      <div class="promote-sub">The desk runs daily books first. 4h follows once the
+        daily one has been watched.</div>
+      <div class="promote-state">unavailable</div></div>`;
+  }
+
+  const rule = stemName(r.rule);
+  const reg = (PROMOTED || {})[bookName(cls, tf, rule)];
+  const n = (BOOK.names || {})[deskClass(cls)] || 0;
+  const slice = n ? BOOK.capital / n : 0;
+  /* No names means the desk cannot hold this class — a book of nothing. Say so instead of
+   * offering a switch that would be refused. */
+  if (!n) {
+    return `<div class="promote blocked">
+      <div class="promote-top"><span class="promote-label">Not on the desk</span>
+        <span class="sw off"></span></div>
+      <div class="promote-sub">The desk carries no ${esc(cls)} names right now, so there
+        is nothing for a book to hold.</div>
+      <div class="promote-state bad">unavailable</div></div>`;
+  }
+
+  /* `want` is what was asked for and `state` is what the desk has done. They disagree for
+   * a while by design — asking while the desk is down leaves want=live, state=pending —
+   * and the switch shows the DESK's answer, because that is the one that is true. */
+  if (reg && reg.want !== "retired" && reg.state !== "retired") {
+    const live = reg.state === "live";
+    const bad = reg.state === "rejected";
+    const cls_ = live ? "live" : (bad ? "bad" : "wait");
+    const word = bad ? "rejected"
+      : live ? "live"
+      : (reg.want === "paused" ? "pausing" : "queued — the desk applies it within 30s");
+    return `<div class="promote ${live ? "on" : ""}" id="book-switch"
+                 role="button" tabindex="0" data-off="1">
+      <div class="promote-top">
+        <span class="promote-label">${live ? "Paper trading" : "Starting"}</span>
+        <span class="sw ${live ? "on" : "wait"}"></span></div>
+      ${bookLine(reg)}
+      <div class="promote-sub">${bad ? esc(reg.reason || "the desk refused it")
+        : `${n} names · <a href="#/paper">see the desk →</a>`}</div>
+      <div class="promote-state ${cls_}">${esc(word)}</div>
+    </div>`;
+  }
+
+  const label = cls === "us_stocks"
+    ? `the <b>${n}</b> stocks in the top 100 today`
+    : `all <b>${n}</b> names the desk carries`;
+  return `<div class="promote" id="book-switch" role="button" tabindex="0">
+    <div class="promote-top"><span class="promote-label">Paper trade this</span>
+      <span class="sw off"></span></div>
+    <div class="promote-sub">One book of <b>${fmtMoney(BOOK.capital)}</b> running
+      <code>${esc(rule)}</code> at <b>${esc(tf)}</b> across ${label} —
+      <b>${fmtMoney(slice)}</b> a name. A name the rule is out of holds cash.</div>
+    <div class="promote-state">off</div>
+  </div>`;
+}
+
+/* "$100,000 → $104,231" once the desk has marked it. Absent before the first bar, rather
+ * than showing the opening balance as if it were a result. */
+function bookLine(reg) {
+  // `D.strategies` is the live desk, refreshed by the `live.json` poll — so this figure
+  // moves on its own without the switch asking for anything.
+  const sys = (D.strategies || []).find(
+    s => s.rule === reg.rule && s.cls === reg.cls && s.tf === reg.tf);
+  if (!sys || sys.equity == null) return "";
+  const pct = sys.paper_pnl_pct;
+  return `<div class="book-line">${fmtMoney(reg.capital)} →
+    <b class="${pct >= 0 ? "gain" : "loss"}">${fmtMoney(sys.equity)}</b>
+    <span class="promote-sub" style="margin:0">${pct >= 0 ? "+" : ""}${fmtNum(pct, 2)}%${
+      sys.held != null ? ` · ${sys.held} of ${sys.names} held` : ""}</span></div>`;
+}
+
+function bindBookSwitch() {
+  const el = document.getElementById("book-switch");
+  if (!el || el.dataset.busy) return;
+  const m = (location.hash || "").match(/^#\/backtest\/([^/]+)\/([^/]+)\/(.+)$/);
+  if (!m) return;
+  const [, cls, tf, ruleSlug] = m;
+  const sh = sheetOf(cls, tf);
+  const row = sh && sh.rows.find(x => slug(x.rule) === ruleSlug);
+  if (!row) return;
+  const rule = stemName(row.rule);
+  const turningOff = el.dataset.off === "1";
+
+  /* No confirm dialog. The switch is reversible in one click, the record is kept whichever
+   * way it goes, and the card already states the size and the roster before it is touched
+   * — a modal repeating what is on screen is a click to dismiss, not a safeguard. What
+   * replaces it is that the switch reports the DESK's answer rather than the click's, so
+   * nothing reads as done until it is. */
+  const go = async () => {
+    el.dataset.busy = "1";
+    const state = el.querySelector(".promote-state");
+    state.textContent = turningOff ? "stopping…" : "starting…";
+    try {
+      const reg = (PROMOTED || {})[bookName(cls, tf, rule)];
+      const res = turningOff
+        ? await fetch(`/v1/house/strategies/${encodeURIComponent(reg.strategy_id)}`,
+                      { method: "DELETE", credentials: "same-origin" })
+        : await fetch("/v1/house/strategies", {
+            method: "POST", credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cls: deskClass(cls), tf, rule }) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        state.textContent = body.detail || `failed (${res.status})`;
+        state.classList.add("bad");
+        delete el.dataset.busy;
+        return;
+      }
+      await loadBookState();          // re-render from the desk's answer, not the click
+    } catch (e) {
+      state.textContent = "could not reach the desk";
+      state.classList.add("bad");
+      delete el.dataset.busy;
+    }
+  };
+
+  el.addEventListener("click", go);
+  el.addEventListener("keydown", ev => {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+  });
 }
 
 function backtestDetail(cls, tf, ruleSlug) {
   const grp = D.backtest[cls], sh = sheetOf(cls, tf);
   const r = sh && sh.rows.find(x => slug(x.rule) === ruleSlug);
   if (!r) return (location.hash = "#/backtest");
-  const wins = r.per_asset.filter(p => p.ir > 0).length;
-  const sorted = [...r.per_asset].sort((a, b) => b.ir - a.ir);
+  /* A pair has no asset-by-asset rows — `combo_wf.py` records leg-correlation diagnostics
+   * instead — so breadth is the only per-asset figure it can show, and it comes off the
+   * leaderboard row rather than off a table that does not exist. */
+  const isPair = r.kind === "pair";
+  /* Breadth comes off `asset_pos`/`asset_n`, computed over the full asset list in
+   * `payload._asset_stats`, which is the same list rendered below. It is not counted here
+   * because `scored` is the honest denominator — a rule with no per-asset source shows "—"
+   * rather than "0 / 751", which read as a measured zero and was how `ibs` looked. */
+  const nAssets = r.asset_n != null ? r.asset_n : grp.n;
+  /* The strip is the BOOK now, so it reads one record. `{}` rather than a guard on every
+   * line: a sheet with no book run prints em-dashes and the note under the strip does not
+   * render, which is the same behaviour the money columns already have. */
+  const bk = r.book || {};
+  const wins = isPair ? Math.round((r.ir_hit_rate || 0) * grp.n) : r.asset_pos;
+  const hasBreadth = wins != null;
+  /* Two excesses, and which one the table SORTS on has to be the one its header names.
+   * `xpnl` is the money gap in percentage points and `$10k became − buy & hold` is a
+   * strictly increasing function of it, so sorting on either gives the same order; `xcagr`
+   * is the annual rate and stays a column. Both fall back to recomputing the difference,
+   * for payloads written before the keys existed. */
+  const xc = p => (p.xcagr != null ? p.xcagr
+    : (p.net_cagr != null && p.bh_cagr != null ? p.net_cagr - p.bh_cagr : null));
+  const xp = p => (p.xpnl != null ? p.xpnl
+    : (p.net_pct != null && p.bh_pct != null ? p.net_pct - p.bh_pct : null));
+  const sorted = [...r.per_asset].sort((a, b) =>
+    (xp(a) == null) - (xp(b) == null) || (xp(b) || 0) - (xp(a) || 0));
+  /* How far apart the out-of-sample spans are, measured rather than asserted: the caption
+   * warns that a money ranking is partly a ranking of holding period, and on a sheet where
+   * every name ran the same length — the ETFs at 4h — that warning is simply untrue. */
+  const spans = sorted.map(p => p.years).filter(v => v != null && v > 0);
+  const spanRatio = spans.length ? Math.max(...spans) / Math.min(...spans) : 1;
 
   app.innerHTML = `
   <a class="back" href="#/backtest">← backtest</a>
   <div class="hero">
-    <div class="d-head"><span class="d-name">${esc(r.rule)}</span>
+   <div class="hero-row">
+    <div class="hero-left">
+    <div class="d-head"><span class="d-name">${esc(stemName(r.rule))}</span>
+      ${opLabel(r.op) ? `<span class="chip mut">${esc(opLabel(r.op))}</span>` : ""}
       <span class="chip mut">${tf}</span><span class="chip mut">${esc(grp.label)}</span></div>
-    <p class="lede">Walk-forward out-of-sample over ${sh.years.toFixed(1)} years,
-    ${sh.folds} folds, run independently on all ${grp.n} assets.</p>
+    <p class="lede">${isPair
+      ? `Two rules joined by <code>${esc(opLabel(r.op))}</code>, walked forward`
+      : "Walk-forward"} out-of-sample, ${sh.folds} folds${
+      bk.years ? `, held as one book of ${bk.n_names || grp.n} names over
+      <b>${fmtNum(bk.years, 1)} years</b>` : ` over ${sh.years.toFixed(1)} years`}.${
+      bk.years ? ` Each name is also scored on its own below, over its own
+      ${sh.years.toFixed(1)}-year median spell.` : ""}</p>
+    </div>
+    ${bookSwitch(r, cls, tf, isPair)}
+   </div>
   </div>
 
   <div class="strip">
-    <div class="stat"><span class="k">IR vs buy &amp; hold</span>
-      <span class="v ${sign(r.ir_net)}">${fmtIR(r.ir_net)}</span>
-      <span class="s">mean across ${grp.n} assets</span></div>
-    <div class="stat"><span class="k">Breadth</span>
-      <span class="v">${wins} / ${grp.n}</span>
-      <span class="s">assets with positive IR</span></div>
+    <div class="stat"><span class="k">&Delta;Sharpe</span>
+      <span class="v ${sign(bk.dsharpe)}">${fmtIR(bk.dsharpe)}</span>
+      <span class="s">book vs the same universe held</span></div>
+    <div class="stat"><span class="k">Time invested</span>
+      <span class="v">${pctOr(bk.exposure)}</span>
+      <span class="s">of bars, by the book${bk.exposure != null && bk.exposure > 0.9
+        ? " — this is nearly buy-and-hold" : ""}</span></div>
     <div class="stat"><span class="k">t-statistic</span>
-      <span class="v ${sign(r.t_stat)}">${r.t_stat.toFixed(2)}</span>
-      <span class="s">needs 2.0 to pass</span></div>
+      <span class="v ${sign(bk.t)}">${bk.t == null ? "—" : bk.t.toFixed(2)}</span>
+      <span class="s">across ${bk.n_folds || "the"} folds${
+        bk.standard && bk.standard.t_bar
+          ? ` · needs ${fmtNum(bk.standard.t_bar, 1)} after multiplicity`
+          : " · needs 2.0"}</span></div>
     <div class="stat"><span class="k">$10k became</span>
-      <span class="v">${fmtMoney(grew(r.net_pct))}</span>
-      <span class="s">vs ${fmtMoney(grew(r.bh_pct))} held · ${fmtDelta(pnlDelta(r.net_pct, r.bh_pct))}${
-        pnlRatio(r.net_pct, r.bh_pct) == null ? ""
-          : " · " + fmtRatio(pnlRatio(r.net_pct, r.bh_pct)) + " the profit"}</span></div>
-    <div class="stat"><span class="k">Return / yr</span><span class="v">${fmtCagr(r.net_cagr)}</span>
-      <span class="s">buy &amp; hold made ${fmtCagr(r.bh_cagr)}</span></div>
-    <div class="stat"><span class="k">Gates</span><span class="v">${gatePips(r.gates)}</span>
-      <span class="s">${r.gates.filter(Boolean).length} of 4 passed</span></div>
+      <span class="v">${bk.wealth == null ? "—" : fmtMoney(bk.wealth)}</span>
+      <span class="s">${bk.wealth == null
+        ? "no book run covers this sheet"
+        : `the book · vs ${fmtMoney(bk.bench_wealth)} held · ${
+            fmtDelta(bk.wealth - bk.bench_wealth)}`}</span></div>
+    <div class="stat"><span class="k">Return / yr</span>
+      <span class="v">${bk.cagr == null ? "—" : fmtCagr(bk.cagr * 100)}</span>
+      <span class="s">${bk.cagr == null ? "—"
+        : `the book · holding made ${sh.book_bench && sh.book_bench.cagr != null
+            ? fmtCagr(sh.book_bench.cagr * 100) : "—"}`}</span></div>
+    <div class="stat"><span class="k">Max drawdown</span>
+      <span class="v ${bk.dd == null ? "" : "loss"}">${bk.dd == null ? "—"
+        : fmtNum(bk.dd, 1) + "%"}</span>
+      <span class="s">${sh.book_bench && sh.book_bench.dd != null
+        ? `holding fell ${fmtNum(sh.book_bench.dd, 1)}%` : "worst fall of the account"}</span></div>
+    <div class="stat"><span class="k">Standard</span>
+      <span class="v">${edgeCount(bk.standard)}</span>
+      <span class="s">criteria cleared on the book — hover for which</span></div>
   </div>
+  ${bk.wealth == null ? "" : `<p class="sec-note">Every figure in this strip is
+  <b>the book</b>: one account holding ${bk.n_names || nAssets} names at once over
+  ${fmtNum(bk.years, 1)} out-of-sample years, idle capital earning nothing, which is the
+  account the chart below draws and the same numbers as this rule's row on the
+  leaderboard. Breadth
+  (${hasBreadth ? `${wins} of ${nAssets} names positive` : "not available on this sheet"})
+  and the per-name table further down are per asset by construction — a book has no
+  breadth, it has one equity curve.</p>`}
 
+  ${logicSection(r)}
+
+  ${/* A pair gets the same chart and the same metrics table as a single rule. It did not
+      * until 2026-08-15, and the reason it did not is gone: the note here named `curves.py`,
+      * which built its own portfolio and only ever stitched single rules. `run_book.sh`
+      * replaced it and scores every label on the sheet — `book_curves_*.json` carries the
+      * pairs, `copy_curves` publishes them, and the page was refusing to draw files that
+      * were sitting in `web/curves/`. On `crypto 1d` that was 23 of the 30 rows, so most of
+      * that leaderboard led to a page with no chart and no metrics while `stocks 1d`, which
+      * ships no pairs at all, looked complete. What a pair still has no source for is the
+      * per-asset table below, and that is a different fact with its own note. */""}
   <div id="curve-host"><p class="sec-note">Loading equity curves…</p></div>
 
+  ${isPair ? `<div class="note"><b>Pairs have no asset-by-asset page.</b> The pair sweep
+  records leg-correlation diagnostics rather than per-symbol rows, so the breadth figure above
+  — ${pctOr(r.ir_hit_rate)} of ${grp.n} assets positive — is the whole of what this sheet knows
+  about where it worked and where it did not. Its two legs each have their own page and were
+  each ranked on this same leaderboard.</div>` : `
   <section class="sec">
     <div class="sec-head"><h2>Asset by asset</h2>
-      <span class="sec-note">where it works and where it does not</span></div>
+      <span class="sec-note">all ${sorted.length} name${sorted.length === 1 ? "" : "s"},
+        ranked by P&amp;L vs buy &amp; hold</span></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th class="l">Asset</th><th>Years</th><th>IR vs buy &amp; hold</th>
         <th>$10k became</th><th>Buy &amp; hold</th><th>P&amp;L vs B&amp;H</th>
-        <th>CAGR</th><th>B&amp;H CAGR</th>
+        <th>CAGR</th><th>B&amp;H CAGR</th><th>vs B&amp;H / yr</th>
         <th class="l">Verdict</th></tr></thead>
       <tbody>${sorted.map(p => {
         const delta = pnlDelta(p.net_pct, p.bh_pct);
@@ -942,139 +2404,139 @@ function backtestDetail(cls, tf, ruleSlug) {
           <td class="${sign(delta)}">${fmtDelta(delta)}</td>
           <td>${fmtCagr(p.net_cagr)}</td>
           <td>${fmtCagr(p.bh_cagr)}</td>
+          <td class="${sign(xc(p))}">${fmtCagrDelta(xc(p))}</td>
           <td class="l"><span class="chip ${p.ir > 0 ? "run" : "halt"}">${p.ir > 0 ? "beat" : "lost"}</span></td>
         </tr>`; }).join("")}</tbody>
-      <caption>Sorted by IR, best to worst. <b>Years</b> differs by asset and the money
-      columns are not comparable across rows because of it — a 53-year holding period turns a
-      modest rate into a large number all on its own, which is why CAGR sits beside it. The
-      breadth gate asks for 70% of assets positive; this rule manages
-      ${(wins / grp.n * 100).toFixed(0)}%. Verdict follows the IR, so an asset can show more
-      P&amp;L than buy-and-hold and still read “lost” — it beat the price but not the risk
-      taken to do it.</caption>
+      <caption>Sorted by <b>P&amp;L vs B&amp;H</b> — what $10,000 under this rule finished
+      with, minus what the same $10,000 held finished with — best to worst.
+      <b>Every name the rule was run on is here</b>, so this is the whole population and not
+      a selection: what you count in it is the rule's own, and nothing has been set
+      aside.${r.asset_unranked
+        ? ` ${r.asset_unranked} of them ${r.asset_unranked === 1 ? "has" : "have"} no return
+      on one side of the comparison and ${r.asset_unranked === 1 ? "sits" : "sit"} at the
+      bottom printing em-dashes.` : ""}${spanRatio > 1.5
+        ? ` Read the order with <b>Years</b> in view: span differs by asset — by a factor of
+      ${spanRatio.toFixed(0)} on this sheet — so a long-held name can out-earn a short-held
+      one at a far worse annual rate. That is why <b>vs B&amp;H / yr</b> is on the row, and
+      why it will not agree with this ranking.` : ""}${
+        hasBreadth ? ` The breadth gate asks for 70% of assets positive; this rule manages
+      ${(wins / nAssets * 100).toFixed(0)}%.` : ""} Verdict follows the IR, so it can
+      disagree with the money in <b>both</b> directions: an asset can out-earn buy-and-hold
+      and still read “lost” for the risk it took, and one can earn <i>less</i> and read
+      “beat” for taking much less risk to get there. Positions are unlevered — 1x, cash
+      when flat — so the money columns are what the capital itself earned.</caption>
     </table></div>
-  </section>
-
-  <div id="asset-charts"></div>`;
+  </section>`}`;
 
   paintCurves(cls, tf, r);
 }
 
-/* Fills the two async regions once the sheet's curve file arrives. Split from
- * `backtestDetail` so the table and metrics render immediately and the charts appear when
- * ready, rather than the whole page waiting on a 1.5 MB fetch. */
+/* Fills the chart region once the sheet's curve file arrives. Split from
+ * `backtestDetail` so the table and metrics render immediately and the chart appears when
+ * ready, rather than the whole page waiting on the fetch. */
 async function paintCurves(cls, tf, r) {
   const host = document.getElementById("curve-host");
-  const assetHost = document.getElementById("asset-charts");
   if (!host) return;
   const data = await loadCurves(cls, tf);
   if (document.getElementById("curve-host") !== host) return;   // navigated away
 
   if (!data || data.__error) {
     host.innerHTML = `<p class="sec-note">Equity curves unavailable${
-      data && data.__error ? ` (${esc(data.__error)})` : ""}. Generate them with
-      <code>python curves.py --class ${cls === "stocks" ? "us_stocks" : "crypto"} --tf ${tf}</code>
-      in <code>backtest engine/</code>, then re-run <code>build_web_data.py</code>.</p>`;
+      data && data.__error ? ` (${esc(data.__error)})` : ""}. They are written by the book
+      run: <code>./run_book.sh</code> in <code>walk-forward optimization/</code>
+      (or <code>python portfolio_wf.py --class ${CLASS_ARG[cls] || cls} --tf ${tf} --pit
+      --curves</code> for this sheet alone), then rebuild the dashboard.</p>`;
     return;
   }
   const c = data[r.rule];
   if (!c) {
-    host.innerHTML = `<p class="sec-note">No curve stored for ${esc(r.rule)} — curves are
-      generated for the top ${Object.keys(data).length} rules on each sheet.</p>`;
+    /* The curve file is written by the same run that scores the book, so a rule with a
+     * book column and no curve means the JSON is older than the CSV beside it. Say that,
+     * rather than the old text about a top-N cut, which no longer exists. */
+    host.innerHTML = `<p class="sec-note">No curve stored for ${esc(r.rule)}. This sheet's
+      curve file carries ${Object.keys(data).length} rules and every rule on the board is
+      supposed to be one of them, so it predates ${esc(r.rule)}. Rebuild it by re-running
+      the book stage with <code>--curves</code> (<code>./run_book.sh</code> in
+      <code>walk-forward optimization/</code>).</p>`;
     return;
   }
+
+  const idxs = curveIndexes(c);
+  const drawn = idxs.filter(i => i && i.curve && i.curve.length).slice(0, CHART_INDEXES);
+  const names = drawn.map(i => esc(i.symbol || "index"));
+  const eq = equitySection(c, r, drawn, names);
 
   host.innerHTML = `
   <section class="sec">
     <div class="sec-head"><h2>Cumulative P&amp;L</h2>
-      <span class="sec-note">equal-weight basket of all ${c.assets.length} assets</span></div>
-    <div class="panel">${equityChart([c.curve, c.bench], [esc(r.rule), "Buy & hold"], c.dates)}
-      <p class="sec-note">Both lines start at 100 and cover the same out-of-sample bars.
-      <b>This basket is not the same measure as the leaderboard figure.</b> The leaderboard
-      averages each asset's result; this rebalances an equal-weight basket every bar, which is
-      itself a strategy and earns a diversification premium. On this sheet that shows up in
-      the <em>benchmark</em>: ${fmtCagr(r.bh_cagr)} a year as an average asset,
-      ${mval(c.bench_metrics, "cagr_pct", 2, "%")} as a rebalanced basket. Compare the two
-      lines to each other, not to the table. The per-asset charts below carry no such effect
-      and tie exactly to the table above.</p></div>
+      <span class="sec-note">the book &mdash; one account, ${c.n_assets ?? "—"} names,
+        equal-weight${c.pit ? ", point-in-time members only" : ""}${
+        eq.matched.length ? ` &middot; vs ${eq.matched.map(l => esc(l.label)).join(" and ")}
+        <b>at equal risk</b>` : ""}
+        &middot; <b>${
+        curveSide(c) === "short" ? "long/short" : "long/flat"}</b></span></div>
+    ${curveSide(c) === "short" ? `<div class="note"><b>This is the long/short version of the
+    rule.</b> "Stay out" is turned into "sell it" (<code>2p&minus;1</code>), so it is in the
+    market on every bar and pays borrow on the short leg. That is the side
+    <code>edge_standard.csv</code> scored for this rule, and the chart has to show the same
+    strategy the verdict was computed on. The long/flat version is a different strategy with
+    a different exposure and is not what the row above reports.</div>` : ""}
+    ${eq.html}
   </section>
 
-  ${metricsSection(c.metrics, c.bench_metrics)}`;
-
-  if (!assetHost) return;
-  assetHost.innerHTML = `
-  <section class="sec">
-    <div class="sec-head"><h2>Per asset: strategy against holding that asset</h2>
-      <span class="sec-note">solid = rule · dashed = buy &amp; hold · log scale, growth of 100</span></div>
-    <div class="minis">${c.assets.map(a => {
-      const m = a.metrics || {}, bm = a.bench_metrics || {};
-      const delta = (m.total_pct == null || bm.total_pct == null)
-        ? null : grew(m.total_pct) - grew(bm.total_pct);
-      return `
-      <figure class="mini-card">
-        <figcaption><span class="mini-sym">${esc(a.symbol)}</span>
-          <span class="mini-ir ${sign(a.ir)}">${fmtIR(a.ir)}</span></figcaption>
-        ${miniChart(a.curve, a.bench)}
-        <div class="mini-foot">
-          <span class="mini-grew">$10k → <b class="${sign(m.total_pct)}">${
-            fmtMoney(grew(m.total_pct))}</b></span>
-          <span>vs hold <b class="${sign(delta)}">${fmtDelta(delta)}</b></span>
-          <span>CAGR ${fmtCagr(m.cagr_pct)} vs ${fmtCagr(bm.cagr_pct)}</span>
-          <span>DD ${mval(m, "max_dd_pct", 0, "%")} vs ${mval(bm, "max_dd_pct", 0, "%")}</span>
-          <span>${m.trades == null ? "—" : m.trades + " trades"} · ${
-            mval(m, "win_rate_pct", 0, "% won")}</span>
-        </div>
-      </figure>`; }).join("")}</div>
-    <p class="sec-note"><b>A rising line with a red number is not a contradiction.</b>
-    <em>$10k →</em> is what the rule itself made, so it is green whenever the solid line
-    ends above where it started. <em>vs hold</em> is the gap to the dashed line, and it goes
-    red whenever holding the asset would have made more — which is most of them, since the
-    dashed line sits above the solid one in nearly every panel here. A rule can multiply
-    your money many times over and still be the wrong thing to have done.</p>
-    <p class="sec-note">Sorted by IR. Each panel is one asset over its own out-of-sample
-    window, so the horizontal spans differ — META has 13.6 years where JNJ has 53.6, and a
-    longer line is more history rather than more success.</p>
-  </section>`;
+  ${metricsSection(c.metrics, eq.all, r)}`;
 }
 
-/* ================================ METHOD ================================ */
-function methodView() {
-  const r = D.research;
-  app.innerHTML = `
-  <div class="hero"><h1>How to read this</h1>
-    <p class="lede">${esc(r.note)}</p></div>
+/* ---------- "there is a newer build than the one you are looking at" ----------
+ *
+ * A single-page app never navigates, so a tab left open renders whatever it loaded until
+ * somebody reloads it. On the machine that runs the build that is a mild annoyance; on a
+ * second device it is a trap, because the page looks live — the clock in the masthead is
+ * from the build, not from now — and a stale chart is indistinguishable from a wrong one.
+ * An afternoon went into investigating exactly that.
+ *
+ * The check needs no new endpoint and no server restart: `index.html` already carries a
+ * content hash of `data.js` in its `?v=` stamp, written by the build. This tab knows the
+ * stamp it booted with (it is in its own script tag), so fetching that small file and
+ * comparing is enough. Revalidated rather than re-downloaded — `no-cache` on the HTML
+ * makes it a 304 in the common case.
+ *
+ * It never reloads on its own. Someone reading a detail page should not have it vanish;
+ * the bar states the fact and the reload is a click.
+ */
+const BUILD_POLL_MS = 60000;
+const buildStamp = html => (/data\.js\?v=([A-Za-z0-9]+)/.exec(html || "") || [])[1] || null;
 
-  <section class="sec">
-    <div class="sec-head"><h2>The four gates</h2>
-      <span class="sec-note">all four, or it is not an edge</span></div>
-    <div class="panel">${r.gates.map(g => `
-      <div class="gdoc"><span class="gbadge">${g.k}</span>
-        <div><div class="gname">${esc(g.name)}</div>
-          <p class="gask">${esc(g.ask)}</p>
-          <span class="gtgt">target ${esc(g.target)}</span></div></div>`).join("")}</div>
-  </section>
+function ownBuildStamp() {
+  const tag = document.querySelector('script[src^="data.js"]');
+  return tag ? buildStamp(tag.getAttribute("src") || "") : null;
+}
 
-  <section class="sec">
-    <div class="sec-head"><h2>Why information ratio, not profit</h2></div>
-    <div class="panel">
-      <p class="gask">Profit rewards being in the market, not being right. In a rising market
-      a rule that is simply invested more often earns more with no predictive skill at all.
-      Information ratio measures the average lead over buy-and-hold divided by how much that
-      lead wobbles — so doing nothing different scores exactly zero, and losing to
-      buy-and-hold scores negative.</p>
-      <p class="gask">It also makes timeframes and asset classes comparable, which raw
-      dollars never are.</p>
-    </div>
-  </section>
+function showUpdateBar() {
+  const bar = document.getElementById("update-bar");
+  if (!bar || bar.dataset.shown) return;
+  bar.dataset.shown = "1";
+  bar.hidden = false;
+  bar.innerHTML = `<span>A newer build is on the server — this page is showing the one it
+    loaded${D.generated_at ? ` at ${esc(D.generated_at)}` : ""}.</span>
+    <button type="button" id="update-reload">Reload</button>`;
+  const btn = document.getElementById("update-reload");
+  if (btn) btn.addEventListener("click", () => location.reload());
+}
 
-  <section class="sec">
-    <div class="sec-head"><h2>Why searching harder does not help</h2></div>
-    <div class="panel">
-      <p class="gask">Test enough rules and the best one looks good by luck alone. Each
-      leaderboard quotes that luck threshold. Only two things actually move the gates:
-      <b>more history</b>, and <b>lower turnover</b>. Trying more indicators raises the bar
-      rather than clearing it.</p>
-    </div>
-  </section>`;
+function watchForNewBuild() {
+  const mine = ownBuildStamp();
+  // No stamp means the single-file build (everything inlined, nothing to poll) or a page
+  // served some other way. Either way there is nothing this can usefully do.
+  if (!mine) return;
+  setInterval(async () => {
+    try {
+      const res = await fetch("index.html", { cache: "no-cache" });
+      if (!res.ok) return;
+      const theirs = buildStamp(await res.text());
+      if (theirs && theirs !== mine) showUpdateBar();
+    } catch (e) { /* offline, or the server went away; ask again next tick */ }
+  }, BUILD_POLL_MS);
 }
 
 /* ---------- live refresh ----------
@@ -1097,9 +2559,25 @@ function applyLive(state) {
   const groupBySymbol = {};
   D.strategies.forEach(s => { if (s.group) groupBySymbol[s.symbol] = s.group; });
   state.strategies.forEach(s => {
-    if (!s.group) s.group = groupBySymbol[s.symbol] || (s.cls === "crypto" ? "crypto" : "etf");
+    /* Falls back to the system's own class, which is now a group key for three of the
+     * five legs — `crypto`, `us_etfs`, `commodities`. Before, everything that was not
+     * crypto became "etf", so a live-refreshed commodity system moved itself into the
+     * SPY/SOXL/TQQQ group between the page load and the first tick. */
+    /* A book holds a whole class and has no symbol to file under, so the symbol-carried
+     * grouping above cannot reach it and it would fall through to the `etf` default —
+     * which is labelled "SPY · SOXL · TQQQ". `payload.py` assigns the same group at build
+     * time; this is the live-refresh half of it. */
+    if (!s.group) s.group = (s.kind === "book") ? "book"
+      : (groupBySymbol[s.symbol]
+         || ((D.paper_groups || []).some(g => g.key === s.cls) ? s.cls : "etf"));
   });
   D.strategies = state.strategies;
+  /* Who is looking, carried from the API's per-account cut. Without these the "Whose"
+   * filter cannot tell mine from anybody else's and would show an empty board. They are
+   * absent from the offline build, where there is only ever one reader. */
+  if (state.account != null) D.account = state.account;
+  if (state.house != null) D.house = state.house;
+  if (state.is_admin != null) D.is_admin = state.is_admin;
   if (state.feed) D.feed = state.feed;
   if (state.venue) D.venue = state.venue;
   D.generated_at = state.generated_at || D.generated_at;
@@ -1132,7 +2610,9 @@ function repaintPaper() {
   const open = new Set([...host.querySelectorAll("details[data-key]")]
     .filter(d => d.open).map(d => d.dataset.key));
   const y = window.scrollY;
-  paintPaper();
+  // `false`: reuse the frozen ranking. A tick repaint must not re-sort the list — see the
+  // note on `orderSystems`.
+  paintPaper(false);
   host.querySelectorAll("details[data-key]").forEach(d => {
     if (open.has(d.dataset.key)) d.open = true;
   });
@@ -1208,7 +2688,24 @@ function connectTicks() {
 }
 
 /* ================================ router ================================ */
-const NAV = [["#/paper", "Paper trading"], ["#/backtest", "Backtest"], ["#/method", "Method"]];
+const NAV = [["#/paper", "Paper trading"], ["#/backtest", "Backtest"]];
+
+/* The manager console lives in `paper api/`, not here, so it exists only when this page is
+ * being served BY that process. The single-file `dist/dashboard.html` and the loopback
+ * `serve.py` have no such route, and a dead link on either is worse than no link at all.
+ *
+ * So it is discovered rather than assumed: `/auth/me` answers 200 only behind the API's
+ * login, which is exactly the condition under which `/desk` is reachable. One request, on
+ * load, and the link appears or it does not. */
+let DESK_LINK = false;
+
+async function findDesk() {
+  try {
+    const res = await fetch("/auth/me", {cache: "no-store", credentials: "same-origin"});
+    DESK_LINK = res.ok;
+  } catch { DESK_LINK = false; }
+  if (DESK_LINK) render();
+}
 
 function render() {
   const h = location.hash || "#/paper";
@@ -1216,18 +2713,36 @@ function render() {
   if ((m = h.match(/^#\/paper\/(.+)$/))) paperDetail(m[1]);
   else if ((m = h.match(/^#\/backtest\/([^/]+)\/([^/]+)\/(.+)$/))) backtestDetail(m[1], m[2], m[3]);
   else if (h.startsWith("#/backtest")) backtestMaster();
-  else if (h.startsWith("#/method")) methodView();
   else paperMaster();
 
-  const active = h.startsWith("#/backtest") ? "#/backtest"
-    : h.startsWith("#/method") ? "#/method" : "#/paper";
+  const active = h.startsWith("#/backtest") ? "#/backtest" : "#/paper";
   $("#nav").innerHTML = NAV.map(([href, label]) =>
-    `<a class="nav-link ${href === active ? "on" : ""}" href="${href}">${label}</a>`).join("");
+    `<a class="nav-link ${href === active ? "on" : ""}" href="${href}">${label}</a>`).join("")
+    // Not hash routes: they are different pages served by a different process, so they are
+    // real navigations and never get the `on` state. Both appear together, in the same
+    // order they carry over there, so the row of links is the same row on every page.
+    + (DESK_LINK ? `<a class="nav-link" href="/desk">My desk</a>
+                    <a class="nav-link" href="/desk/docs">API</a>` : "");
 
   bindGo(app);
+  bindBookSwitch();          // no-op on any view that does not render one
   window.scrollTo(0, 0);
 }
 addEventListener("hashchange", render);
+
+/* Crossing the phone breakpoint changes the leaderboard's column order, so the view has to
+ * be rebuilt — in practice this fires when a phone is rotated. The scroll position is put
+ * back afterwards because `render` ends at the top of the page, and being thrown there for
+ * turning the phone sideways reads as a crash rather than a relayout. */
+NARROW.addEventListener("change", () => {
+  const y = window.scrollY;
+  render();
+  window.scrollTo(0, y);
+});
+
 render();
+findDesk();          // adds "My desk" to the nav, but only where that page exists
+loadBookState();     // ...and the paper-trade switch, where the API is serving this page
 startLive();
 connectTicks();
+watchForNewBuild();

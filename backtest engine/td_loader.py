@@ -32,8 +32,8 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 
-from config import (CLASSES, ENV_FILE, TIMEFRAMES, cache_dir, safe_symbol,
-                    window_spec)
+from config import (BACKTEST_START, CLASSES, DATA_DIR, ENV_FILE, TIMEFRAMES, cache_dir,
+                    safe_symbol, window_spec)
 
 BASE_URL = "https://api.twelvedata.com/time_series"
 MAX_SYMBOLS_PER_REQUEST = 20
@@ -110,13 +110,40 @@ def _to_frame(values: list[dict]) -> pd.DataFrame:
     return out.dropna(subset=["Open", "High", "Low", "Close"])
 
 
+# Classes whose symbols are US-listed, and which therefore pin `country` on every request.
+#
+# A BARE SYMBOL IS NOT AN IDENTITY. Twelve Data resolves one against every venue it
+# carries and answers with whatever instrument wears those letters, anywhere on earth.
+# Left unpinned this does not fail loudly — it returns a full, internally consistent,
+# structurally perfect series belonging to a different company on a different continent in
+# a different currency, and every downstream check passes it:
+#
+#     CTRA  -> Ciputra Development Tbk PT      Indonesia Stock Exchange, rupiah
+#     STJ   -> St. James's Place Plc           LSE, pence
+#     K     -> Kinross Gold Corporation        TSX, Canadian dollars
+#     X     -> TMX Group Limited               TSX
+#     HSP   -> Hargreaves Services Plc         LSE
+#
+# Measured 2026-08-12 across the 739 cached us_stocks 1d series, **85 of them** were a
+# foreign namesake for their entire length, and four of those had won a slot in the
+# point-in-time top-100 universe on the strength of a rupiah-denominated dollar volume.
+#
+# `country=United States` fixes it at the source. The vendor then returns `status: error`
+# for a ticker it has no US listing for, instead of silently substituting one — verified on
+# a mixed NASDAQ/NYSE batch, so it costs nothing and works with the batching above.
+#
+# Crypto and commodities are FX-style pairs with no country, and passing one there returns
+# nothing at all, so the pin is per class rather than global.
+US_LISTED_CLASSES = ("us_stocks", "us_etfs")
+
+
 def _request(symbols: list[str], interval: str, start: str, end: str,
-             depth: int = 0) -> dict[str, pd.DataFrame]:
+             depth: int = 0, asset_class: str | None = None) -> dict[str, pd.DataFrame]:
     """One batched request, bisecting on symbol-count overflow or a full response."""
     if len(symbols) > MAX_SYMBOLS_PER_REQUEST:
         mid = len(symbols) // 2
-        out = _request(symbols[:mid], interval, start, end, depth)
-        out.update(_request(symbols[mid:], interval, start, end, depth))
+        out = _request(symbols[:mid], interval, start, end, depth, asset_class)
+        out.update(_request(symbols[mid:], interval, start, end, depth, asset_class))
         return out
 
     api_names = {_api_symbol(s): s for s in symbols}
@@ -125,12 +152,14 @@ def _request(symbols: list[str], interval: str, start: str, end: str,
         "start_date": start, "end_date": end, "outputsize": OUTPUT_SIZE,
         "adjust": "all", "order": "ASC", "apikey": api_key(),
     }
+    if asset_class in US_LISTED_CLASSES:
+        params["country"] = "United States"
     _spend_credits(len(symbols))
     response = requests.get(BASE_URL, params=params, timeout=180)
     if response.status_code == 414 and len(symbols) > 1:
         mid = len(symbols) // 2
-        out = _request(symbols[:mid], interval, start, end, depth)
-        out.update(_request(symbols[mid:], interval, start, end, depth))
+        out = _request(symbols[:mid], interval, start, end, depth, asset_class)
+        out.update(_request(symbols[mid:], interval, start, end, depth, asset_class))
         return out
     response.raise_for_status()
     payload = response.json()
@@ -169,8 +198,8 @@ def _request(symbols: list[str], interval: str, start: str, end: str,
             raise RuntimeError(f"single-day window {start} exceeds {OUTPUT_SIZE} bars "
                                f"for {saturated} - interval too fine to page by date")
         mid = (lo + (hi - lo) / 2).strftime("%Y-%m-%d")
-        first = _request(saturated, interval, start, mid, depth + 1)
-        second = _request(saturated, interval, mid, end, depth + 1)
+        first = _request(saturated, interval, start, mid, depth + 1, asset_class)
+        second = _request(saturated, interval, mid, end, depth + 1, asset_class)
         for symbol in saturated:
             parts = [p for p in (first.get(symbol), second.get(symbol)) if p is not None]
             if parts:
@@ -213,7 +242,8 @@ def fetch(asset_class: str, timeframe: str,
     for batch, (start, end) in tqdm(jobs, desc=label):
         for attempt in range(1, RETRY_ATTEMPTS + 1):
             try:
-                for symbol, frame in _request(batch, interval, start, end).items():
+                for symbol, frame in _request(batch, interval, start, end,
+                                              asset_class=asset_class).items():
                     collected[symbol].append(frame)
                 break
             except Exception as exc:
@@ -236,17 +266,255 @@ def fetch(asset_class: str, timeframe: str,
     return counts
 
 
-def load(asset_class: str, timeframe: str,
-         symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
-    """Cache-only. Never downloads — call `fetch` first."""
+_QUARANTINE_CACHE: dict | None = None
+
+
+def quarantined(asset_class: str, timeframe: str) -> set[str]:
+    """Symbols `check_data.py` judged unusable for this (class, timeframe).
+
+    Read here rather than filtered by each caller because this function is the single
+    door every stage goes through, and a symbol that must not be swept must not be swept
+    by *any* of them. `MRO` survives the OHLC checks with a +4,600% bar and a
+    buy-and-hold equity of 3.2e17; one stage forgetting to exclude it is one contaminated
+    sheet, and this repo has already published two results it had to retract.
+    """
+    global _QUARANTINE_CACHE
+    if _QUARANTINE_CACHE is None:
+        path = DATA_DIR / "reference" / "quarantine.csv"
+        _QUARANTINE_CACHE = {}
+        if path.exists():
+            try:
+                q = pd.read_csv(path)
+                # Indexed by column name, not by itertuples position: `class` is a Python
+                # keyword, so pandas renames that attribute to `_1` and the positional
+                # form silently reads the wrong field the moment a column is added.
+                for cls, tf, sym in zip(q["class"], q["timeframe"], q["symbol"]):
+                    _QUARANTINE_CACHE.setdefault((cls, tf), set()).add(sym)
+            except Exception:
+                _QUARANTINE_CACHE = {}
+    return _QUARANTINE_CACHE.get((asset_class, timeframe), set())
+
+
+def load(asset_class: str, timeframe: str, symbols: list[str] | None = None,
+         skip_quarantined: bool = True) -> dict[str, pd.DataFrame]:
+    """Cache-only. Never downloads — call `fetch` first.
+
+    `skip_quarantined=False` exists for `check_data.py`, which has to be able to see the
+    bars it is judging. Nothing else should pass it.
+    """
     out_dir = cache_dir(asset_class, timeframe)
     wanted = symbols if symbols is not None else CLASSES[asset_class]["symbols"]
+    skip = quarantined(asset_class, timeframe) if skip_quarantined else set()
+    # `config.BACKTEST_START` is applied HERE and nowhere else. Every stage in the repo
+    # -- sweeps, walk-forward, variants, the portfolio book, parity, the paper desk --
+    # reaches its bars through this one function, so one cut here is the whole pipeline
+    # agreeing on a start date. Doing it per-stage is how two sheets end up spanning
+    # different windows and being compared anyway.
+    #
+    # `check_data.py` is the deliberate exception: it passes `skip_quarantined=False` to
+    # judge bars, and it must see the FULL series to do that. Truncating its view would
+    # let a pre-2000 decimal spike sit unrepaired in the cache forever, invisible right up
+    # until someone moves the start date back.
+    cut = pd.Timestamp(BACKTEST_START) if (BACKTEST_START and skip_quarantined) else None
+    spans = span_for(asset_class) if skip_quarantined else {}
     data = {}
     for symbol in wanted:
+        if symbol in skip:
+            continue
         path = out_dir / f"{safe_symbol(symbol)}.parquet"
         if path.exists():
-            data[symbol] = pd.read_parquet(path)
+            df = pd.read_parquet(path)
+            if cut is not None:
+                df = df.loc[df.index >= cut]
+            span = spans.get(symbol)
+            if span is not None:
+                begin, end = span
+                if begin is not None:
+                    df = df.loc[df.index >= begin]
+                if end is not None:
+                    df = df.loc[df.index <= end]
+            if df.empty:
+                continue
+            data[symbol] = df
     return data
+
+
+def span_for(asset_class: str) -> dict[str, tuple]:
+    """`symbol -> (first held date, last held date)` for a class, or `{}` if it has none.
+
+    Two classes carry a span and they answer the same question from different records:
+
+    * `us_stocks` — `membership_span()`, from the point-in-time top-100 record. A name is
+      held on the dates it was one of the hundred largest.
+    * `us_etfs` — `etf_entry_span()`, from the liquidity screen. A fund is held from the
+      date it became buyable.
+
+    `crypto` and `commodities` have neither, and would not benefit: the vendor serves no
+    volume for either, so there is no turnover series to gate an entry date on. Their
+    screen is at the *name* level only — `universe_screen.py` drops a pair from the
+    universe or keeps it whole. Every caveat that implies is on that module's sheet.
+    """
+    if asset_class == "us_stocks":
+        return membership_span()
+    if asset_class == "us_etfs":
+        return etf_entry_span()
+    return {}
+
+
+_ETF_ENTRY: dict[str, tuple] | None = None
+
+
+def etf_entry_span() -> dict[str, tuple]:
+    """`symbol -> (date it became liquid enough to trade, None)`, from the ETF screen.
+
+    Head cut only. Written by `universe_screen.py --write` to
+    `data/reference/etf_entry.csv`, which also carries the floor that produced each date.
+
+    **A fund's ticker existing is not the same as the fund being buyable**, and on this
+    class the gap is years wide. The nine original sector SPDRs listed in December 1998
+    and then traded under $2M/day until roughly 2004 — XLU's worst year is $0.1M/day, XLV
+    and XLI and XLB all bottom at $0.3M. A rule scored on those bars is being scored
+    against a market that could not have filled it, and the flattery runs the usual
+    direction: a thin tape has wider ranges and more reversion in it, which is exactly
+    what the oscillator family is paid for.
+
+    No tail cut, and unlike `membership_span` that is not a placeholder for one. A company
+    can leave the top 100 while its ticker keeps trading, and `membership_span` truncates
+    there because the later bars belong to a name outside the universe. None of these ten
+    funds died, shrank out of the basket, or had its ticker recycled; every one turns over
+    hundreds of millions a day in its last five years. `universe_screen`'s `dv_last5y`
+    column is where that stops being true if it ever does.
+
+    Absent file, or a name absent from it, means no cut — the same convention
+    `membership_span` uses, so a fresh clone that has not run the screen yet loads full
+    series rather than nothing.
+    """
+    global _ETF_ENTRY
+    if _ETF_ENTRY is None:
+        path = DATA_DIR / "reference" / "etf_entry.csv"
+        if not path.exists():
+            _ETF_ENTRY = {}
+        else:
+            df = pd.read_csv(path, parse_dates=["entry"])
+            _ETF_ENTRY = {
+                str(r.symbol): (r.entry if pd.notna(r.entry) else None, None)
+                for r in df.itertuples()
+            }
+    return _ETF_ENTRY
+
+
+_SPANS: dict[str, tuple] | None = None
+
+
+def membership_span() -> dict[str, tuple]:
+    """`symbol -> (first date it entered the top 100, last date it was in it)`.
+
+    A name still in the universe has `end is None` and is never truncated at the tail; a
+    name that has been there since the study opened has `begin is None` at the head.
+
+    **This is a SPAN, not a per-bar mask, and the difference is deliberate.** A name that
+    held a slot in 2004, dropped out, and came back in 2015 keeps its 2004-2015 bars here.
+    Punching holes in a price series would silently corrupt every indicator that reads
+    across one — a 200-day moving average spanning a four-year gap is not a 200-day moving
+    average — and the per-asset sheets are asking "how did this rule do on this name",
+    which is a question about a continuous series.
+
+    Exact per-bar membership is applied where it actually changes the answer: at BOOK
+    level, in `portfolio_wf.membership_mask`, which weights each bar by who was live on it
+    and is the only place the universe's size (~100 names, not 216) is load-bearing.
+
+    Two failures this closes, one inherited and one new:
+
+    **Ticker recycling.** `check_data`'s dollar-volume test catches an impostor that is
+    THIN — `FL` at $7,494/day. It is blind to one that is FAT: `HSP` turns over $22.6M a
+    day because those three letters now belong to a real, liquid company, just not
+    Hospira, which was acquired in 2015. (`check_data.wrong_instrument_reason` now catches
+    the subset of those the vendor has no US listing for at all, which was 85 names; the
+    tail truncation here is what handles the rest.)
+
+    **Size drift.** New with the top-100 universe, and the reason a head cut exists at all.
+    NVDA has bars from 1999, but it was not one of the hundred largest US listings until
+    much later; scoring a rule on its small-cap decade and calling the result a top-100
+    result is exactly the survivorship the point-in-time machinery exists to remove. The
+    head cut is what makes this a study of large caps rather than a study of names that
+    later became large.
+
+    Names that kept trading after dropping out — AA, GME, RIG — lose their post-exit
+    history too, and that is correct rather than collateral.
+
+    **What the head cut costs, stated because it is a real cost and not a rounding one.**
+    An indicator needs warmup, so a name entering in 2015 spends its first ~200 bars with
+    a NaN signal and contributes nothing over that stretch. Reading the bars *before* the
+    entry date would not be look-ahead — that history was genuinely available at the time
+    — so in principle the right shape is "load from entry minus a warmup allowance, but
+    only SCORE from entry". This loader cannot express that: every bar it returns is a bar
+    the stages score, and separating the two needs a scoring mask threaded through
+    `sweep`, `walkforward`, `variants`, `prereg` and `strat_wf`. The hard cut is the
+    conservative side of that trade — it throws away signal rather than admitting bias —
+    and the ~200 bars land at a fresh entrant's start, where `MIN_BARS` is doing the real
+    filtering anyway.
+    """
+    global _SPANS
+    if _SPANS is None:
+        path = DATA_DIR / "reference" / "top100_membership.csv"
+        if not path.exists():
+            _SPANS = {}
+        else:
+            iv = pd.read_csv(path, parse_dates=["start", "end"])
+            _SPANS = {}
+            for sym, grp in iv.groupby("symbol"):
+                begin = grp["start"].min()
+                # Any open spell means "still in the universe": take no tail cut at all.
+                end = None if grp["end"].isna().any() else grp["end"].max()
+                _SPANS[str(sym)] = (begin if pd.notna(begin) else None, end)
+    return _SPANS
+
+
+_EXITS: dict[str, pd.Timestamp] | None = None
+
+
+def membership_exits() -> dict[str, pd.Timestamp]:
+    """`symbol -> last date it was an S&P 500 member`, for names that have left.
+
+    Superseded by `membership_span` for loading — kept because `portfolio_wf`'s
+    survivorship stress still reasons about S&P departures specifically, which is a
+    different question from leaving the top 100.
+
+    Current members are absent from this map, so they are never truncated.
+
+    This closes the half of the ticker-recycling problem that liquidity cannot reach.
+    `check_data`'s dollar-volume test catches an impostor that is THIN — `FL` at $7,494/day.
+    It is blind to one that is FAT, and those exist: `HSP` turns over **$22.6M a day**
+    because those three letters now belong to a real, liquid company, just not Hospira,
+    which was acquired in 2015. On the 4h sheet, which starts in 2019, every HSP bar
+    postdates the company by four years and every one of them passed every check.
+
+    The membership record already knows the answer, and the universe already claims to use
+    it: departed names are documented as "held only on the dates they were actually index
+    members". That was true of `portfolio_wf --pit` and of nothing else, so every other
+    stage read bars belonging to whoever holds the ticker now.
+
+    The bite is real and it is meant to be. On us_stocks 1d this removes **31%** of departed
+    names' bars and drops 48 of them outright for having none inside their own membership;
+    on 4h it removes **75%** and drops 147, because a name that left the index in 2016
+    cannot have a legitimate bar in a window that opens in 2019.
+
+    Names that kept trading after leaving — `AA`, `GME`, `RIG` — lose their post-exit
+    history too, and that is correct rather than collateral: this is a point-in-time S&P 500
+    study, and those bars are bars of a company that was not in the index.
+    """
+    global _EXITS
+    if _EXITS is None:
+        path = DATA_DIR / "reference" / "sp500_membership.csv"
+        if not path.exists():
+            _EXITS = {}
+        else:
+            iv = pd.read_csv(path, parse_dates=["start", "end"])
+            last = iv.groupby("symbol")["end"].max()
+            # NaT is an open spell — a current member. Absent from the map entirely, so a
+            # `.get` miss means "do not truncate" rather than "truncate at NaT".
+            _EXITS = {str(s): e for s, e in last.items() if pd.notna(e)}
+    return _EXITS
 
 
 def describe_source() -> str:
