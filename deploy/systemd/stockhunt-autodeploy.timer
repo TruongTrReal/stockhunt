@@ -2,10 +2,10 @@
 Description=Check origin/master for new commits every 5 minutes
 
 [Timer]
-OnBootSec=3min
-OnUnitActiveSec=5min
-# The check is a single `git fetch` and exits silently when nothing moved, so a missed
-# run costs one interval of staleness and never correctness.
+# A wall-clock schedule, not OnUnitActiveSec=. That form has no anchor until the service
+# has run, and systemd left NEXT showing n/a — a timer that fires once and then never
+# again, which is worse than no timer because it looks installed.
+OnCalendar=*:0/5
 Persistent=true
 RandomizedDelaySec=30
 
