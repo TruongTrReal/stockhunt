@@ -48,6 +48,12 @@ STATE_PATH = paper_config.RESULTS_DIR / "paper_state.json"
 MAX_CURVE_POINTS = 400
 MAX_TRADES = 200
 
+# How much record an annualised turnover needs before it is reported at all. Two weeks is
+# not enough to be precise; it is enough that the divisor is not the dominant term, which
+# is the failure being avoided — a two-day-old desk annualises to hundreds of round trips a
+# name and reads as a churning machine rather than as a desk that opened its positions.
+MIN_TURNOVER_DAYS = 14
+
 # Shortest gap between whole-document writes. Two seconds collapses a bar-boundary burst
 # to one or two writes while keeping the dashboard effectively live.
 MIN_FLUSH_SECONDS = 2.0
@@ -217,9 +223,17 @@ def _set_turnover(s: dict) -> None:
     if not fills:
         s["turnover"] = 0.0
         return
-    years = max((s.get("days") or 0) / 365.25, 1.0 / 365.25)
+    days = s.get("days") or 0
+    # An annual rate needs enough record to annualise. Two days of a desk that opened its
+    # positions on day one divides by 2/365 and reports 493 round trips per name per year
+    # — arithmetically exact, and not a measurement of anything: it is one week's noise
+    # multiplied by 180. Below the floor there is no figure, and the board omits the field
+    # rather than printing a number nobody should read.
+    if days < MIN_TURNOVER_DAYS:
+        s["turnover"] = None
+        return
     names = max(s.get("names") or 1, 1)
-    s["turnover"] = round(fills / 2.0 / years / names, 2)
+    s["turnover"] = round(fills / 2.0 / (days / 365.25) / names, 2)
 
 
 def push_point(sid: str, equity_pct: float, bench_pct: float,

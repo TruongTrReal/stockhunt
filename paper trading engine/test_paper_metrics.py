@@ -195,6 +195,22 @@ def test_turnover_is_zero_without_fills(desk):
     assert s["turnover"] == 0.0
 
 
+def test_turnover_is_withheld_until_there_is_enough_record(desk):
+    """A rate annualised from two days is arithmetic, not a measurement.
+
+    The desk was two days old with its opening positions behind it, and the honest
+    division reported 493 round trips per name per year. The board prints nothing rather
+    than a figure whose dominant term is the divisor.
+    """
+    s = book(desk)                                   # registered today
+    for i in range(60):
+        desk.push_trade(s["id"], f"2026-08-{i % 28 + 1:02d} 00:00", "BUY", 1.0, 100.0,
+                        symbol="AAPL", ref=f"f{i}")
+
+    assert s["days"] < paper_state.MIN_TURNOVER_DAYS
+    assert s["turnover"] is None, "a two-day-old record cannot carry an annual rate"
+
+
 # ------------------------------------------------------------- what the feed subscribes to
 
 def test_the_feed_follows_the_running_book(desk):
