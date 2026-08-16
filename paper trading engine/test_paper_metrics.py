@@ -193,3 +193,29 @@ def test_turnover_is_round_trips_per_name_per_year(desk, monkeypatch):
 def test_turnover_is_zero_without_fills(desk):
     s = book(desk)
     assert s["turnover"] == 0.0
+
+
+# ------------------------------------------------------------- what the feed subscribes to
+
+def test_the_feed_follows_the_running_book(desk):
+    """The symbol list the price feed uses comes from what is REGISTERED.
+
+    It used to come from `run_paper.build_plan()`, the automatic per-symbol legs — and that
+    list is empty in the configuration the desk actually runs in ("no automatic legs; the
+    desk runs what is registered"). So the tick socket subscribed to the empty string and
+    the REST poller polled nothing, while the hub cheerfully reported `upstream=live`. The
+    status described the socket, not the subscription, and P&L could not move.
+    """
+    book(desk, sid="00:us_stocks-1d-ibs")
+    book(desk, sid="00:crypto-1d-sma", kind="rule", symbol="BTC/USD", names=1,
+         holdings=None)
+
+    got = desk.marked_symbols()
+    assert got == ["AAPL", "BTC/USD", "MSFT", "NVDA"], got
+
+
+def test_a_books_label_is_never_asked_of_the_vendor(desk):
+    """"3 names" is not an instrument. Asking for it is the same mistake that stopped
+    books being marked in the first place."""
+    book(desk)
+    assert not any("names" in s for s in desk.marked_symbols())

@@ -323,8 +323,13 @@ def route_bars_to_sandbox(node: TradingNode) -> int:
     return wired
 
 
-def start_marker(symbols: list[str], every: int):
+def start_marker(symbols_of, every: int):
     """Revalue open positions on a timer, in a plain background thread.
+
+    `symbols_of` is a CALLABLE, not a list. The desk's instruments are not known when this
+    starts: with no automatic legs the books arrive from the ledger after the node is up,
+    so a list captured here is empty for the life of the process — and this poller, the
+    safety net for exactly that case, quietly polled nothing.
 
     A daemon thread rather than a Nautilus timer on purpose: this is reporting, not
     trading, and it must not be able to touch the event loop, place an order, or delay a
@@ -341,6 +346,9 @@ def start_marker(symbols: list[str], every: int):
     def loop():
         while not stop.wait(every):
             try:
+                symbols = symbols_of()
+                if not symbols:
+                    continue
                 paper_state.mark(td_live.fetch_prices(symbols))
                 paper_state.set_feed(last_bar=datetime.now(timezone.utc)
                                      .strftime("%Y-%m-%d %H:%M UTC"))
@@ -356,8 +364,34 @@ def start_marker(symbols: list[str], every: int):
                 print(f"mark-to-market failed (will retry): {exc}", flush=True)
 
     threading.Thread(target=loop, daemon=True, name="mark-to-market").start()
-    print(f"marking {len(symbols)} symbols to market every {every}s")
+    print(f"marking to market every {every}s (symbols tracked from the running book)")
     return stop.set
+
+
+def start_feed_tracker(hub, plan_symbols: list[str], every: int = 15):
+    """Keep the price feed pointed at what the desk is actually running.
+
+    The subscription and the poller both used to be fixed at startup from `build_plan`,
+    which is empty in the configuration the desk actually runs in. This closes the loop:
+    whatever registers, gets priced — including a book promoted hours after the node came
+    up, with no restart.
+    """
+    stop = threading.Event()
+    base = set(plan_symbols)
+
+    def wanted() -> list[str]:
+        return sorted(base | set(paper_state.marked_symbols()))
+
+    def loop():
+        while not stop.wait(every):
+            try:
+                if hub is not None and hub.set_symbols(wanted()):
+                    print(f"feed now tracking {len(hub.symbols)} symbols", flush=True)
+            except Exception as exc:
+                print(f"feed tracker failed (will retry): {exc}", flush=True)
+
+    threading.Thread(target=loop, daemon=True, name="feed-tracker").start()
+    return wanted, stop.set
 
 
 def build_plan(args) -> list[tuple]:
@@ -487,9 +521,13 @@ def main() -> None:
     hub = None
     if args.ws_port:
         hub = live_ws.LiveHub(symbols, args.ws_port).start()
+    # Both feeds follow the RUNNING book, not `plan`. With no automatic legs `plan` is
+    # empty, so the old fixed lists left the desk subscribed to nothing and polling
+    # nothing — `upstream=live`, `0 symbols being marked`, P&L frozen at 0.00% forever.
+    wanted_symbols, stop_tracking = start_feed_tracker(hub, symbols)
     # The poller stays on as a slow safety net even when streaming: it costs one request a
     # minute and it is what keeps the marks honest if the upstream socket silently stalls.
-    stop_marking = start_marker(symbols, args.mark_seconds)
+    stop_marking = start_marker(wanted_symbols, args.mark_seconds)
     paper_state.set_feed(status="ok")
     # `force`, because this write lands milliseconds after the "starting" one above and
     # `flush` is debounced at MIN_FLUSH_SECONDS — un-forced it does not write, it schedules
@@ -506,6 +544,7 @@ def main() -> None:
         # The dashboard must not keep showing "live" for a process that has exited. The
         # numbers stay — they were real — but the status tells the truth about the feed.
         stop_marking()
+        stop_tracking()
         if hub is not None:
             hub.stop()
         paper_state.set_feed(status="stopped")

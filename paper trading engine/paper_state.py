@@ -293,6 +293,35 @@ def mark(prices: dict[str, float]) -> int:
     return n
 
 
+def marked_symbols() -> list[str]:
+    """Every instrument the desk currently needs a price for, from what it is RUNNING.
+
+    The feed used to be pointed at `run_paper.build_plan()`, the automatic per-symbol legs.
+    That list is empty whenever the desk runs from the ledger instead — which is the normal
+    configuration now (`--top 0`, "no automatic legs") — so both the tick socket and the
+    REST fallback were handed an empty symbol list and marked nothing, ever. The desk
+    reported `upstream=live` and `0 symbols being marked` for its whole life.
+
+    Derived from the registry rather than from configuration because it has to follow
+    registrations that arrive after startup: a book promoted at noon needs its prices from
+    noon, and nothing restarts the desk to tell the feed about it.
+
+    A book publishes its names in `holdings`; a single-instrument system carries a real
+    ticker in `symbol`. A book's `symbol` is a LABEL ("100 names") and is skipped — asking
+    the vendor for it is what a price lookup by `symbol` was doing all along.
+    """
+    out: set[str] = set()
+    for s in _strategies.values():
+        for h in (s.get("holdings") or []):
+            sym = h.get("symbol")
+            if sym:
+                out.add(sym)
+        sym = s.get("symbol")
+        if sym and s.get("kind") != "book":
+            out.add(sym)
+    return sorted(out)
+
+
 def _mark_one(s: dict, prices: dict[str, float]) -> float | None:
     """A system holding ONE instrument. `units` is a share quantity."""
     px = prices.get(s.get("symbol"))

@@ -57,18 +57,50 @@ class LiveHub:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # The live upstream socket, so `set_symbols` can drop it and force a re-subscribe.
+        self._ws = None
         self.upstream = "connecting"
         self.ticks = 0
 
     # ------------------------------------------------------------------ upstream
+    def set_symbols(self, symbols) -> bool:
+        """Point the subscription at a new set, and re-subscribe if it changed.
+
+        The desk does not know what it will trade at the moment this hub is built: with no
+        automatic legs it runs whatever is in the ledger, and `desk_control` attaches those
+        books after the node is already up. A subscription fixed at construction is
+        therefore a subscription to nothing at all — which is exactly what shipped.
+
+        Re-subscribing by closing the socket rather than by sending an `unsubscribe`: the
+        reconnect path is already written, already tested by every dropped connection, and
+        cannot leave the two sides disagreeing about what is subscribed.
+        """
+        new = sorted(set(s for s in symbols if s))
+        if new == self.symbols:
+            return False
+        self.symbols = new
+        ws, loop = self._ws, self._loop
+        if ws is not None and loop is not None:
+            asyncio.run_coroutine_threadsafe(ws.close(), loop)
+        return True
+
     async def _consume_twelvedata(self) -> None:
-        """Subscribe once, then mark on every print. Reconnects forever."""
+        """Subscribe, then mark on every print. Reconnects forever, and re-subscribes
+        whenever `set_symbols` changes the set."""
         backoff = 1
         while not self._stop.is_set():
+            # Nothing registered yet. Connecting here would subscribe to the empty string
+            # and sit there reporting `live` while receiving nothing, which is how this
+            # went unnoticed: the status field described the socket, not the subscription.
+            if not self.symbols:
+                self.upstream = "idle (nothing to price yet)"
+                await asyncio.sleep(2)
+                continue
             try:
                 url = f"{TD_WS_URL}?apikey={td_live.api_key()}"
                 async with websockets.connect(url, ping_interval=20,
                                               ping_timeout=20) as ws:
+                    self._ws = ws
                     await ws.send(json.dumps({
                         "action": "subscribe",
                         "params": {"symbols": ",".join(self.symbols)},
@@ -84,6 +116,8 @@ class LiveHub:
                 self.upstream = f"reconnecting ({type(exc).__name__})"
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, RECONNECT_MAX)
+            finally:
+                self._ws = None
 
     def _on_message(self, raw) -> None:
         try:
