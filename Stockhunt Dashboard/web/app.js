@@ -628,8 +628,8 @@ function paperStrip() {
   const host = document.getElementById("paper-strip");
   if (!host) return;
   const running = D.strategies.filter(s => isReplay() || s.status === "running");
-  const fills = D.strategies.reduce((a, s) => a + (s.paper_trades || 0), 0);
-  const since = (D.strategies[0] || {}).since;
+  const fills = D.strategies.reduce((a, s) => a + fillsOf(s), 0);
+  const since = D.strategies.map(s => s.since).filter(Boolean).sort()[0];
   host.innerHTML = `
   <p class="deskline">
     <span><b>${countSystems(running)}</b> of ${countSystems(D.strategies)}
@@ -710,15 +710,34 @@ function paintPaper(refreeze = true) {
 const systemKey = s => `${s.cls}|${s.tf}|${s.rule}`;
 const countSystems = list => new Set(list.map(systemKey)).size;
 
+/* `fills` counts the LIFETIME record, not this session.
+ *
+ * It used to read `paper_trades`, which is a counter the strategy keeps in memory and
+ * starts at zero on every restart. The desk had 1,389 fills behind it and the page said
+ * 39 — and said "0 fills" beside systems with hundreds, because those happened not to
+ * trade in the hours since the last deploy. `lifetime_trades` is `store.fill_count`, the
+ * count in the database, which is the number the word "fills" promises on a page whose
+ * whole subject is a record that survives restarts. */
 function aggregate(list) {
   const n = list.length;
   const mean = n ? list.reduce((a, s) => a + (s.paper_pnl_pct || 0), 0) / n : 0;
   return {
     n, mean,
     live: list.filter(s => s.status === "running").length,
-    fills: list.reduce((a, s) => a + (s.paper_trades || 0), 0),
+    fills: list.reduce((a, s) => a + fillsOf(s), 0),
+    session: list.reduce((a, s) => a + (s.paper_trades || 0), 0),
     open: list.filter(s => s.state && s.state !== "flat").length,
   };
+}
+const fillsOf = s => s.lifetime_trades != null ? s.lifetime_trades : (s.paper_trades || 0);
+
+/* Turnover for the SYSTEM, averaged over its deployments. Reported per name per year by
+ * `paper_state._set_turnover`, which is the unit the walk-forward sheets use — so the
+ * figure here and the one in the backtest answer the same question and can be compared
+ * without converting anything. Absent rather than zero when nothing has published one. */
+function turnoverOf(rows) {
+  const vs = rows.map(s => s.turnover).filter(v => typeof v === "number");
+  return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
 }
 
 /* ---------- simulated P&L history ----------
@@ -813,6 +832,50 @@ function pnlLive(curve, bench, breaks, w = 620, h = 128) {
     <line x1="0" x2="${w}" y1="${y(0)}" y2="${y(0)}" stroke="var(--hair-2)"
       stroke-width="1" vector-effect="non-scaling-stroke"/>
     ${bn.length > 1 ? line(bn, true) : ""}${line(cur, false)}</svg>`;
+}
+
+/* ---------- the live record as a figure, not a bare line ----------
+ * The plot on its own was unreadable in one specific way: it carried NO VERTICAL SCALE.
+ * `pnlLive` fits its box to whatever range the data happens to span, so a system that
+ * moved four basis points and one that moved forty percent drew the identical picture.
+ * Without a number on the axis the shape is not just uninformative, it is misleading.
+ *
+ * So the figure adds the three things the plot cannot carry itself: the range it was
+ * drawn over, a legend (two series, and telling them apart was left to a paragraph three
+ * inches below), and the endpoints of the time axis.
+ *
+ * The labels are HTML beside the SVG rather than <text> inside it, because the plot is
+ * drawn with `preserveAspectRatio="none"` — it stretches to its container, and any text
+ * within would stretch with it.
+ */
+function pnlFigure(curve, bench, breaks, opts = {}) {
+  const cur = (curve || []).filter(v => isFinite(v));
+  if (cur.length < 2) return "";
+  const bn = (bench || []).filter(v => isFinite(v));
+  const all = cur.concat(bn, [0]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-9) { const mid = (hi + lo) / 2; lo = mid - 0.5; hi = mid + 0.5; }
+  const last = cur[cur.length - 1];
+  const benchLast = bn.length ? bn[bn.length - 1] : null;
+  return `
+  <figure class="pnl-fig">
+    <div class="pnl-plot">
+      <div class="pnl-scale" aria-hidden="true">
+        <span>${fmtPct(hi)}</span><span>${fmtPct(lo)}</span>
+      </div>
+      ${pnlLive(cur, bn, breaks, 620, 128)}
+    </div>
+    <div class="pnl-axis">
+      <span>${esc(opts.from || "start")}</span>
+      <span>${esc(opts.to || "")}</span>
+    </div>
+    <figcaption class="pnl-key">
+      <span class="key"><i class="key-line ${sign(last)}"></i>this system
+        <b class="num ${sign(last)}">${fmtPct(last)}</b></span>
+      ${benchLast == null ? "" : `<span class="key"><i class="key-line dash"></i>the same
+        basket held <b class="num">${fmtPct(benchLast)}</b></span>`}
+    </figcaption>
+  </figure>`;
 }
 
 /* One curve for the SYSTEM, from however many deployments it has. Books are one row and
@@ -976,7 +1039,6 @@ function groupedStrategies(rows, systems) {
     const breaks = systemBreaks(mine);
     const since = (mine[0] || {}).since;
     const days = Math.max(...mine.map(s => s.days || 0), 0);
-    const benchLast = bench.length ? bench[bench.length - 1] : null;
     const sim = pcurves && pcurves[key] && pcurves[key].system;
 
     return `
@@ -992,34 +1054,38 @@ function groupedStrategies(rows, systems) {
       </summary>
 
       <div class="sys-live">
-        <div class="pnl-wrap">
-          <div class="pnl-head">
-            <span class="pnl-val num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
-            <span class="pnl-lbl">cumulative ${isReplay() ? "replay" : "paper"} P&amp;L${
-              since ? ` since ${esc(since)}` : ""}${benchLast == null ? ""
-                : ` · the same basket held ${fmtPct(benchLast)}`}</span>
-          </div>
-          ${live.length > 1 ? pnlLive(live, bench, breaks) : ""}
-          ${live.length > 1
-            ? `<div class="pnl-axis"><span>${esc(since || "start")}</span>
-                 <span>${days ? `${days} day${days === 1 ? "" : "s"} in` : "today"}</span></div>`
-            : `<p class="sec-note">Nothing to draw yet — this system has closed
-                 ${live.length} bar${live.length === 1 ? "" : "s"} since it started, and a
-                 line needs two. The figure above is live either way.</p>`}
+        <div class="sys-headline">
+          <span class="pnl-val num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
+          <span class="pnl-lbl">cumulative ${isReplay() ? "replay" : "paper"} P&amp;L${
+            since ? ` since ${esc(since)}` : ""}</span>
         </div>
-        <div class="sys-facts">
-          <span><b>${a.fills}</b> fill${a.fills === 1 ? "" : "s"}</span>
+
+        ${live.length > 1
+          ? pnlFigure(live, bench, breaks, {
+              from: since || "start",
+              to: days ? `${days} day${days === 1 ? "" : "s"} in` : "today" })
+          : `<p class="pnl-young">The live record is
+               ${live.length} closed bar${live.length === 1 ? "" : "s"} old — a line needs
+               two. The figure above is live either way, and the simulated windows below
+               are what this rule did over the same instruments' recent history.</p>`}
+
+        <dl class="sys-facts">
+          <div><dt>Fills</dt><dd>${a.fills.toLocaleString()}</dd></div>
           ${(() => { const books = mine.filter(s => s.kind === "book");
-            if (!books.length) return `<span><b>${a.open}</b> of ${mine.length}
-              with a position</span>`;
+            if (!books.length) {
+              return `<div><dt>With a position</dt>
+                <dd>${a.open} <span class="of">of ${mine.length}</span></dd></div>`;
+            }
             const held = books.reduce((x, s) => x + (s.held || 0), 0);
             const names = books.reduce((x, s) => x + (s.names || 0), 0);
-            return `<span>holding <b>${held}</b> of ${names} names</span>`; })()}
-          <span>${mine.length === 1 ? statusChip(mine[0])
-            : `${a.live} of ${mine.length} live`}</span>
-          ${(mine[0] || {}).turnover == null ? ""
-            : `<span>turnover <b>${mine[0].turnover.toFixed(1)}</b>/yr</span>`}
-        </div>
+            return `<div><dt>Holding</dt>
+              <dd>${held} <span class="of">of ${names} names</span></dd></div>`; })()}
+          ${turnoverOf(mine) == null ? ""
+            : `<div><dt>Turnover</dt>
+                <dd>${turnoverOf(mine).toFixed(1)} <span class="of">/yr a name</span></dd></div>`}
+          <div><dt>Running</dt><dd>${mine.length === 1 ? statusChip(mine[0])
+            : `${a.live} <span class="of">of ${mine.length}</span>`}</dd></div>
+        </dl>
       </div>
 
       ${sim ? `

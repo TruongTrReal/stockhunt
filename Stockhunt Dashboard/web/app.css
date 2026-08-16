@@ -447,11 +447,49 @@ code{font-family:var(--mono);font-size:.9em;color:var(--ink-2);}
 .grp-live{display:flex;flex-direction:column;justify-content:center;min-width:0;
   min-height:34px;}
 .grp-live .pnl-chart{width:100%;height:34px;}
-.sys-live{display:flex;flex-direction:column;gap:10px;padding:6px 0 16px;max-width:820px;}
+.sys-live{display:flex;flex-direction:column;gap:14px;padding:10px 0 18px;max-width:820px;}
 .sys-live .pnl-chart{height:128px;}
-.sys-facts{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:12.5px;color:var(--muted);}
-.sys-facts b{color:var(--ink);font-family:var(--mono);
-  font-variant-numeric:tabular-nums;font-weight:500;}
+.sys-headline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.sys-headline .pnl-val{font-size:26px;}
+
+/* ---------- the figure: plot, scale, legend ----------
+   The plot alone carried no vertical scale, so four basis points and forty percent drew
+   the same picture. The scale sits OUTSIDE the svg because the plot is stretched to its
+   container with preserveAspectRatio="none" and any <text> inside would stretch with it. */
+.pnl-fig{margin:0;display:flex;flex-direction:column;gap:5px;}
+.pnl-plot{display:grid;grid-template-columns:auto 1fr;gap:0 8px;align-items:stretch;}
+.pnl-scale{display:flex;flex-direction:column;justify-content:space-between;
+  font-family:var(--mono);font-size:10.5px;color:var(--muted);
+  font-variant-numeric:tabular-nums;text-align:right;padding:2px 0;min-width:5ch;}
+.pnl-plot .pnl-chart{grid-column:2;}
+.pnl-fig .pnl-axis{padding-left:calc(5ch + 8px);}
+
+/* A legend, because there are two series and telling them apart used to be left to a
+   paragraph three inches further down. The swatch carries the identity; the text stays in
+   ink so the label is never colour-alone. */
+.pnl-key{display:flex;flex-wrap:wrap;gap:4px 20px;font-size:12px;color:var(--muted);
+  padding-left:calc(5ch + 8px);}
+.pnl-key .key{display:inline-flex;align-items:center;gap:7px;}
+.pnl-key b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:500;
+  color:var(--ink);}
+.key-line{display:inline-block;width:16px;height:0;border-top:2px solid var(--muted);
+  flex:none;}
+.key-line.gain{border-top-color:var(--gain);}
+.key-line.loss{border-top-color:var(--loss);}
+.key-line.dash{border-top-style:dashed;border-top-width:1px;}
+
+.pnl-young{font-size:12.5px;color:var(--muted);max-width:64ch;margin:0;
+  padding:10px 12px;border-left:2px solid var(--hair);}
+
+/* The facts as a definition list: a label above its number, so the eye can compare the
+   same field across systems down the page instead of re-reading a sentence each time. */
+.sys-facts{display:flex;flex-wrap:wrap;gap:14px 34px;margin:0;}
+.sys-facts>div{display:flex;flex-direction:column;gap:2px;}
+.sys-facts dt{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);}
+.sys-facts dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:15px;color:var(--ink);}
+.sys-facts .of{font-family:var(--sans);font-size:12px;color:var(--muted);}
 .sim-wins{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:820px;
   padding-bottom:4px;}
 @media (max-width:700px){.sim-wins{grid-template-columns:1fr;}}

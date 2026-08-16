@@ -114,6 +114,14 @@ def register(sid: str, **fields) -> None:
     s["curve_breaks"] = lifetime["breaks"]
     s["gaps"] = lifetime["gaps"]
     s["unknown_gaps"] = lifetime["unknown_gaps"]
+    # Age from the STORE's inception, not this process's. A resumed system is already days
+    # or weeks old at the moment it registers, and turnover is read off that age.
+    try:
+        started = datetime.strptime(s["since"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        s["days"] = max((datetime.now(timezone.utc) - started).days, 0)
+    except (KeyError, ValueError):
+        pass
+    _set_turnover(s)
 
 
 # One benchmark lookup per (symbol, timeframe, gap start), not one per strategy. The desk
@@ -176,15 +184,42 @@ def update(sid: str, **fields) -> None:
     if s is None:
         return
     first_seen = s.get("since")
-    if first_seen and fields.get("since", first_seen) > first_seen:
+    if first_seen:
+        # Unconditionally, and that is the fix. This used to run only when the caller
+        # reported a LATER `since` than the store — but `_export` passes `days` and no
+        # `since` at all, so the guard never fired on the one path that runs every bar.
+        # The board therefore showed the store's true inception next to a day count
+        # measured from the last restart: "since 2026-08-14 · 1 day in", three days later.
         fields.pop("since", None)
-        fields.pop("days", None)
         try:
             started = datetime.strptime(first_seen, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             fields["days"] = max((datetime.now(timezone.utc) - started).days, 0)
         except ValueError:
-            pass
+            fields.pop("days", None)
     s.update(fields)
+    _set_turnover(s)
+
+
+def _set_turnover(s: dict) -> None:
+    """Round trips per name per year, from the LIFETIME record.
+
+    One definition for every kind of system, computed here rather than in each strategy.
+    `book_strategy` and `member_strategy` set it to 0.0 at registration and never touched
+    it again, so the desk — which is books end to end — reported "turnover 0.0/yr" under
+    1,389 fills. `strategy.py` did compute one, but from `self._n_fills`, a counter that
+    resets with the process.
+
+    Divided by the number of names because that is what makes it comparable to the
+    backtest's figure, which is per asset. A book of five names doing one round trip each
+    has turned over once, not five times.
+    """
+    fills = s.get("lifetime_trades")
+    if not fills:
+        s["turnover"] = 0.0
+        return
+    years = max((s.get("days") or 0) / 365.25, 1.0 / 365.25)
+    names = max(s.get("names") or 1, 1)
+    s["turnover"] = round(fills / 2.0 / years / names, 2)
 
 
 def push_point(sid: str, equity_pct: float, bench_pct: float,
@@ -227,6 +262,7 @@ def push_trade(sid: str, ts: str, side: str, qty: float, price: float,
     # appending here would show a fill in the UI that is not in the record.
     s["trades"] = store.recent_fills(sid)
     s["lifetime_trades"] = store.fill_count(sid)
+    _set_turnover(s)
 
 
 def mark(prices: dict[str, float]) -> int:
@@ -243,18 +279,68 @@ def mark(prices: dict[str, float]) -> int:
     """
     n = 0
     for s in _strategies.values():
-        px = prices.get(s.get("symbol"))
         cap = s.get("capital")
-        if px is None or not cap or "cash" not in s:
+        if not cap or "cash" not in s:
             continue
-        equity = s["cash"] + s.get("units", 0.0) * px
+        equity = _mark_book(s, prices) if s.get("kind") == "book" else _mark_one(s, prices)
+        if equity is None:
+            continue
         s["equity"] = round(equity, 2)
         s["paper_pnl_pct"] = round((equity / cap - 1.0) * 100.0, 3)
-        s["mark_price"] = px
         n += 1
     if n:
         flush(force=True)
     return n
+
+
+def _mark_one(s: dict, prices: dict[str, float]) -> float | None:
+    """A system holding ONE instrument. `units` is a share quantity."""
+    px = prices.get(s.get("symbol"))
+    if px is None:
+        return None
+    s["mark_price"] = px
+    return s["cash"] + s.get("units", 0.0) * px
+
+
+def _mark_book(s: dict, prices: dict[str, float]) -> float | None:
+    """A book, revalued name by name from its own holdings.
+
+    **This is what was missing, and it silently disabled marking for the entire desk.**
+    The old code looked the strategy's `symbol` up in the price dict — but a book
+    registers as `symbol="5 names"`, a LABEL, so the lookup returned None and every book
+    was skipped. Every system on this desk is a book, so `mark()` reported a count of
+    zero on every tick and P&L only ever moved when a bar closed: exactly the "sits at
+    0.00% and reads as broken" failure this function's docstring exists to prevent.
+
+    A book's top-level `units` is `held_count()` — how many NAMES it holds, not a share
+    quantity — so the single-instrument arithmetic above is not merely unreachable for a
+    book, it would be wrong if it were reached. The per-name quantities live in
+    `holdings`, which is also what the board's expanded table draws, so marking them here
+    keeps the total and the rows it is made of on the same prices.
+    """
+    holdings = s.get("holdings")
+    if not isinstance(holdings, list):
+        return None
+    value, seen = 0.0, False
+    for h in holdings:
+        px = prices.get(h.get("symbol"))
+        if px is not None:
+            h["mark"] = px
+            seen = True
+        else:
+            px = h.get("mark")
+        units = h.get("units") or 0.0
+        if px is None:
+            if units:                     # a held name with no price: the total would be
+                return None               # short by a whole position, so mark nothing
+            continue
+        h["value"] = round(units * px, 2)
+        entry = h.get("entry")
+        h["pnl_pct"] = round((px / entry - 1.0) * 100.0, 3) if entry and units else None
+        value += units * px
+    if not seen:
+        return None                       # no fresh price touched this book at all
+    return s["cash"] + value
 
 
 def snapshot() -> dict:
