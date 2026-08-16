@@ -1,0 +1,30 @@
+[Unit]
+Description=Stockhunt paper desk API (board + manager desk, behind the login)
+Documentation=https://github.com/TruongTrReal/stockhunt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stockhunt
+Group=stockhunt
+# The repo's "folder names contain spaces" rule reaches into the unit file. systemd 249
+# splits WorkingDirectory= on whitespace and takes quotes literally, so there is no way to
+# spell "paper api" in it -- the cd happens in the shell instead. ReadWritePaths= IS a
+# list type and does honour quotes, which is why those stay inline.
+ExecStart=/bin/sh -c 'cd "/opt/stockhunt/paper api" && exec /opt/stockhunt/.venv/bin/python -u run_api.py --host 127.0.0.1 --port 8080'
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+# This process owns no trading and writes only its own state. Keep it that way.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths="/opt/stockhunt/paper api/state" "/opt/stockhunt/paper api/logs" "/opt/stockhunt/paper trading engine/state"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

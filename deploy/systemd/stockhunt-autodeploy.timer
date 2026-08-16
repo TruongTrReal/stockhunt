@@ -1,0 +1,13 @@
+[Unit]
+Description=Check origin/master for new commits every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+# The check is a single `git fetch` and exits silently when nothing moved, so a missed
+# run costs one interval of staleness and never correctness.
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

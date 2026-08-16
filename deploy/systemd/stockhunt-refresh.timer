@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh the Stockhunt board payload four times a day
+
+[Timer]
+# A wall-clock schedule rather than OnUnitActiveSec=, which has no anchor until the
+# service has run once and left NEXT showing n/a. Persistent= catches a run missed
+# across a reboot.
+OnCalendar=*-*-* 00,06,12,18:05:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

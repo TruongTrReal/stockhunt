@@ -1,0 +1,13 @@
+[Unit]
+Description=Deploy the Stockhunt board+API from origin/master if it has moved
+Documentation=https://github.com/TruongTrReal/stockhunt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/stockhunt/autodeploy.sh
+# Runs as root: it restarts a unit and chowns files the services own. It touches nothing
+# outside /opt/stockhunt and never restarts the desk.
+StandardOutput=journal
+StandardError=journal

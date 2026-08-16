@@ -1,0 +1,16 @@
+[Unit]
+Description=Rebuild the Stockhunt board payload (data.js, curves, paper_curves.json)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=stockhunt
+Group=stockhunt
+ExecStart=/opt/stockhunt/refresh-board.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths="/opt/stockhunt/Stockhunt Dashboard/web" "/opt/stockhunt/Stockhunt Dashboard/dist" "/opt/stockhunt/paper trading engine/logs"
+StandardOutput=journal
+StandardError=journal

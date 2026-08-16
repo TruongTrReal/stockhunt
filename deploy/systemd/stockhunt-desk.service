@@ -1,0 +1,30 @@
+[Unit]
+Description=Stockhunt paper trading desk (Nautilus sandbox on live Twelve Data bars)
+Documentation=https://github.com/TruongTrReal/stockhunt
+After=network-online.target stockhunt-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stockhunt
+Group=stockhunt
+# Same quoting trap as stockhunt-api: systemd splits directive values on whitespace and
+# takes quotes literally in single-path settings, so the cd happens in the shell.
+ExecStart=/bin/sh -c 'cd "/opt/stockhunt/paper trading engine" && exec /opt/stockhunt/.venv/bin/python -u run_paper.py'
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+# The desk warms up 1500 bars over REST before it trades; do not call that a hung start.
+TimeoutStartSec=600
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# It writes the record, its logs, the order ledger, and live.json for the board.
+ReadWritePaths="/opt/stockhunt/paper trading engine/results" "/opt/stockhunt/paper trading engine/logs" "/opt/stockhunt/paper trading engine/state" "/opt/stockhunt/Stockhunt Dashboard/web"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
