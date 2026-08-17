@@ -41,6 +41,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+import fill_pnl
 import live_signal
 import paper_config
 import paper_state
@@ -99,8 +100,10 @@ class BookStrategy(Strategy):
         # strategy without restarting it.
         self._live: list[str] = list(config.symbols)
 
-        # Price of the fill that OPENED each name's position, so the board can show a
-        # per-name return. Cleared when a name goes flat; adding to a position leaves it.
+        # AVERAGE COST per name: what the slice currently held actually cost, so the board
+        # can show a per-name return and `fill_pnl` can price what each sell closed.
+        # Cleared when a name goes flat. It used to be the opening fill's price and to
+        # ignore every add, which understates or overstates a name the rule scaled into.
         self._entry: dict[str, float] = {}
         self._fills_by: dict[str, int] = {}
         self._n_fills = 0
@@ -380,21 +383,29 @@ class BookStrategy(Strategy):
         # what any name sold, so `equity = cash + sum(units x price)` stays right through
         # partial fills, reversals and membership swaps without consulting the venue.
         before = self._units.get(symbol, 0.0)
+        # What this fill CLOSED, against the average cost of what was already held, and
+        # the basis the remainder carries on. `_entry` is that basis now: a slice built
+        # over three bars has three prices behind it, and the opening one — which is what
+        # this used to keep — is neither what the part just sold cost nor what the board's
+        # per-name return should measure against.
+        realised, basis = fill_pnl.apply_fill(
+            before, self._entry.get(symbol), signed, price)
+        if basis is None:
+            self._entry.pop(symbol, None)
+        else:
+            self._entry[symbol] = basis
         self._units[symbol] = before + signed
         self._cash -= signed * price
         self._last_price.setdefault(symbol, price)
         self._fills_by[symbol] = self._fills_by.get(symbol, 0) + 1
-        if abs(before) <= 1e-12 and abs(self._units[symbol]) > 1e-12:
-            self._entry[symbol] = price
-        elif abs(self._units[symbol]) <= 1e-12:
-            self._entry.pop(symbol, None)
 
         if self.config.export_state:
             paper_state.push_trade(
                 self._sid,
                 pd.Timestamp(event.ts_event, unit="ns", tz="UTC").strftime("%Y-%m-%d %H:%M"),
                 side, qty, price, round(self.equity() - self.config.capital, 2),
-                symbol=symbol, ref=str(getattr(event, "trade_id", "") or ""))
+                symbol=symbol, ref=str(getattr(event, "trade_id", "") or ""),
+                realised=None if realised is None else round(realised, 2))
 
     def _symbol_of_id(self, instrument_id) -> str:
         raw = str(instrument_id.symbol)

@@ -533,6 +533,10 @@ code{font-family:var(--mono);font-size:.9em;color:var(--ink-2);}
 .fills-box{max-height:560px;overflow-y:auto;}
 .fills-box thead th{position:sticky;top:0;z-index:2;background:var(--paper);}
 .fills-box tbody tr,.metrics-box tbody tr{cursor:default;}
+/* The book's mark at each fill, beside what the fill itself closed. It is context for the
+   column before it and not a trade result — it was published under the heading "Realised
+   P&L" for months and read as one — so it is dimmed to sit behind, not beside. */
+td.book-pnl{opacity:.55;}
 /* The value column is the one being read down; the explanation beside it is prose and is
    given the room to wrap instead of being a fourth of a nine-column table. */
 .metrics-box td:nth-child(2){min-width:9ch;}

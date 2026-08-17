@@ -260,18 +260,25 @@ def push_point(sid: str, equity_pct: float, bench_pct: float,
 
 
 def push_trade(sid: str, ts: str, side: str, qty: float, price: float,
-               pnl: float = 0.0, symbol: str = "", ref: str = "") -> None:
+               pnl: float = 0.0, symbol: str = "", ref: str = "",
+               realised: float | None = None) -> None:
     """One fill. `symbol` defaults to the strategy's own when it holds only one.
 
     A house rule trades a single instrument and never has to think about either argument;
     an order-driven one must pass both, because they are what keep two genuinely distinct
     fills from collapsing into one row. See `store.record_fill`.
+
+    `pnl` is the BOOK's mark at this fill and `realised` is what the fill itself closed —
+    two different numbers, and publishing the first under the second's name is what made
+    the board report losing round trips that had all made money. `realised` is None when
+    the fill opened or added, and the caller gets it from `fill_pnl.apply_fill`.
     """
     s = _strategies.get(sid)
     if s is None:
         return
     store.record_fill(sid, ts, side, qty, price, pnl,
-                      symbol=symbol or s.get("symbol") or "", ref=ref)
+                      symbol=symbol or s.get("symbol") or "", ref=ref,
+                      realised_pnl=realised)
     # Re-read rather than append: on a warm-up replay the store drops the duplicate, and
     # appending here would show a fill in the UI that is not in the record.
     s["trades"] = store.recent_fills(sid)

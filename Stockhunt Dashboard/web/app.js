@@ -69,6 +69,11 @@ const pnlRatio = (net, bh) => {
 const fmtRatio = v => v == null ? "—"
   : (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2)) + "×";
 const money = v => "$" + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+/* A signed P&L in dollars, to the cent. `null` prints an em-dash rather than $0.00: on a
+ * fill's realised P&L those are different facts — "closed nothing" and "closed at cost". */
+const cash = v => v == null ? "—"
+  : (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toLocaleString(undefined,
+      { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const sign = v => v > 0 ? "gain" : v < 0 ? "loss" : "flat";
 const esc = s => String(s).replace(/[&<>"]/g, c =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -952,10 +957,27 @@ function liveMetrics(rows, curve, cls, tf) {
   let peak = -Infinity, dd = 0;
   c.forEach(v => { peak = Math.max(peak, v); dd = Math.min(dd, v - peak); });
 
+  /* A closed trade is one the desk says closed something — `realised` is null on a fill
+   * that opened or added, and a float (possibly 0.00, on a scratch) when it closed.
+   *
+   * This used to filter on `pnl !== 0`, and `pnl` is the whole BOOK's mark at the fill,
+   * not the trade's result. So an opening buy counted as a closed trade whenever some
+   * unrelated name in the book had moved since its last mark, and two names filling in
+   * the same second contributed the same number twice. On the IBS equity book that
+   * turned eight round trips — every one of them a winner, +$188.43 together — into
+   * "23 closed trades, 13% win rate, profit factor 0.04". Never reintroduce it: the
+   * null is the signal, and zero is a real answer.
+   *
+   * And a payload published before the desk recorded a realised P&L carries no `realised`
+   * key at all, where "0 closed trades" would be an assertion about it rather than the
+   * absence of one. `priced` separates those, so an old `live.json` — or the snapshot
+   * embedded in `dist/dashboard.html`, which is frozen at build time — prints em-dashes
+   * and says why instead of reporting a desk that never closed anything. */
   const fills = systemFills(rows);
-  const closed = fills.filter(t => Number(t.pnl) !== 0);
-  const wins = closed.filter(t => t.pnl > 0), losses = closed.filter(t => t.pnl < 0);
-  const sum = l => l.reduce((a, t) => a + t.pnl, 0);
+  const priced = fills.some(t => "realised" in t);
+  const closed = priced ? fills.filter(t => t.realised != null) : [];
+  const wins = closed.filter(t => t.realised > 0), losses = closed.filter(t => t.realised < 0);
+  const sum = l => l.reduce((a, t) => a + t.realised, 0);
   const grossLoss = Math.abs(sum(losses));
 
   return {
@@ -968,7 +990,9 @@ function liveMetrics(rows, curve, cls, tf) {
     sharpe: enough ? mean / sd * Math.sqrt(bpy) : null,
     bpy,
     lifetime: rows.reduce((a, s) => a + fillsOf(s), 0),
-    closed: closed.length,
+    priced,
+    closed: priced ? closed.length : null,
+    realised: closed.length ? sum(closed) : null,
     capped: fills.length < rows.reduce((a, s) => a + fillsOf(s), 0),
     win_rate: closed.length ? wins.length / closed.length * 100 : null,
     profit_factor: grossLoss ? sum(wins) / grossLoss : null,
@@ -983,9 +1007,9 @@ function liveMetrics(rows, curve, cls, tf) {
  * formatter and a shared one would be a switch statement pretending to be a table. */
 function liveMetricRows(m) {
   const dash = "—";
-  const dollars = v => v == null ? dash
-    : (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toLocaleString(undefined,
-        { maximumFractionDigits: 2 });
+  const stale = "not in this payload — the desk published these fills before it recorded " +
+    "what each one closed. It fills in on the desk's next start; the record itself is " +
+    "complete, in paper.db.";
   const short = `not yet — needs ${MIN_METRIC_BARS} bars of record, there ` +
     `${m.bars === 1 ? "is" : "are"} ${m.bars}`;
   return [
@@ -1005,14 +1029,27 @@ function liveMetricRows(m) {
      "Largest single-bar loss on the record."],
     ["Fills", m.lifetime.toLocaleString(),
      "Every order that filled, lifetime — the count in the database, not this session's."],
-    ["Closed trades", m.closed.toLocaleString(),
-     "Fills that realised a P&L, so an opening buy is not counted."],
+    ["Closed trades", m.priced ? m.closed.toLocaleString() : dash,
+     m.priced
+       ? "Fills that closed part of a position. An opening or adding fill is not one, because it closed nothing."
+       : stale],
+    ["Realised P&L", m.priced ? cash(m.realised) : dash,
+     m.priced
+       ? "Cash actually booked by the closed trades above, against what the closed part cost. Open positions are not in it — those are in Total P&L."
+       : stale],
     ["Win rate", m.win_rate == null ? dash : fmtNum(m.win_rate, 1) + "%",
-     "Share of closed trades that realised a gain. A low rate is fine if the wins are large."],
+     m.priced
+       ? "Share of closed trades that realised a gain. A low rate is fine if the wins are large."
+       : stale],
     ["Profit factor", m.profit_factor == null ? dash : fmtNum(m.profit_factor, 2),
-     "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses."],
-    ["Average win", dollars(m.avg_win), "Mean realised P&L of a winning trade."],
-    ["Average loss", dollars(m.avg_loss), "Mean realised P&L of a losing trade."],
+     !m.priced ? stale
+       : m.closed && m.profit_factor == null
+         ? "No closed trade has lost yet, so there is nothing to divide by."
+         : "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses."],
+    ["Average win", m.priced ? cash(m.avg_win) : dash,
+     m.priced ? "Mean realised P&L of a winning trade." : stale],
+    ["Average loss", m.priced ? cash(m.avg_loss) : dash,
+     m.priced ? "Mean realised P&L of a losing trade." : stale],
     ["Turnover / yr", m.turnover == null ? dash : fmtNum(m.turnover, 1),
      "Round trips per name per year — the unit the walk-forward sheets report, so the two compare."],
     ["Bars recorded", m.bars.toLocaleString(),
@@ -1062,10 +1099,14 @@ const csvCell = v => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
+/* Both P&L columns, under the names they actually mean. The export used to head the book
+ * snapshot `realised_pnl`, so a spreadsheet built off it inherited the same mistake the
+ * page was making — and kept it after the page was fixed. */
 function fillsCsv(rows) {
-  const head = ["time", "symbol", "side", "qty", "price", "realised_pnl"];
+  const head = ["time", "symbol", "side", "qty", "price", "realised_pnl", "book_pnl"];
   const body = systemFills(rows).map(t =>
-    [t.ts, t.symbol, t.side, t.qty, t.price, t.pnl].map(csvCell).join(","));
+    [t.ts, t.symbol, t.side, t.qty, t.price,
+     t.realised == null ? "" : t.realised, t.pnl].map(csvCell).join(","));
   return [head.join(","), ...body].join("\n") + "\n";
 }
 
@@ -1100,7 +1141,7 @@ function fillsSection(rows) {
     </div>
     <div class="tbl-wrap fills-box"><table>
       <thead><tr><th class="l">Time</th><th class="l">Asset</th><th class="l">Side</th>
-        <th>Qty</th><th>Price</th><th>Realised P&amp;L</th></tr></thead>
+        <th>Qty</th><th>Price</th><th>Realised P&amp;L</th><th>Book P&amp;L</th></tr></thead>
       <tbody>${fills.map(t => `
         <tr><td class="l">${esc(t.ts || "")}</td>
           <td class="l">${esc(t.symbol || "")}</td>
@@ -1108,9 +1149,16 @@ function fillsSection(rows) {
           <td>${fmtUnits(t.qty)}</td>
           <td>${t.price == null ? "—"
             : Number(t.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-          <td class="${sign(t.pnl)}">${t.pnl == null ? "—"
-            : (t.pnl >= 0 ? "+" : "−") + "$" + Math.abs(t.pnl).toLocaleString(undefined,
-                { maximumFractionDigits: 2 })}</td></tr>`).join("")}</tbody>
+          <td class="${t.realised == null ? "" : sign(t.realised)}"
+            ${t.realised == null ? 'title="this fill opened or added — it closed nothing"' : ""}
+            >${cash(t.realised)}</td>
+          <td class="book-pnl ${sign(t.pnl)}">${cash(t.pnl)}</td></tr>`).join("")}</tbody>
+      <caption>Two different numbers, deliberately side by side.
+      <b>Realised P&amp;L</b> is what that one fill closed, against what the closed part
+      cost — blank on a fill that opened or added, because it closed nothing.
+      <b>Book P&amp;L</b> is the whole book's mark at that moment, so every name filling in
+      the same second carries the same value. The trade statistics above count only the
+      first column.</caption>
     </table></div>`
     : `<p class="sec-note">No fills yet — this system has not opened a position.</p>`}
   </section>`;
@@ -1205,7 +1253,10 @@ function bookRows(s) {
  * book's "nothing published yet" colspan, and the per-symbol row for a non-book system. */
 const ASSET_COLS = 9;
 const assetHead = () => `<thead><tr><th class="l">Asset</th><th class="l">State</th>
-  <th>Units</th><th>Entry</th><th>Mark</th><th>Value</th>
+  <th>Units</th>
+  <th title="what the units currently held cost, averaged over every fill that built
+    the position">Avg cost</th>
+  <th>Mark</th><th>Value</th>
   <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
   <th>Trades</th><th class="l">Status</th></tr></thead>`;
 
@@ -1529,7 +1580,7 @@ function paperDetail(id) {
       <span class="s">over ${s.days} days${isReplay() ? " of history" : " live"}</span></div>
     <div class="stat"><span class="k">Position</span><span class="v">${stateCell(s)}</span>
       <span class="s">${s.position_units ? fmtUnits(s.position_units) + " units" : "no exposure"}</span></div>
-    <div class="stat"><span class="k">Entry</span>
+    <div class="stat"><span class="k">Avg cost</span>
       <span class="v">${s.entry ? s.entry.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</span>
       <span class="s">${s.paper_trades} fills</span></div>
     <div class="stat"><span class="k">Turnover / yr</span>
@@ -1562,15 +1613,17 @@ function paperDetail(id) {
     <div class="sec-head"><h2>Fills</h2><span class="sec-note">newest last</span></div>
     <div class="tbl-wrap"><table>
       <thead><tr><th class="l">Time</th><th class="l">Side</th><th>Qty</th>
-        <th>Price</th><th>P&amp;L</th></tr></thead>
+        <th>Price</th><th>Realised P&amp;L</th><th>Book P&amp;L</th></tr></thead>
       <tbody>${s.trades.length ? s.trades.map(t => `
         <tr><td class="l">${t.ts}</td>
           <td class="l ${t.side === "BUY" ? "gain" : "loss"}">${t.side}</td>
           <td>${fmtUnits(t.qty)}</td>
           <td>${t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-          <td class="${sign(t.pnl)}">${t.pnl >= 0 ? "+" : "−"}$${Math.abs(t.pnl)
-            .toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>`).join("")
-      : `<tr><td class="l" colspan="5" style="color:var(--muted)">No fills yet — still warming up.</td></tr>`}
+          <td class="${t.realised == null ? "" : sign(t.realised)}"
+            ${t.realised == null ? 'title="this fill opened or added — it closed nothing"' : ""}
+            >${cash(t.realised)}</td>
+          <td class="book-pnl ${sign(t.pnl)}">${cash(t.pnl)}</td></tr>`).join("")
+      : `<tr><td class="l" colspan="6" style="color:var(--muted)">No fills yet — still warming up.</td></tr>`}
       </tbody></table></div>
   </section>
 

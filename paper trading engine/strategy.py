@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
 
+import fill_pnl
 import live_signal
 import paper_config
 import paper_state
@@ -121,6 +122,8 @@ class TalibRuleStrategy(Strategy):
         self._start_price: float | None = None
         self._start_ts: str | None = None
         self._n_fills = 0
+        # Average cost of the open exposure — what it cost, not where it opened. None when
+        # flat. `fill_pnl` maintains it and prices every close against it.
         self._entry: float | None = None
         self._bar_count = 0
         # This system's own book, independent of the shared venue account. Nautilus nets
@@ -387,14 +390,13 @@ class TalibRuleStrategy(Strategy):
         # sold, so equity = cash + units x price stays right through partial fills and
         # reversals without ever consulting the shared account.
         before = self._units
+        # What this fill CLOSED, against the average cost of the exposure it closed, and
+        # the basis the remainder carries on. `_entry` is that average cost now, not the
+        # price of the fill that opened the position: a position scaled into has several
+        # prices behind it and only their average prices what a partial sell just closed.
+        realised, self._entry = fill_pnl.apply_fill(before, self._entry, signed, price)
         self._units += signed
         self._cash -= signed * price
-        # Entry is the price of the fill that OPENED the exposure; adding to a position
-        # leaves it, and going flat clears it.
-        if before == 0 and self._units != 0:
-            self._entry = price
-        elif self._units == 0:
-            self._entry = None
         self.log.info(f"FILLED {side} {qty} @ {price} -> mine {self._units:.6f} "
                       f"cash {self._cash:.2f}")
         if not self.config.export_state:
@@ -411,7 +413,8 @@ class TalibRuleStrategy(Strategy):
         paper_state.push_trade(
             self._sid, pd.Timestamp(event.ts_event, unit="ns", tz="UTC")
             .strftime("%Y-%m-%d %H:%M"), side, qty, price,
-            round(equity - self.config.capital, 2))
+            round(equity - self.config.capital, 2),
+            realised=None if realised is None else round(realised, 2))
         paper_state.flush(force=True)      # a fill is the event people watch for
 
     def _rebalance(self, price: float) -> None:

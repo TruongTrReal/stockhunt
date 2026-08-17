@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
+import fill_pnl
 import paper_config
 import paper_state
 import store
@@ -71,6 +72,9 @@ class MemberStrategy(Strategy):
         self._sid = store.sid_for(config.account, config.name)
         self._cash = float(config.capital)
         self._units: dict[str, float] = {s: 0.0 for s in config.symbols}
+        # Average cost per name, so a sell can be priced against what it actually closed.
+        # Dropped when a name goes flat.
+        self._cost: dict[str, float] = {}
         self._last_price: dict[str, float] = {}
         self._n_fills = 0
         self._start_ts: pd.Timestamp | None = None
@@ -233,7 +237,17 @@ class MemberStrategy(Strategy):
             else str(event.order_side)
         signed = qty if side == "BUY" else -qty
 
-        self._units[symbol] = self._units.get(symbol, 0.0) + signed
+        before = self._units.get(symbol, 0.0)
+        # What this fill CLOSED, against the average cost of the position it closed. A
+        # member's book kept no cost basis at all before this, so every fill it reported
+        # went into the record with nothing but the whole book's mark beside it.
+        realised, basis = fill_pnl.apply_fill(
+            before, self._cost.get(symbol), signed, price)
+        if basis is None:
+            self._cost.pop(symbol, None)
+        else:
+            self._cost[symbol] = basis
+        self._units[symbol] = before + signed
         self._cash -= signed * price
         self._last_price.setdefault(symbol, price)
 
@@ -257,7 +271,8 @@ class MemberStrategy(Strategy):
                 # The venue's own id for this fill. A manager may legitimately send the
                 # same order twice on one bar; without this the two collapse to one row
                 # and half the position disappears from the record.
-                ref=str(getattr(event, "trade_id", "") or ""))
+                ref=str(getattr(event, "trade_id", "") or ""),
+                realised=None if realised is None else round(realised, 2))
             paper_state.update(
                 self._sid, paper_trades=self._n_fills,
                 position_units=round(sum(self._units.values()), 8),

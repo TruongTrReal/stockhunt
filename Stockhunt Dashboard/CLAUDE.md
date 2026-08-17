@@ -471,6 +471,22 @@ Seven things to preserve:
   an em-dash under `MIN_METRIC_BARS` (20) rather than annualising a two-day record, and
   `BARS_PER_YEAR` is nominal per (timeframe, 24/7-ness): a US equity 4h "day" is two bars,
   not six.
+- **The trade statistics count `realised != null`, and NEVER `pnl != 0`.** A published
+  fill carries two P&Ls and they are different questions: `realised` is what that one fill
+  closed against what the closed part cost — **null** when it opened or added — and `pnl`
+  is the whole book's mark at that instant. The table showed the second under the heading
+  *Realised P&L* and `liveMetrics` filtered closed trades on it, which is wrong twice
+  over: every name filling in one second carries the same book mark, so one snapshot
+  became several "trades", and a fill's own price moves cash and units equally, so the
+  mark is nonzero only when some **unrelated** name has moved since. Both P&L columns are
+  on the table now, labelled, with the caption saying which is which; the CSV heads them
+  `realised_pnl` and `book_pnl`, and it used to head the book snapshot `realised_pnl`, so
+  a spreadsheet built off the export inherited the mistake and kept it.
+
+  `m.priced` is the third state. A payload published before the desk recorded the column
+  has no `realised` key at all, and "0 closed trades" would be an assertion about it
+  rather than the absence of one — so those rows print em-dashes and say why. It matters
+  for `dist/dashboard.html`, whose embedded snapshot is frozen at build time.
 - **The fills table is what the DESK PUBLISHES, which is not the whole record.**
   `paper_state.MAX_TRADES` caps it at 200 per strategy while `lifetime_trades` counts the
   database, so the section header and the caption say which of the two is on screen. The

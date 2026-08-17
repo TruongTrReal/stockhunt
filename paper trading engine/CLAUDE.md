@@ -33,6 +33,9 @@ strategy.py       TalibRuleStrategy - one rule, traded to a target exposure
 member_strategy.py  MemberStrategy - trades on INSTRUCTION, not on a rule
 desk_control.py   the Nautilus Controller: reconcile registrations, drain orders
 desk_orders.py    what the desk will and will not do with an order. No Nautilus import
+fill_pnl.py       average cost per position, and what each fill CLOSED against it. Pure
+                  arithmetic, no Nautilus and no store, so the live path, the v2->v3
+                  migration and the tests all use the same definition
 catalog.py        publishes catalog.json: which rules may be promoted to the desk
 migrate_owner.py  inspect/apply/verify the account migration on paper.db
 paper_state.py    the registry; serialises results/paper_state.json and publishes live.json
@@ -46,6 +49,7 @@ test_runtime_attach.py  a strategy can join a RUNNING trader. Gate for the whole
 test_member_desk.py     ledger -> running trader -> fill -> book -> record, end to end
 test_accounts.py        two accounts on one cell keep separate books  (pytest)
 test_desk_orders.py     the rules that decide whether money moves        (pytest)
+test_fill_pnl.py        None vs 0.0: what closed nothing against what closed at cost
 ```
 
 ## Two kinds of strategy, one record
@@ -177,6 +181,51 @@ from them:
 is not idempotent: re-running it produces `00:00:spy-…` and orphans everything a second
 time. It is guarded on `version < 1`, not on the target version, so every future schema bump
 does not trip it.
+
+## A fill has two P&Ls and they are not interchangeable (schema v3)
+
+```
+book_pnl        equity - capital at the moment of the fill. A snapshot of the WHOLE book.
+realised_pnl    what THIS fill closed, against the average cost of what it closed.
+                NULL when the fill opened or added.
+```
+
+Only `book_pnl` existed, and the board printed it under the heading **Realised P&L** while
+`liveMetrics` counted a closed trade as `pnl != 0`. Neither half of that survives contact
+with a book:
+
+* **A snapshot is not a trade result.** Every name filling in one second carries the same
+  value, so one book mark became several "trades" — and a fill's own price moves cash and
+  units by equal and opposite amounts, so `book_pnl` is *zero* on almost every fill and
+  nonzero only when some **unrelated** name has been marked since. "Closed trades" was
+  therefore "fills that happened while something else moved".
+* **It has the wrong sign.** On the IBS equity book every completed round trip had made
+  money and the page reported a 13% win rate and a profit factor of 0.04, because a
+  profitable sell that happened while the rest of the book was down carries a negative
+  snapshot. A page can be wrong about the direction of its own record.
+
+Three things follow, and each is load-bearing:
+
+**`realised_pnl` is NULL, not 0.0, when nothing closed.** A scratch that closed exactly at
+cost realised zero and *is* a closed trade; an opening buy realised nothing and is not one.
+Collapsing those is the original bug in miniature, so the board filters on the null
+(`t.realised != null`) and `fill_pnl.apply_fill` returns `None` rather than `0.0`.
+
+**`realised_pnl` is NOT part of the fill's natural key.** It is a consequence of a fill, not
+part of its identity, and a warm-up replay computed against a re-warmed book can carry a
+different one — putting it in the UNIQUE would switch off the deduplication `test_store.py`
+exists to protect.
+
+**`_entry` is the average cost now, not the opening price.** A position scaled into over
+three bars has three prices behind it and only their weighted average prices what a partial
+sell just closed. That was a second, quieter error in the same place: the per-name `pnl_pct`
+on the board measured against the opening fill and ignored every add. One basis, two
+figures, `fill_pnl` owns it. `member_strategy` kept no basis at all and now does.
+
+The v2 -> v3 migration **backfills the column by replaying each symbol's own fills**, so a
+record written before it existed is recovered exactly rather than starting blank. It is
+guarded on the column being absent rather than on the version, so it can never overwrite
+what the live desk has since written.
 
 ## Commands
 

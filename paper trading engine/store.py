@@ -27,11 +27,13 @@ quietly becoming zero.
 
 from __future__ import annotations
 
+import itertools
 import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
 
+import fill_pnl
 import paper_config
 
 DB_PATH = paper_config.RESULTS_DIR / "paper.db"
@@ -102,17 +104,27 @@ CREATE TABLE IF NOT EXISTS strategies (
 --                are two real fills. Collapsing them would lose half the position. Their
 --                orders are never replayed, because the desk only drains past its
 --                watermark, so a unique id per fill is safe here and not there.
+-- `book_pnl` and `realised_pnl` are two different questions and the desk answers both,
+-- because it used to answer the first one under the second one's name:
+--
+--   book_pnl      equity - capital at the moment of this fill. A snapshot of the WHOLE
+--                 book, so several names filling in one second all carry the same value.
+--   realised_pnl  what THIS fill closed, against the position's average cost. NULL on a
+--                 fill that opened or added — such a fill realises nothing, which is not
+--                 the same fact as realising zero, and a NULL is what keeps an opening
+--                 buy out of the closed-trade statistics. `fill_pnl` owns the arithmetic.
 CREATE TABLE IF NOT EXISTS fills (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    sid         TEXT NOT NULL,
-    session_id  INTEGER NOT NULL,
-    ts          TEXT NOT NULL,
-    symbol      TEXT NOT NULL DEFAULT '',
-    side        TEXT NOT NULL,
-    qty         REAL NOT NULL,
-    price       REAL NOT NULL,
-    book_pnl    REAL,
-    ref         TEXT NOT NULL DEFAULT '',
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid          TEXT NOT NULL,
+    session_id   INTEGER NOT NULL,
+    ts           TEXT NOT NULL,
+    symbol       TEXT NOT NULL DEFAULT '',
+    side         TEXT NOT NULL,
+    qty          REAL NOT NULL,
+    price        REAL NOT NULL,
+    book_pnl     REAL,
+    realised_pnl REAL,
+    ref          TEXT NOT NULL DEFAULT '',
     UNIQUE(sid, ts, symbol, side, qty, price, ref)
 );
 
@@ -157,7 +169,7 @@ HOUSE = "00"
 # Bumped whenever `SCHEMA` changes shape. `PRAGMA user_version` is the marker rather than
 # inspecting the data, because "has this run already?" must be answerable on an empty
 # database too, where every data-shaped test looks like "not yet".
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def sid_for(account: str, name: str) -> str:
@@ -261,6 +273,34 @@ def _migrate(conn: sqlite3.Connection) -> bool:
         conn.execute("UPDATE strategies SET account = ?, kind = 'house_rule' "
                      "WHERE account IS NULL OR account = ''", (HOUSE,))
 
+    # --- v2 -> v3 -------------------------------------------------------------------
+    # `realised_pnl`: what each fill actually closed. The column the board was reading
+    # before this is `book_pnl`, which is the whole book's mark at the fill and not a
+    # trade result at all — see the `fills` table comment for what that cost.
+    #
+    # Backfilled rather than left NULL, because the fills ARE the input: replaying one
+    # symbol's own fills in order recovers the value exactly, so a record written before
+    # the column existed is repaired instead of starting blank. Guarded on the column
+    # being absent rather than on the version, so it can never overwrite a value the live
+    # desk has since written.
+    fcols = {r[1] for r in conn.execute("PRAGMA table_info(fills)")}
+    if "realised_pnl" not in fcols:
+        conn.execute("ALTER TABLE fills ADD COLUMN realised_pnl REAL")
+        rows = conn.execute("""SELECT id, sid, symbol, side, qty, price FROM fills
+                               ORDER BY sid, symbol, ts, id""").fetchall()
+        done = 0
+        for _, group in itertools.groupby(rows, key=lambda r: (r[1], r[2])):
+            group = list(group)
+            for row, realised in zip(group, fill_pnl.replay(
+                    [(r[3], r[4], r[5]) for r in group])):
+                if realised is not None:
+                    conn.execute("UPDATE fills SET realised_pnl = ? WHERE id = ?",
+                                 (round(realised, 6), row[0]))
+                    done += 1
+        if rows:
+            print(f"  store: recovered realised P&L for {done} of {len(rows)} fills "
+                  f"(the rest opened or added to a position and closed nothing)")
+
     conn.executescript(POST_MIGRATION_INDEXES)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
@@ -357,22 +397,32 @@ def upsert_strategy(sid: str, **f) -> str:
 
 
 def record_fill(sid: str, ts: str, side: str, qty: float, price: float,
-                book_pnl: float = 0.0, symbol: str = "", ref: str = "") -> None:
+                book_pnl: float = 0.0, symbol: str = "", ref: str = "",
+                realised_pnl: float | None = None) -> None:
     """One fill. `symbol` and `ref` are both part of the natural key.
 
     Leave `ref` empty for a rule-driven strategy, where identical fills on one bar are a
     warm-up replay and MUST collapse. Pass the venue's trade id for an order-driven one,
     where they are two real fills a manager asked for. The `fills` table comment has the
     full reasoning.
+
+    `realised_pnl` stays None on a fill that opened or added to a position — it closed
+    nothing, which the statistics downstream must be able to tell apart from closing at
+    zero. It is deliberately NOT part of the natural key: it is a consequence of the fill,
+    not part of its identity, and a replayed fill computed against a re-warmed book could
+    carry a different one and stop collapsing.
     """
     conn = connect()
     sess = session_id()          # resolved BEFORE the lock: it may open a session, which
     with _lock:                  # takes the same non-reentrant lock and would deadlock
         conn.execute("""INSERT OR IGNORE INTO fills
-                        (sid, session_id, ts, symbol, side, qty, price, book_pnl, ref)
-                        VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (sid, session_id, ts, symbol, side, qty, price, book_pnl,
+                         realised_pnl, ref)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
                      (sid, sess, ts, symbol or "", side, float(qty), float(price),
-                      float(book_pnl), ref or ""))
+                      float(book_pnl),
+                      None if realised_pnl is None else float(realised_pnl),
+                      ref or ""))
         conn.commit()
 
 
@@ -412,12 +462,21 @@ def fill_count(sid: str) -> int:
 
 
 def recent_fills(sid: str, limit: int = MAX_TRADES) -> list[dict]:
+    """The published fills, oldest first, with BOTH P&L columns.
+
+    `pnl` is the book snapshot and keeps its name for the dashboards already reading it;
+    `realised` is what the fill closed and is **None on a fill that closed nothing** — the
+    board counts closed trades off that null, never off `pnl != 0`, which is what used to
+    make an opening buy a closed trade.
+    """
     conn = connect()
-    rows = conn.execute("""SELECT ts, side, qty, price, book_pnl, symbol FROM fills
+    rows = conn.execute("""SELECT ts, side, qty, price, book_pnl, symbol, realised_pnl
+                           FROM fills
                            WHERE sid = ? ORDER BY ts DESC, id DESC LIMIT ?""",
                         (sid, limit)).fetchall()
     return [{"ts": r[0], "side": r[1], "qty": r[2], "price": r[3],
-             "pnl": round(r[4] or 0.0, 2), "symbol": r[5] or ""}
+             "pnl": round(r[4] or 0.0, 2), "symbol": r[5] or "",
+             "realised": None if r[6] is None else round(r[6], 2)}
             for r in reversed(rows)]
 
 

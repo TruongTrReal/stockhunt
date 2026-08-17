@@ -211,6 +211,102 @@ def test_turnover_is_withheld_until_there_is_enough_record(desk):
     assert s["turnover"] is None, "a two-day-old record cannot carry an annual rate"
 
 
+# ------------------------------------------------------------- the two P&L columns
+
+def test_an_opening_fill_records_no_realised_pnl(desk):
+    """The property every trade statistic on the board rests on.
+
+    A buy that opened a position closed nothing, so `realised` is **None** — not 0.0, and
+    emphatically not the book's mark. The board filters closed trades on `realised != null`
+    and would count this fill as a closed trade the moment that null became a number.
+    """
+    s = book(desk)
+    desk.push_trade(s["id"], "2026-08-14 00:00", "BUY", 2.0, 483.01,
+                    pnl=-59.33, symbol="AMD", realised=None)
+
+    t, = s["trades"]
+    assert t["realised"] is None
+    assert t["pnl"] == -59.33, "the book snapshot is still recorded, under its own name"
+
+
+def test_the_two_columns_are_stored_separately(desk):
+    """`book_pnl` and `realised_pnl` are different questions and the record answers both.
+
+    This is the AMD round trip off `00:us_stocks-1d-ibs`, with the numbers that were on the
+    board: a +$62.72 sell that the page printed as **-$59.33**, because it was publishing
+    the whole book's mark under the heading "Realised P&L". Two names filling in the same
+    second got the same value, so one book snapshot became two "trades".
+    """
+    s = book(desk)
+    desk.push_trade(s["id"], "2026-08-14 00:00", "BUY", 2.0, 483.01,
+                    pnl=0.0, symbol="AMD", realised=None)
+    desk.push_trade(s["id"], "2026-08-15 00:00", "SELL", 2.0, 514.37,
+                    pnl=-59.33, symbol="AMD", realised=62.72)
+
+    opened, closed = s["trades"]
+    assert (opened["realised"], opened["pnl"]) == (None, 0.0)
+    assert (closed["realised"], closed["pnl"]) == (62.72, -59.33)
+    # What the metrics table computes: one closed trade, and it won.
+    real = [t["realised"] for t in s["trades"] if t["realised"] is not None]
+    assert real == [62.72]
+
+
+def test_a_scratch_trade_is_closed_and_realised_zero(desk):
+    """0.0 and None are different facts and the store must not collapse them: a trade
+    closed exactly at cost IS a closed trade, with a realised P&L of nothing."""
+    s = book(desk)
+    desk.push_trade(s["id"], "2026-08-14 00:00", "BUY", 1.0, 100.0,
+                    symbol="AAPL", realised=None)
+    desk.push_trade(s["id"], "2026-08-15 00:00", "SELL", 1.0, 100.0,
+                    symbol="AAPL", realised=0.0)
+
+    assert [t["realised"] for t in s["trades"]] == [None, 0.0]
+
+
+def test_realised_pnl_is_not_part_of_the_fill_key(desk):
+    """A warm-up replay must still collapse.
+
+    `realised` is a consequence of a fill, not part of its identity — and a replayed fill
+    computed against a re-warmed book can legitimately carry a different one. Putting it in
+    the natural key would switch off the deduplication `test_store.py` protects.
+    """
+    s = book(desk)
+    desk.push_trade(s["id"], "2026-08-14 00:00", "SELL", 1.0, 100.0,
+                    symbol="AAPL", realised=5.0)
+    desk.push_trade(s["id"], "2026-08-14 00:00", "SELL", 1.0, 100.0,
+                    symbol="AAPL", realised=7.0)
+
+    assert s["lifetime_trades"] == 1, "the same fill twice is one fill"
+
+
+def test_the_migration_recovers_realised_pnl_for_a_record_written_without_it(desk):
+    """A v2 database has the fills but not the column, and the fills ARE the input — so
+    the value is recomputable exactly rather than lost. The eight completed IBS round
+    trips were all winners; the board reported twenty losses."""
+    conn = store.connect()
+    s = book(desk)
+    for ts, side, qty, price, sym in [
+            ("2026-08-14 00:00", "BUY", 2.0, 483.01, "AMD"),
+            ("2026-08-14 00:00", "BUY", 15.0, 64.09, "BAC"),
+            ("2026-08-15 00:00", "SELL", 2.0, 514.37, "AMD"),
+            ("2026-08-15 00:00", "SELL", 15.0, 64.49, "BAC")]:
+        desk.push_trade(s["id"], ts, side, qty, price, symbol=sym, realised=None)
+
+    # Rewind to v2: drop what the live path just wrote and re-run the migration.
+    conn.execute("UPDATE fills SET realised_pnl = NULL")
+    conn.execute("PRAGMA user_version = 2")
+    conn.execute("ALTER TABLE fills DROP COLUMN realised_pnl")
+    conn.commit()
+    assert store._migrate(conn) is True
+
+    got = dict(conn.execute(
+        "SELECT symbol, realised_pnl FROM fills WHERE side = 'SELL'").fetchall())
+    assert got["AMD"] == pytest.approx(62.72)
+    assert got["BAC"] == pytest.approx(6.00)
+    assert all(r[0] is None for r in conn.execute(
+        "SELECT realised_pnl FROM fills WHERE side = 'BUY'")), "a buy closed nothing"
+
+
 # ------------------------------------------------------------- what the feed subscribes to
 
 def test_the_feed_follows_the_running_book(desk):

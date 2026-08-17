@@ -56,6 +56,10 @@ def describe() -> dict:
                 "has_account": "account" in scols, "has_kind": "kind" in scols,
                 "has_benchmark": "benchmark" in scols,
                 "fills_have_symbol": "symbol" in fcols,
+                "fills_have_realised": "realised_pnl" in fcols,
+                "fills_closed": int(conn.execute(
+                    "SELECT COUNT(*) FROM fills WHERE realised_pnl IS NOT NULL"
+                ).fetchone()[0]) if "realised_pnl" in fcols else 0,
                 "counts": counts, "unprefixed_sids": unprefixed, "accounts": accounts}
     finally:
         conn.close()
@@ -109,7 +113,12 @@ def _print(d: dict) -> None:
     print(f"\n  {store.DB_PATH}")
     print(f"  schema v{d['version']} (target v{d['target']})")
     print(f"  columns   account={d['has_account']} kind={d['has_kind']} "
-          f"benchmark={d['has_benchmark']} fills.symbol={d['fills_have_symbol']}")
+          f"benchmark={d['has_benchmark']} fills.symbol={d['fills_have_symbol']} "
+          f"fills.realised_pnl={d['fills_have_realised']}")
+    # A fill that opened or added closed nothing and is NULL here, so this is a count of
+    # closed trades and is expected to be far smaller than the fill count.
+    print(f"  closed    {d['fills_closed']} of {d['counts']['fills']} fills closed "
+          f"part of a position")
     print("  rows      " + ", ".join(f"{k} {v}" for k, v in d["counts"].items()))
     print(f"  unprefixed sids: {d['unprefixed_sids']}")
     if d["accounts"]:
