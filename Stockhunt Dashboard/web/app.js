@@ -1,8 +1,9 @@
 /* Two sections, hash-routed, so either can be bookmarked and sent on its own:
- *   #/paper                     every strategy running in the sandbox
- *   #/paper/<id>                one strategy's live paper progress
- *   #/backtest                  research leaderboards, per asset class and timeframe
- *   #/backtest/<cls>/<tf>/<rule>  one rule, broken down asset by asset
+ *   #/paper                        every system running in the sandbox, ranked
+ *   #/paper/sys/<cls>/<tf>/<rule>  one SYSTEM: its live record and every name it holds
+ *   #/paper/<id>                   one deployment's live paper progress
+ *   #/backtest                     research leaderboards, per asset class and timeframe
+ *   #/backtest/<cls>/<tf>/<rule>   one rule, broken down asset by asset
  *
  * Paper and backtest are separate sections rather than two panels on one screen. They
  * are different periods and different sample sizes — weeks of simulated fills against
@@ -354,8 +355,20 @@ function equitySection(c, r, drawn, names) {
  * function went with the bug rather than staying as a second convention nobody wants. */
 
 function bindGo(root) {
-  root.querySelectorAll("[data-go]").forEach(el =>
-    el.onclick = () => { location.hash = el.dataset.go; });
+  root.querySelectorAll("[data-go]").forEach(el => {
+    el.onclick = () => { location.hash = el.dataset.go; };
+    /* Anything that carries a `tabindex` was put in the tab order to be reached by
+     * keyboard, and a focusable thing that only answers the mouse is worse than one that
+     * cannot be focused at all. Table rows are not focusable and are unaffected. */
+    if (el.hasAttribute("tabindex")) {
+      el.onkeydown = e => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          location.hash = el.dataset.go;
+        }
+      };
+    }
+  });
   enhanceTables(root);
 }
 
@@ -676,9 +689,9 @@ function paintPaper(refreeze = true) {
   <section class="sec">
     <div class="sec-head"><h2>${isReplay() ? "Replayed systems" : "Running systems"}</h2>
       <span class="sec-note">${countSystems(rows)} systems, best first · each one is its
-        own record · open a system for its holdings</span></div>
+        own record · tap a system for its record and every name it holds</span></div>
 
-    ${groupedStrategies(rows, orderSystems(rows, refreeze))}
+    ${systemList(rows, orderSystems(rows, refreeze))}
   </section>
 
   <p class="sec-note" style="max-width:62ch">${isReplay()
@@ -691,17 +704,6 @@ function paintPaper(refreeze = true) {
   bindGo(host);
 }
 
-/* ---------- grouped, collapsible strategy list ----------
- * 330 strategies as one flat table is unreadable, and the flat list also hid the thing
- * that matters most: the three groups answer three different questions. The mega-caps are
- * the universe the equity rules were ranked on, so that group is the only like-for-like
- * forward test; the ETFs are a transfer onto instruments the study never held; crypto has
- * its own sheet entirely.
- *
- * Built on native <details>, deliberately. The browser owns the open/closed state, so a
- * filter click that rewrites this container does not collapse everything the reader had
- * opened, and it keeps working with the keyboard for free.
- */
 /* A *system* is one rule at one horizon on one asset class — the thing the research
  * ranked and the thing you would decide to keep or drop. Running it across 20 mega-caps is
  * deployment, not twenty systems. Counting instances made the headline read 330 when there
@@ -939,7 +941,7 @@ function assetCount(rows) {
 function bookRows(s) {
   const rows = (s.holdings || []);
   if (!rows.length) {
-    return `<tr><td class="l" colspan="8">${esc(s.symbol || "the book")} —
+    return `<tr><td class="l" colspan="${ASSET_COLS}">${esc(s.symbol || "the book")} —
       no holdings published yet</td></tr>`;
   }
   const rank = h => (Math.abs(h.units || 0) > 0 ? 0 : 1);
@@ -954,6 +956,7 @@ function bookRows(s) {
       <td>${fmtUnits(h.units)}</td>
       <td>${num(h.entry)}</td>
       <td>${num(h.mark)}</td>
+      <td>${h.value ? money(h.value) : "—"}</td>
       <td class="${h.pnl_pct == null ? "" : sign(h.pnl_pct)}">${
         h.pnl_pct == null ? "—" : fmtPct(h.pnl_pct)}</td>
       <td>${h.trades || 0}</td>
@@ -961,157 +964,312 @@ function bookRows(s) {
         : (Math.abs(h.units || 0) > 0 ? "holding" : "in cash")}</td></tr>`).join("");
 }
 
+/* Nine, and it is a constant because three places have to agree on it: the header, the
+ * book's "nothing published yet" colspan, and the per-symbol row for a non-book system. */
+const ASSET_COLS = 9;
+const assetHead = () => `<thead><tr><th class="l">Asset</th><th class="l">State</th>
+  <th>Units</th><th>Entry</th><th>Mark</th><th>Value</th>
+  <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
+  <th>Trades</th><th class="l">Status</th></tr></thead>`;
 
-function groupedStrategies(rows, systems) {
-  const groups = (D.paper_groups && D.paper_groups.length ? D.paper_groups
-    : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
-       { key: "etf", label: "ETFs" }]);
-  const groupLabel = {};
-  groups.forEach(g => { groupLabel[g.key] = g.label; });
+/* One row for a system that is deployed on a single instrument. A book expands into one
+ * row per name instead — see `bookRows` — and the two shapes share a header, so they have
+ * to print the same columns in the same order. */
+const assetRow = s => `
+  <tr data-go="#/paper/${s.id}">
+    <td class="l">${esc(s.symbol)}</td>
+    <td class="l">${stateCell(s)}</td>
+    <td>${fmtUnits(s.position_units)}</td>
+    <td>${s.entry ? s.entry.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</td>
+    <td>${s.mark_price ? s.mark_price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</td>
+    <td>${s.position_units && s.mark_price
+      ? money(Math.abs(s.position_units * s.mark_price)) : "—"}</td>
+    <td class="${sign(s.paper_pnl_pct)}">${fmtPct(s.paper_pnl_pct)}</td>
+    <td>${s.paper_trades}</td>
+    <td class="l">${statusChip(s)}</td></tr>`;
 
+
+/* ---------- the system list ----------
+ * One row per system, and the row is a LINK. Everything a system has to say — its live
+ * curve at full size, the simulated windows, the group notes and the name-by-name
+ * holdings — lives on its own page now, `#/paper/sys/<cls>/<tf>/<rule>`.
+ *
+ * It was an accordion until 2026-08-17, and the accordion had grown into a detail view
+ * wearing a list item's clothes: every system on this desk is a *book* holding a whole
+ * asset class, so opening one unfolded a hundred-name table inside the list, and opening
+ * two made the ranking — which is the entire point of the list — impossible to scan. None
+ * of it could be linked to, bookmarked or sent to anybody either, because a disclosure
+ * triangle has no URL.
+ *
+ * The row shows exactly what the old `<summary>` showed — name, deployment, live
+ * sparkline, P&L — so the list itself reads the same. What changed is where detail lives.
+ */
+function systemList(rows, systems) {
   // A system is the thing that was researched and the thing you would keep or drop; the
   // assets under it are where it happens to be deployed. The order comes in frozen from
   // `orderSystems` — see the note there.
   const blocks = (systems || [...new Set(rows.map(systemKey))].sort()).map(key => {
     const mine = rows.filter(s => systemKey(s) === key);
     if (!mine.length) return "";
-    const [cls, tf, rule] = key.split("|");
+    /* Off the ROW, never off the key. `systemKey` joins on "|" and a pair's rule name
+     * contains one — `MININDEX~SAREXT|and` — so splitting the key back apart truncated
+     * every pair at its operator and the list printed `MININDEX~SAREXT` for two systems
+     * that differ only in whether the legs vote or agree. */
+    const { cls, tf, rule } = mine[0];
     const a = aggregate(mine);
 
-    // Second level: which universe. An equity system spans the mega-caps and the ETFs, and
-    // those carry different evidential weight — one is the universe it was ranked on, the
-    // other a transfer onto instruments the research never held. A crypto system has only
-    // its own group, and a single-group system still gets the header so the shape of the
-    // page does not change between them.
-    const inner = groups.map(g => {
-      const gs = mine.filter(s => (s.group || "") === g.key)
-                     .sort((x, y) => x.symbol.localeCompare(y.symbol));
-      if (!gs.length) return "";
-      const ga = aggregate(gs);
-      return `
-      <details class="sym" data-key="grp:${key}|${g.key}">
-        <summary>
-          <span class="sym-name">${esc(groupLabel[g.key] || g.key)}</span>
-          <span class="sym-meta">${assetCount(gs)} · ${ga.open} with a position ·
-            ${ga.fills} fills</span>
-          <span class="sym-pnl num ${sign(ga.mean)}">${fmtPct(ga.mean)}</span>
-        </summary>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th class="l">Asset</th><th class="l">State</th><th>Units</th>
-            <th>Entry</th><th>Mark</th>
-            <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
-            <th>Trades</th><th class="l">Status</th></tr></thead>
-          <tbody>${gs.map(s => s.kind === "book" ? bookRows(s) : `
-            <tr data-go="#/paper/${s.id}">
-              <td class="l">${esc(s.symbol)}</td>
-              <td class="l">${stateCell(s)}</td>
-              <td>${fmtUnits(s.position_units)}</td>
-              <td>${s.entry ? s.entry.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</td>
-              <td>${s.mark_price ? s.mark_price.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</td>
-              <td class="${sign(s.paper_pnl_pct)}">${fmtPct(s.paper_pnl_pct)}</td>
-              <td>${s.paper_trades}</td>
-              <td class="l">${statusChip(s)}</td></tr>`).join("")}</tbody>
-        </table></div>
-        ${(() => { const c = pcurves && pcurves[key];
-          if (!c || !c.assets) return "";
-          return `<div class="minis">${gs.map(s => {
-            const a = c.assets[s.symbol];
-            if (!a) return "";
-            return `<figure class="mini-card">
-              <figcaption><span class="mini-sym">${esc(s.symbol)}</span></figcaption>
-              ${PC_WINDOWS.map(([w, label]) => { const e = a[w];
-                if (!e) return "";
-                return `<div class="mini-win">
-                  <span class="hist-lbl">${label}</span>
-                  ${pnlSpark(e.curve, e.bench, 300, 46)}
-                  <span class="hist-nums"><b class="${sign(e.pnl_pct)}">${fmtPct(e.pnl_pct)}</b>
-                    <span>hold ${fmtPct(e.bench_pnl_pct)}</span></span>
-                </div>`; }).join("")}
-            </figure>`; }).join("")}</div>`; })()}
-      </details>`;
-    }).join("");
-
-    /* The system's OWN record, which is what this page is for. `live` is cumulative paper
-     * P&L in percent since its first fill; `bench` is the same basket held over the same
-     * bars, so the gap between the two lines is the signal and not the market. */
+    /* The system's OWN record. `live` is cumulative paper P&L in percent since its first
+     * fill; `bench` is the same basket held over the same bars, so the gap between the two
+     * lines is the signal and not the market. */
     const live = systemCurve(mine, "paper_curve");
     const bench = systemCurve(mine, "bench_curve");
     const breaks = systemBreaks(mine);
-    const since = (mine[0] || {}).since;
-    const days = Math.max(...mine.map(s => s.days || 0), 0);
-    const sim = pcurves && pcurves[key] && pcurves[key].system;
 
     return `
-    <details class="grp" data-key="sys:${key}">
-      <summary>
-        <span class="grp-id"><span class="grp-name">${esc(rule)}</span>
-          <span class="grp-meta">${esc(tf)} · ${esc(cls)} · ${assetCount(mine)} ·
-            ${a.fills} fill${a.fills === 1 ? "" : "s"}</span></span>
-        <span class="grp-live">${live.length > 1
-          ? pnlLive(live, bench, breaks, 300, 34)
-          : `<span class="hist-lbl">no curve yet</span>`}</span>
-        <span class="grp-pnl num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
-      </summary>
-
-      <div class="sys-live">
-        <div class="sys-headline">
-          <span class="pnl-val num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
-          <span class="pnl-lbl">cumulative ${isReplay() ? "replay" : "paper"} P&amp;L${
-            since ? ` since ${esc(since)}` : ""}</span>
-        </div>
-
-        ${live.length > 1
-          ? pnlFigure(live, bench, breaks, {
-              from: since || "start",
-              to: days ? `${days} day${days === 1 ? "" : "s"} in` : "today" })
-          : `<p class="pnl-young">The live record is
-               ${live.length} closed bar${live.length === 1 ? "" : "s"} old — a line needs
-               two. The figure above is live either way, and the simulated windows below
-               are what this rule did over the same instruments' recent history.</p>`}
-
-        <dl class="sys-facts">
-          <div><dt>Fills</dt><dd>${a.fills.toLocaleString()}</dd></div>
-          ${(() => { const books = mine.filter(s => s.kind === "book");
-            if (!books.length) {
-              return `<div><dt>With a position</dt>
-                <dd>${a.open} <span class="of">of ${mine.length}</span></dd></div>`;
-            }
-            const held = books.reduce((x, s) => x + (s.held || 0), 0);
-            const names = books.reduce((x, s) => x + (s.names || 0), 0);
-            return `<div><dt>Holding</dt>
-              <dd>${held} <span class="of">of ${names} names</span></dd></div>`; })()}
-          ${turnoverOf(mine) == null ? ""
-            : `<div><dt>Turnover</dt>
-                <dd>${turnoverOf(mine).toFixed(1)} <span class="of">/yr a name</span></dd></div>`}
-          <div><dt>Running</dt><dd>${mine.length === 1 ? statusChip(mine[0])
-            : `${a.live} <span class="of">of ${mine.length}</span>`}</dd></div>
-        </dl>
-      </div>
-
-      ${sim ? `
-      <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
-        pnlPanel(sim[w], label, true)).join("")}</div>
-      <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: the same
-        rule over the same instruments' recent history, solid the system and dashed the
-        basket held. They say how it <em>would</em> have gone; the chart above it is what
-        it did.</p>`
-      : `<p class="sec-note pnl-caveat">No simulated history for this system —
-        <code>python paper_curves.py</code> has not been run since it was promoted, so
-        there is nothing to show beside the live record.</p>`}
-
-      <div class="syms">${inner}</div>
-    </details>`;
+    <div class="grp"><div class="grp-row" role="link" tabindex="0"
+        data-go="${systemHash(cls, tf, rule)}"
+        aria-label="${esc(rule)}, ${esc(tf)} ${esc(cls)} — open this system">
+      <span class="grp-id"><span class="grp-name">${esc(rule)}</span>
+        <span class="grp-meta">${esc(tf)} · ${esc(cls)} · ${assetCount(mine)} ·
+          ${a.fills} fill${a.fills === 1 ? "" : "s"}</span></span>
+      <span class="grp-live">${live.length > 1
+        ? pnlLive(live, bench, breaks, 300, 34)
+        : `<span class="hist-lbl">no curve yet</span>`}</span>
+      <span class="grp-pnl num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
+    </div></div>`;
   }).join("");
 
   return blocks || `<p class="sec-note">Nothing matches this filter.</p>`;
 }
 
 
+/* ================================ ONE SYSTEM ================================ */
+/* `#/paper/sys/<cls>/<tf>/<rule>` — the live record of one system, at the size the thing
+ * deserves: its own strip of figures, its curve as a figure rather than a 34px sparkline,
+ * the two simulated windows, and every name it holds.
+ *
+ * The rule is SLUGGED into the URL the same way the backtest detail page slugs its own,
+ * because a rule name carries `|` and `~` and a raw one in a hash is unreadable and
+ * fragile. Nothing round-trips it back: the page finds its rows by matching `slug(s.rule)`
+ * against the segment, so the slug never has to be reversible. */
+const systemHash = (cls, tf, rule) =>
+  `#/paper/sys/${encodeURIComponent(cls)}/${encodeURIComponent(tf)}/${slug(rule)}`;
+
+/* The universes a system can be deployed across, with the note that says what each one is
+ * worth as evidence. `D.paper_groups` carries those notes and nothing rendered them until
+ * this page existed — they are the difference between "the universe the rule was ranked
+ * on" and "a transfer onto instruments the research never held", which is exactly the
+ * question somebody opening a system's holdings has. */
+const paperGroupList = () => (D.paper_groups && D.paper_groups.length ? D.paper_groups
+  : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
+     { key: "etf", label: "ETFs" }]);
+
+/* What `#sys-body` is currently drawing, so a tick repaint can rebuild it without
+ * re-reading the hash. Cleared by nothing: `repaintPaper` gates on the hash instead, so a
+ * stale value cannot paint over another view. */
+let sysView = null;
+
+const systemMembers = (cls, tf, rule) =>
+  D.strategies.filter(s => s.cls === cls && s.tf === tf && s.rule === rule);
+
+/* A pointer to the multi-year answer for THIS rule — but only when the rule is actually on
+ * that sheet. The desk runs promotions whose leaderboard row was cut by `TOP_N`, and a
+ * link that bounces the reader back to the leaderboard is worse than a sentence saying the
+ * page is not there. */
+function backtestHref(cls, tf, rule) {
+  const grp = Object.keys(CLASS_ARG).find(k => CLASS_ARG[k] === cls);
+  const sh = grp && D.backtest[grp] ? sheetOf(grp, tf) : null;
+  return sh && sh.rows.some(x => x.rule === rule)
+    ? `#/backtest/${grp}/${tf}/${slug(rule)}` : null;
+}
+
+function paperSystem(cls, tf, ruleSlug) {
+  const rows = D.strategies.filter(
+    s => s.cls === cls && s.tf === tf && slug(s.rule) === ruleSlug);
+  if (!rows.length) return (location.hash = "#/paper");
+  const rule = rows[0].rule;
+  sysView = { cls, tf, rule };
+  const href = backtestHref(cls, tf, rule);
+
+  app.innerHTML = `
+  <a class="back" href="#/paper">← ${isReplay() ? "strategy replay" : "paper trading"}</a>
+  <div class="hero">
+    <div class="d-head"><span class="d-name">${esc(rule)}</span>
+      <span class="chip mut">${esc(tf)}</span>
+      <span class="chip mut">${esc(PAPER_CLASS_LABEL[cls] || cls)}</span>
+      ${rows.length === 1 ? statusChip(rows[0]) : ""}</div>
+    <p class="lede">${esc(rows[0].note || "")}</p>
+  </div>
+
+  ${replayBanner()}
+  ${staleBanner()}
+
+  <div id="sys-body"></div>
+
+  <div class="note">${href
+    ? `Whether this rule actually works is the multi-year question, and it is not answered
+       here — see <a href="${href}">the walk-forward result for ${esc(rule)}</a>. What this
+       page shows is ${isReplay() ? "a replay over cached bars" : "days of simulated fills"},
+       which is evidence about the pipeline and about nothing else.`
+    : `Whether this rule actually works is the multi-year question, answered in
+       <a href="#/backtest">Backtest</a> — this rule has no row on the
+       ${esc(PAPER_CLASS_LABEL[cls] || cls)} ${esc(tf)} leaderboard, which ships only its
+       top rows, so there is no page to link to.`}</div>`;
+
+  paintSystem();
+  // A deep link lands here without ever having drawn the master list, so the simulated
+  // windows have to be fetched from this page too. Cached after the first call.
+  loadPaperCurves().then(c => { if (c) paintSystem(); });
+}
+
+/* Everything volatile in one container, rewritten whole on each tick. The hero, the
+ * banners and the backtest pointer sit outside it and never move. */
+function paintSystem() {
+  const host = document.getElementById("sys-body");
+  if (!host || !sysView) return;
+  const { cls, tf, rule } = sysView;
+  const rows = systemMembers(cls, tf, rule);
+  if (!rows.length) return;
+
+  const a = aggregate(rows);
+  const live = systemCurve(rows, "paper_curve");
+  const bench = systemCurve(rows, "bench_curve");
+  const breaks = systemBreaks(rows);
+  const since = rows[0].since;
+  const days = Math.max(...rows.map(s => s.days || 0), 0);
+  const turn = turnoverOf(rows);
+  const sim = pcurves && pcurves[systemKey(rows[0])]
+    && pcurves[systemKey(rows[0])].system;
+
+  /* A book is one row holding a whole class, so "with a position" would be a single yes/no
+   * about the account. Names held out of names carried is the same question asked of the
+   * thing that has an answer. */
+  const books = rows.filter(s => s.kind === "book");
+  const held = books.reduce((x, s) => x + (s.held || 0), 0);
+  const names = books.reduce((x, s) => x + (s.names || 0), 0);
+  const equity = rows.reduce((x, s) => x + (s.equity || 0), 0);
+  const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
+
+  const groups = paperGroupList();
+  const assets = groups.map(g => {
+    const gs = rows.filter(s => (s.group || "") === g.key)
+                   .sort((x, y) => x.symbol.localeCompare(y.symbol));
+    if (!gs.length) return "";
+    const ga = aggregate(gs);
+    const gBooks = gs.filter(s => s.kind === "book");
+    return `
+    <section class="sec">
+      <div class="sec-head"><h2>${esc(g.label || g.key)}</h2>
+        <span class="sec-note">${assetCount(gs)}${gBooks.length ? ""
+          : ` · ${ga.open} with a position`} · ${ga.fills} fills</span></div>
+      ${g.note ? `<p class="grp-note">${esc(g.note)}</p>` : ""}
+      <div class="tbl-wrap"><table>
+        ${assetHead()}
+        <tbody>${gs.map(s => s.kind === "book" ? bookRows(s) : assetRow(s)).join("")}</tbody>
+      </table></div>
+      ${(() => {
+        /* Per-name sparklines, where `paper_curves.py` published any. It drops them for a
+         * book on purpose (6.3 MB against 0.2 MB), so in practice this renders for the
+         * older per-symbol deployments and nothing else. */
+        const c = pcurves && pcurves[systemKey(gs[0])];
+        if (!c || !c.assets) return "";
+        const cards = gs.map(s => {
+          const av = c.assets[s.symbol];
+          if (!av) return "";
+          return `<figure class="mini-card">
+            <figcaption><span class="mini-sym">${esc(s.symbol)}</span></figcaption>
+            ${PC_WINDOWS.map(([w, label]) => { const e = av[w];
+              if (!e) return "";
+              return `<div class="mini-win">
+                <span class="hist-lbl">${label}</span>
+                ${pnlSpark(e.curve, e.bench, 300, 46)}
+                <span class="hist-nums"><b class="${sign(e.pnl_pct)}">${fmtPct(e.pnl_pct)}</b>
+                  <span>hold ${fmtPct(e.bench_pnl_pct)}</span></span>
+              </div>`; }).join("")}
+          </figure>`; }).join("");
+        return cards ? `<div class="minis">${cards}</div>` : "";
+      })()}
+    </section>`;
+  }).join("");
+
+  host.innerHTML = `
+  <div class="strip">
+    <div class="stat"><span class="k">${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</span>
+      <span class="v ${sign(a.mean)}">${fmtPct(a.mean)}</span>
+      <span class="s">cumulative${since ? `, since ${esc(since)}` : ""}</span></div>
+    <div class="stat"><span class="k">Fills</span>
+      <span class="v">${a.fills.toLocaleString()}</span>
+      <span class="s">lifetime, carried across restarts</span></div>
+    <div class="stat"><span class="k">${books.length ? "Holding" : "With a position"}</span>
+      <span class="v">${books.length ? `${held} / ${names}` : `${a.open} / ${rows.length}`}</span>
+      <span class="s">${books.length ? "names held right now"
+        : "deployments with exposure"}</span></div>
+    <div class="stat"><span class="k">Turnover / yr</span>
+      <span class="v">${turn == null ? "—" : turn.toFixed(1)}</span>
+      <span class="s">per name — the unit the backtest reports, so the two compare</span></div>
+    <div class="stat"><span class="k">Equity</span>
+      <span class="v">${equity ? money(equity) : "—"}</span>
+      <span class="s">${capital ? `of ${money(capital)} staked` : "paper only"}</span></div>
+    <div class="stat"><span class="k">Running</span>
+      <span class="v">${rows.length === 1 ? statusChip(rows[0])
+        : `${a.live} / ${rows.length}`}</span>
+      <span class="s">${rows.length === 1 ? "one deployment"
+        : `${rows.length} deployments of one rule`}</span></div>
+  </div>
+
+  <section class="sec">
+    <div class="sec-head"><h2>${isReplay() ? "Replayed record" : "Live record"}</h2>
+      <span class="sec-note">${days} day${days === 1 ? "" : "s"} of ${
+        isReplay() ? "replayed" : "simulated"} fills${
+        breaks.length ? ` · cut at ${breaks.length} outage${breaks.length === 1 ? "" : "s"}`
+        : ""}</span></div>
+    <div class="sys-live">
+      <div class="sys-headline">
+        <span class="pnl-val num ${sign(a.mean)}">${fmtPct(a.mean)}</span>
+        <span class="pnl-lbl">cumulative ${isReplay() ? "replay" : "paper"} P&amp;L${
+          since ? ` since ${esc(since)}` : ""}</span>
+      </div>
+      ${live.length > 1
+        ? pnlFigure(live, bench, breaks, {
+            from: since || "start",
+            to: days ? `${days} day${days === 1 ? "" : "s"} in` : "today" })
+        : `<p class="pnl-young">The live record is
+             ${live.length} closed bar${live.length === 1 ? "" : "s"} old — a line needs
+             two. The figure above it is live either way, and the simulated windows below
+             are what this rule did over the same instruments' recent history.</p>`}
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sec-head"><h2>Simulated history</h2>
+      <span class="sec-note">not traded — the same rule over recent bars</span></div>
+    ${sim ? `
+    <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
+      pnlPanel(sim[w], label, true)).join("")}</div>
+    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: the same
+      rule over the same instruments' recent history, solid the system and dashed the
+      basket held. They say how it <em>would</em> have gone; the record above is what it
+      did.</p>`
+    : `<p class="sec-note pnl-caveat">No simulated history for this system —
+      <code>python paper_curves.py</code> has not been run since it was promoted, so there
+      is nothing to show beside the live record.</p>`}
+  </section>
+
+  ${assets || `<p class="sec-note">No holdings published for this system yet.</p>`}`;
+
+  bindGo(host);
+}
+
+
 function paperDetail(id) {
   const s = D.strategies.find(x => x.id === id);
   if (!s) return (location.hash = "#/paper");
+  /* Back to the SYSTEM, not to the list. This page is reached from a system's holdings
+   * table now, and a back link that skips the page you came from is a link to somewhere
+   * else. */
+  const up = systemHash(s.cls, s.tf, s.rule);
   app.innerHTML = `
-  <a class="back" href="#/paper">← ${isReplay() ? "strategy replay" : "paper trading"}</a>
+  <a class="back" href="${up}">← ${esc(s.rule)}</a>
   <div class="hero">
     <div class="d-head"><span class="d-name">${esc(s.symbol)} · ${esc(s.rule)}</span>
       <span class="chip mut">${s.tf}</span>${statusChip(s)}</div>
@@ -2667,21 +2825,33 @@ async function pollLive() {
   }
 }
 
-/* Repaint without losing what the reader has open. The accordion state lives in the DOM
- * (native <details>), so it is captured by key, the container is rewritten, and the same
- * keys are reopened — and the scroll position never moves because nothing above changes. */
+/* Repaint without moving anything the reader is looking at.
+ *
+ * Two views tick. The master list rewrites `#paper-body`; a system's own page rewrites
+ * `#sys-body`, which is why the hero and the banners sit outside it. Neither has any
+ * accordion state left to preserve — the list is links now — but the system page carries a
+ * nine-column holdings table that can be scrolled sideways on a laptop, and rebuilding it
+ * twice a second would snap it back to column one every time. So the horizontal scroll of
+ * every table is captured and put back, the same way `scrollY` already was. */
 function repaintPaper() {
+  if (location.hash.startsWith("#/paper/sys/")) {
+    const host = document.getElementById("sys-body");
+    if (!host) return;
+    const lefts = [...host.querySelectorAll(".tbl-wrap")].map(w => w.scrollLeft);
+    const y = window.scrollY;
+    paintSystem();
+    [...host.querySelectorAll(".tbl-wrap")].forEach((w, i) => {
+      if (lefts[i]) w.scrollLeft = lefts[i];
+    });
+    window.scrollTo(0, y);
+    return;
+  }
   const host = document.getElementById("paper-body");
   if (!host || location.hash.startsWith("#/paper/")) return;
-  const open = new Set([...host.querySelectorAll("details[data-key]")]
-    .filter(d => d.open).map(d => d.dataset.key));
   const y = window.scrollY;
   // `false`: reuse the frozen ranking. A tick repaint must not re-sort the list — see the
   // note on `orderSystems`.
   paintPaper(false);
-  host.querySelectorAll("details[data-key]").forEach(d => {
-    if (open.has(d.dataset.key)) d.open = true;
-  });
   window.scrollTo(0, y);
 }
 
@@ -2776,7 +2946,13 @@ async function findDesk() {
 function render() {
   const h = location.hash || "#/paper";
   let m;
-  if ((m = h.match(/^#\/paper\/(.+)$/))) paperDetail(m[1]);
+  /* Before the generic `#/paper/<id>`, and it has to stay there: that pattern is `(.+)`,
+   * so it swallows `sys/...` whole and hands `paperDetail` an id no strategy has, which
+   * bounces straight back to the master list. A strategy id carries no "/", so the two
+   * cannot otherwise collide. */
+  if ((m = h.match(/^#\/paper\/sys\/([^/]+)\/([^/]+)\/(.+)$/)))
+    paperSystem(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3]);
+  else if ((m = h.match(/^#\/paper\/(.+)$/))) paperDetail(m[1]);
   else if ((m = h.match(/^#\/backtest\/([^/]+)\/([^/]+)\/(.+)$/))) backtestDetail(m[1], m[2], m[3]);
   else if (h.startsWith("#/backtest")) backtestMaster();
   else paperMaster();

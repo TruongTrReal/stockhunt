@@ -389,13 +389,54 @@ What replaced them is per system, in the row:
   100, and cut at `curve_breaks` rather than drawn straight through an outage. A segment of
   one point is a dot, because a young system with a restart in it is exactly two points
   either side of a gap and a polyline-only renderer drew nothing for it.
-- **The two simulated windows moved inside the row**, under a caption that says they are
-  simulations. They were the only chart in the summary line before, which put a backtest
-  where the live record belongs.
 - **The list is ranked on P&L, best first, and the ranking is FROZEN** (`orderSystems`).
   It re-ranks when the reader acts — loads the view, clicks a filter — and every tick
   repaint in between reuses that order. Numbers move several times a second; a list that
   re-sorts under the cursor cannot be read.
+
+## The list is a list; a system has its own page (2026-08-17)
+
+`#/paper` is one link per system (`systemList`, `.grp-row`) and `#/paper/sys/<cls>/<tf>/<rule>`
+is where that system's record lives (`paperSystem` + `paintSystem`). The row shows what the
+old `<summary>` showed — name, deployment, live sparkline, P&L — so the ranking reads the
+same; everything that used to unfold underneath it moved onto the page.
+
+It was an accordion, and the accordion had become a detail view wearing a list item's
+clothes. **Every system on this desk is a book holding a whole asset class**, so opening one
+unfolded a hundred-name table *inside the ranked list*, and opening two made the ranking
+unreadable — which is the only thing the list is for. None of it had a URL either: a
+disclosure triangle cannot be bookmarked, linked in a message, or sent to somebody.
+
+The page carries, in this order: a `.strip` of six tiles (P&L, fills, names held, turnover,
+equity, running), the live record as a `pnlFigure` rather than a 34px sparkline, the two
+simulated windows, and then **one section per universe** with every name in it.
+
+Five things to preserve:
+
+- **The route sits BEFORE `#/paper/<id>` in `render`.** That pattern is `(.+)`, so it
+  swallows `sys/...` whole and hands `paperDetail` an id no strategy has, which bounces
+  straight back to the list. A strategy id carries no `/`, so nothing else collides.
+- **The rule comes off the ROW, never off the key.** `systemKey` joins on `|` and a pair's
+  name contains one — `MININDEX~SAREXT|and` — so `key.split("|")` truncated every pair at
+  its operator, and the list printed `MININDEX~SAREXT` for two systems that differ only in
+  whether the legs vote or agree. `pcurves` is keyed on the full string and was never
+  affected, which is why this survived: only the label was wrong.
+- **The URL slugs the rule and never reverses it.** `paperSystem` finds its rows by
+  matching `slug(s.rule)` against the segment, the same way `backtestDetail` does.
+- **`#sys-body` is the volatile half.** The hero, the banners and the backtest pointer sit
+  outside it so a tick repaint cannot move them. `repaintPaper` rebuilds only that
+  container, and it puts back the **horizontal** scroll of every `.tbl-wrap` as well as
+  `scrollY` — the holdings table is nine columns and would otherwise snap to column one
+  twice a second.
+- **The pointer to the backtest is checked, not assumed** (`backtestHref`). The desk runs
+  promotions whose leaderboard row was cut by `TOP_N`, and a link that bounces back to the
+  leaderboard is worse than a sentence saying the page is not there.
+
+`D.paper_groups[].note` is rendered here and nowhere else. It says what a universe is worth
+as evidence — the one the rule was ranked on, or a transfer onto instruments the research
+never held — which is the first thing somebody about to read a table of names needs.
+`paperDetail`'s back link goes **up to the system**, not to the list, because that page is
+reached from a system's holdings table now.
 
 ## Gotchas
 
