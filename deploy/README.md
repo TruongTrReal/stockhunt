@@ -49,6 +49,54 @@ while the desk is mid-write:
 git ls-files -v | grep '^S'     # confirm the protection
 ```
 
+### `skip-worktree` is not enough on its own, and the gap is silent
+
+It means *"assume the worktree matches the index"*, and git honours that only while nothing
+asks it to change the file. **A commit that TOUCHES a live database does ask.** Git compares,
+finds the desk has rewritten the file since, and refuses the entire operation:
+
+```
+error: Entry 'paper trading engine/results/paper.db' not uptodate. Cannot merge.
+fatal: Could not reset index file to revision 'origin/master'
+```
+
+The deploy exits 128 having changed nothing — and then does it again every five minutes,
+into a log nobody reads, while the board serves old code and the timer keeps reporting
+`active`. It happened on 2026-08-17: a commit carried a `paper.db` migration, and two
+autodeploy ticks failed before anyone looked. The failure is not that it broke; it is that
+it broke **invisibly and kept looking scheduled**.
+
+`settle_live_dbs` closes it. Before every reset — the deploy's and the rollback's, which has
+the same exposure in the other direction — it points the index straight at the incoming blob
+for those paths and leaves the worktree alone, so `reset --hard` has nothing left to change
+there. **The live file is never read, never copied and never written.** That matters: it is
+being written throughout, and a hot copy of a live SQLite file is exactly the corruption
+above. `redeploy.sh` can afford to copy because it stops the services first; this one
+deliberately cannot, so it does not copy at all.
+
+If it ever fails again, this is the manual recovery — it is what `redeploy.sh` does, plus
+clearing the protection so the reset can proceed:
+
+```bash
+cd /opt/stockhunt
+git update-index --no-skip-worktree "paper trading engine/results/paper.db" \
+                                    "paper trading engine/state/desk.db"
+./redeploy.sh                   # stops services, sets DBs aside WITH sidecars, restores
+./autodeploy.sh --init          # put the protection back -- do not skip this
+```
+
+### The deployed scripts are copies, and they go stale
+
+The units run `$REPO/autodeploy.sh`; `deploy/autodeploy.sh` is what git updates. A fix to
+either script therefore lands in the repo and changes nothing until it is copied across.
+`autodeploy.sh` now logs `!! <script> is stale against deploy/<script>` when they diverge —
+reported rather than applied, because bash reads a script incrementally as it runs and
+rewriting the file mid-execution is its own class of bug.
+
+```bash
+cp /opt/stockhunt/deploy/*.sh /opt/stockhunt/     # the fix the warning asks for
+```
+
 `redeploy.sh` — the manual, full, stop-everything path — does not rely on that: it stops
 the services and physically sets each database aside **with its `-wal`/`-shm` sidecars**,
 because a `.db` restored without its journal, or a journal left behind for a different

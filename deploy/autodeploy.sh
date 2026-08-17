@@ -15,6 +15,8 @@
 # because they are marked `skip-worktree` (see `--init`): `git reset --hard` leaves them
 # alone. Without that, a reset reverts them to the committed blob — they are tracked
 # files — which is what corrupted paper.db once already.
+#
+# `skip-worktree` alone is not enough, and the gap is silent. See `settle_live_dbs`.
 set -euo pipefail
 
 REPO=/opt/stockhunt
@@ -45,6 +47,43 @@ if [[ "${1:-}" == "--init" ]]; then
     exit 0
 fi
 
+# `skip-worktree` means "assume the worktree matches the index", and git honours that only
+# while nothing asks it to change the file. A commit that TOUCHES a live database does ask.
+# Git then compares, finds the desk has rewritten the file since, and refuses the whole
+# operation:
+#
+#     error: Entry 'paper trading engine/results/paper.db' not uptodate. Cannot merge.
+#     fatal: Could not reset index file to revision 'origin/master'
+#
+# The deploy exits 128 having changed nothing — and then does it again every five minutes,
+# into a log nobody reads, while the board quietly serves old code. That is the whole
+# failure: not that it broke, but that it broke invisibly and kept looking scheduled.
+#
+# So the paths are SETTLED first: point the index straight at the incoming blob and leave
+# the worktree alone, so by the time `reset --hard` runs there is nothing left for it to
+# change there. The live file is never read, never copied and never written — which is the
+# point. It is being written throughout, and a hot copy of a live SQLite file is exactly
+# the corruption `redeploy.sh` stops the services to avoid; that script can afford the copy
+# because it takes the desk down, and this one deliberately cannot.
+#
+# Called before EVERY reset, including the rollback, which has the same exposure in the
+# other direction.
+settle_live_dbs() {
+    local target=$1 db mode type sha rest
+    for db in "${LIVE_DBS[@]}"; do
+        # Untracked (`paper api/state/` is gitignored) — git never touches it.
+        git ls-files --error-unmatch "$db" >/dev/null 2>&1 || continue
+        # Unchanged by this commit — plain skip-worktree already covers it.
+        git diff --quiet HEAD "$target" -- "$db" && continue
+        read -r mode type sha rest < <(git ls-tree "$target" -- "$db")
+        [ -n "${sha:-}" ] || continue
+        git update-index --no-skip-worktree "$db"
+        git update-index --cacheinfo "$mode,$sha,$db"
+        git update-index --skip-worktree "$db"
+        say "settled index for $db (kept the live file; git wanted ${sha:0:7})"
+    done
+}
+
 # One deploy at a time, and never on top of a manual redeploy.
 exec 9>"$REPO/.deploy.lock"
 flock -n 9 || { echo "another deploy holds the lock; skipping"; exit 0; }
@@ -58,6 +97,7 @@ NEW=$(git rev-parse origin/master)
 say "deploying ${OLD:0:7} -> ${NEW:0:7}"
 git log --oneline "$OLD..$NEW" | sed 's/^/    /' | tee -a "$LOG"
 
+settle_live_dbs origin/master
 git reset -q --hard origin/master
 
 # The reset cannot touch the databases (skip-worktree), but a new file arriving from git
@@ -74,6 +114,7 @@ if systemctl is-active --quiet stockhunt-api; then
     say "stockhunt-api restarted on ${NEW:0:7}"
 else
     say "!! stockhunt-api FAILED to start on ${NEW:0:7} -- rolling back to ${OLD:0:7}"
+    settle_live_dbs "$OLD"
     git reset -q --hard "$OLD"
     systemctl restart stockhunt-api
     say "rolled back; investigate with: journalctl -u stockhunt-api -n 50"
@@ -88,6 +129,19 @@ if sudo -u stockhunt "$REPO/refresh-board.sh" >>"$LOG" 2>&1; then
 else
     say "!! board rebuild failed (site still serving the previous payload)"
 fi
+
+# The systemd units run `$REPO/autodeploy.sh`, which is a COPY of `deploy/autodeploy.sh`
+# taken at install time. The reset above updated the repo's copy and NOT the one currently
+# executing, so a fix to this script lands in git and changes nothing until somebody copies
+# it across — the same shape of silent staleness as the failure above.
+#
+# Reported, not self-applied: bash reads a script incrementally as it runs, so rewriting the
+# file that is mid-execution is its own class of bug. The next tick picks up the new copy.
+for s in autodeploy.sh redeploy.sh refresh-board.sh; do
+    [ -e "$REPO/$s" ] && [ -e "$REPO/deploy/$s" ] || continue
+    cmp -s "$REPO/deploy/$s" "$REPO/$s" || \
+        say "!! $s is stale against deploy/$s -- cp '$REPO/deploy/$s' '$REPO/$s'"
+done
 
 # Does the running desk now differ from master?
 if git diff --name-only "$OLD" "$NEW" -- "${DESK_PATHS[@]}" | grep -q .; then
