@@ -490,6 +490,25 @@ const paperClasses = () => {
 const paperClassPills = () =>
   paperClasses().map(c => [c, PAPER_CLASS_LABEL[c] || c]);
 
+/* The same argument, one axis over. This strip was the literal pair `1d / 4h` — the two
+ * horizons the HOUSE promotes its own books at — while the desk accepts a registration at
+ * any of six (`paper_config.MEMBER_TIMEFRAMES`, which is what `/v1/limits` advertises and
+ * what the join wizard offers). A member registering at 1h or 5m therefore got a strategy
+ * that ran, filled and published, and a board with no button that could reach it.
+ *
+ * `D.paper_timeframes` carries the desk's own list through `payload.paper_state`, so the
+ * two cannot drift again; the constant below is only the fallback for a payload built
+ * before the field existed. Coarse to fine, and anything unknown that shows up in the rows
+ * is appended rather than dropped — an old record still has a home. */
+const PAPER_TF_ORDER = ["1d", "4h", "2h", "1h", "15m", "5m"];
+const paperTimeframes = () => {
+  const offered = (D.paper_timeframes && D.paper_timeframes.length)
+    ? D.paper_timeframes : PAPER_TF_ORDER;
+  const seen = new Set(D.strategies.map(s => s.tf).filter(Boolean));
+  return [...offered, ...[...seen].filter(t => !offered.includes(t))];
+};
+const paperTfPills = () => paperTimeframes().map(t => [t, t]);
+
 /* Mine versus everybody else's. The rows carry an `account`, `D.account` says who is
  * looking, and `D.house` names the desk's own — a promoted book belongs to the desk
  * rather than to a person, so the owner reads it as theirs.
@@ -611,7 +630,7 @@ function paperMaster() {
     <span class="f-group"><span class="f-label">Asset</span>
       ${pills(paperClassPills(), pf.cls, "data-cls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${pills([["1d", "1d"], ["4h", "4h"]], pf.tf, "data-tf")}</span></div>
+      ${pills(paperTfPills(), pf.tf, "data-tf")}</span></div>
 
   <div id="paper-body"></div>`;
 
@@ -765,24 +784,24 @@ async function loadPaperCurves() {
 }
 
 /* A compact area-less line on a linear scale. These windows span months, not decades, so
- * the log treatment the research charts need would only flatten the detail here. */
-function pnlSpark(curve, bench, w = 560, h = 96) {
-  const sets = bench && bench.length ? [curve, bench] : [curve];
-  const all = sets.flat().filter(v => isFinite(v));
-  if (all.length < 2) return "";
-  const lo = Math.min(...all, 100), hi = Math.max(...all, 100), span = (hi - lo) || 1;
+ * the log treatment the research charts need would only flatten the detail here.
+ *
+ * ONE series: the strategy. The dashed "same basket held" line that used to be drawn
+ * underneath came off the paper pages on 2026-08-17 — see the note on `pnlFigure`. */
+function pnlSpark(curve, w = 560, h = 96) {
+  const s = (curve || []).filter(v => isFinite(v));
+  if (s.length < 2) return "";
+  const lo = Math.min(...s, 100), hi = Math.max(...s, 100), span = (hi - lo) || 1;
   const pad = 6;
   const y = v => pad + (1 - (v - lo) / span) * (h - pad * 2);
-  const line = (s, k) => `<polyline points="${s.map((v, i) =>
-      `${(i / Math.max(s.length - 1, 1)) * w},${y(v)}`).join(" ")}" fill="none"
-      stroke="${k ? "var(--muted)" : (curve[curve.length - 1] >= 100 ? "var(--gain)" : "var(--loss)")}"
-      stroke-width="${k ? 1 : 1.6}" ${k ? 'stroke-dasharray="3 2"' : ""}
-      vector-effect="non-scaling-stroke"/>`;
   return `<svg class="pnl-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
       aria-hidden="true">
     <line x1="0" x2="${w}" y1="${y(100)}" y2="${y(100)}" stroke="var(--hair-2)"
       stroke-width="1" vector-effect="non-scaling-stroke"/>
-    ${sets.map((s, k) => line(s, k)).reverse().join("")}</svg>`;
+    <polyline points="${s.map((v, i) =>
+        `${(i / Math.max(s.length - 1, 1)) * w},${y(v)}`).join(" ")}" fill="none"
+      stroke="${s[s.length - 1] >= 100 ? "var(--gain)" : "var(--loss)"}"
+      stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 /* ---------- the live record, per system ----------
@@ -843,29 +862,33 @@ function pnlLive(curve, bench, breaks, w = 620, h = 128) {
  * Without a number on the axis the shape is not just uninformative, it is misleading.
  *
  * So the figure adds the three things the plot cannot carry itself: the range it was
- * drawn over, a legend (two series, and telling them apart was left to a paragraph three
- * inches below), and the endpoints of the time axis.
+ * drawn over, a key, and the endpoints of the time axis.
  *
  * The labels are HTML beside the SVG rather than <text> inside it, because the plot is
  * drawn with `preserveAspectRatio="none"` — it stretches to its container, and any text
  * within would stretch with it.
- */
-function pnlFigure(curve, bench, breaks, opts = {}) {
+ *
+ * **ONE LINE: the system's own record** (2026-08-17). The dashed "same basket held"
+ * benchmark is gone from every paper-side chart. It is not gone from the repo — the
+ * comparison a strategy is actually judged on is the risk-matched one on the backtest
+ * detail page, over years, and that is where it belongs. Days of paper fills against a
+ * basket held over the same days is not that comparison and was reading as though it
+ * were. `bench_curve` is still published and still drawn on the ranked list, where the
+ * market line is context for a 34px sparkline rather than a verdict. */
+function pnlFigure(curve, breaks, opts = {}) {
   const cur = (curve || []).filter(v => isFinite(v));
   if (cur.length < 2) return "";
-  const bn = (bench || []).filter(v => isFinite(v));
-  const all = cur.concat(bn, [0]);
+  const all = cur.concat([0]);
   let lo = Math.min(...all), hi = Math.max(...all);
   if (hi - lo < 1e-9) { const mid = (hi + lo) / 2; lo = mid - 0.5; hi = mid + 0.5; }
   const last = cur[cur.length - 1];
-  const benchLast = bn.length ? bn[bn.length - 1] : null;
   return `
   <figure class="pnl-fig">
     <div class="pnl-plot">
       <div class="pnl-scale" aria-hidden="true">
         <span>${fmtPct(hi)}</span><span>${fmtPct(lo)}</span>
       </div>
-      ${pnlLive(cur, bn, breaks, 620, 128)}
+      ${pnlLive(cur, null, breaks, 1200, 220)}
     </div>
     <div class="pnl-axis">
       <span>${esc(opts.from || "start")}</span>
@@ -874,10 +897,223 @@ function pnlFigure(curve, bench, breaks, opts = {}) {
     <figcaption class="pnl-key">
       <span class="key"><i class="key-line ${sign(last)}"></i>this system
         <b class="num ${sign(last)}">${fmtPct(last)}</b></span>
-      ${benchLast == null ? "" : `<span class="key"><i class="key-line dash"></i>the same
-        basket held <b class="num">${fmtPct(benchLast)}</b></span>`}
     </figcaption>
   </figure>`;
+}
+
+/* ---------- the live record, as numbers ----------
+ * The same table the backtest detail page carries, computed over what the DESK did rather
+ * than over a 23-year book — and with **no benchmark column**. That is deliberate and it
+ * is not the same decision as the one on the backtest page: there, a strategy is scored
+ * against the same basket held at the strategy's own volatility over decades, which is a
+ * comparison that means something. Days of paper fills against days of holding is not
+ * that comparison, and printing it beside these figures invited it to be read as one.
+ * The verdict lives on `#/backtest`; this page reports the record.
+ *
+ * Everything here is arithmetic over `paper_curve` and the published fills, so it moves
+ * with the tick stream instead of freezing at build time. It is deliberately NOT the
+ * research definition — `stockhunt/stats.py` owns that one, it works on a returns series
+ * with a bill rate, and nothing on this page should be quoted against a sheet. The
+ * caption says so.
+ *
+ * Nominal bars a year, for annualising volatility and Sharpe. Crypto prints around the
+ * clock; the equity, ETF and commodity legs get a 6.5-hour session, which is why a 4h
+ * "day" is two bars and not six — the same stub `stockhunt.stats.bars` warns about. */
+const BARS_PER_YEAR = {
+  "1d":  { crypto: 365,    other: 252 },
+  "4h":  { crypto: 2190,   other: 504 },
+  "2h":  { crypto: 4380,   other: 819 },
+  "1h":  { crypto: 8760,   other: 1638 },
+  "15m": { crypto: 35040,  other: 6552 },
+  "5m":  { crypto: 105120, other: 19656 },
+};
+const barsPerYear = (cls, tf) => {
+  const e = BARS_PER_YEAR[tf];
+  return e ? (cls === "crypto" ? e.crypto : e.other) : null;
+};
+/* Under this many bars, a standard deviation is a rumour and annualising it is a lie with
+ * three decimal places. Those rows print an em-dash until the record is long enough,
+ * which is the honest answer for a desk that has been up for two days. */
+const MIN_METRIC_BARS = 20;
+
+function liveMetrics(rows, curve, cls, tf) {
+  const c = (curve || []).filter(v => isFinite(v));
+  // `paper_curve` is cumulative P&L in PERCENT, so the equity index is 1 + pct/100 and a
+  // per-bar return is the ratio of consecutive points — not their difference.
+  const eq = c.map(v => 1 + v / 100);
+  const rets = eq.slice(1).map((v, i) => eq[i] ? v / eq[i] - 1 : 0);
+  const n = rets.length;
+  const mean = n ? rets.reduce((a, b) => a + b, 0) / n : null;
+  const sd = n > 1
+    ? Math.sqrt(rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : null;
+  const bpy = barsPerYear(cls, tf);
+  const enough = n >= MIN_METRIC_BARS && sd > 0 && bpy;
+
+  let peak = -Infinity, dd = 0;
+  c.forEach(v => { peak = Math.max(peak, v); dd = Math.min(dd, v - peak); });
+
+  const fills = systemFills(rows);
+  const closed = fills.filter(t => Number(t.pnl) !== 0);
+  const wins = closed.filter(t => t.pnl > 0), losses = closed.filter(t => t.pnl < 0);
+  const sum = l => l.reduce((a, t) => a + t.pnl, 0);
+  const grossLoss = Math.abs(sum(losses));
+
+  return {
+    total: c.length ? c[c.length - 1] : null,
+    bars: c.length,
+    best: n ? Math.max(...rets) * 100 : null,
+    worst: n ? Math.min(...rets) * 100 : null,
+    maxdd: c.length ? dd : null,
+    vol: enough ? sd * Math.sqrt(bpy) * 100 : null,
+    sharpe: enough ? mean / sd * Math.sqrt(bpy) : null,
+    bpy,
+    lifetime: rows.reduce((a, s) => a + fillsOf(s), 0),
+    closed: closed.length,
+    capped: fills.length < rows.reduce((a, s) => a + fillsOf(s), 0),
+    win_rate: closed.length ? wins.length / closed.length * 100 : null,
+    profit_factor: grossLoss ? sum(wins) / grossLoss : null,
+    avg_win: wins.length ? sum(wins) / wins.length : null,
+    avg_loss: losses.length ? sum(losses) / losses.length : null,
+    turnover: turnoverOf(rows),
+  };
+}
+
+/* [label, printed value, what it means]. Flat rather than driven by a key list like
+ * `METRIC_ROWS`, because half of these are counts and dollars that need their own
+ * formatter and a shared one would be a switch statement pretending to be a table. */
+function liveMetricRows(m) {
+  const dash = "—";
+  const dollars = v => v == null ? dash
+    : (v >= 0 ? "+" : "−") + "$" + Math.abs(v).toLocaleString(undefined,
+        { maximumFractionDigits: 2 });
+  const short = `not yet — needs ${MIN_METRIC_BARS} bars of record, there ` +
+    `${m.bars === 1 ? "is" : "are"} ${m.bars}`;
+  return [
+    ["Total P&L", fmtPct(m.total),
+     "Cumulative percent since this system's first fill, chained across restarts."],
+    ["Max drawdown", m.maxdd == null ? dash : fmtPct(m.maxdd, 2),
+     "Worst fall from a high-water mark of the live record. Percentage points of P&L, not of equity."],
+    ["Volatility", m.vol == null ? dash : fmtNum(m.vol, 1) + "%",
+     m.vol == null ? short
+       : `Annualised standard deviation of the bar-to-bar record, on ${m.bpy} bars a year.`],
+    ["Sharpe", m.sharpe == null ? dash : fmtNum(m.sharpe, 2),
+     m.sharpe == null ? short
+       : "Mean bar return over its standard deviation, annualised, idle cash at 0%. Months of record before this means anything."],
+    ["Best bar", m.best == null ? dash : fmtPct(m.best),
+     "Largest single-bar gain on the record."],
+    ["Worst bar", m.worst == null ? dash : fmtPct(m.worst),
+     "Largest single-bar loss on the record."],
+    ["Fills", m.lifetime.toLocaleString(),
+     "Every order that filled, lifetime — the count in the database, not this session's."],
+    ["Closed trades", m.closed.toLocaleString(),
+     "Fills that realised a P&L, so an opening buy is not counted."],
+    ["Win rate", m.win_rate == null ? dash : fmtNum(m.win_rate, 1) + "%",
+     "Share of closed trades that realised a gain. A low rate is fine if the wins are large."],
+    ["Profit factor", m.profit_factor == null ? dash : fmtNum(m.profit_factor, 2),
+     "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses."],
+    ["Average win", dollars(m.avg_win), "Mean realised P&L of a winning trade."],
+    ["Average loss", dollars(m.avg_loss), "Mean realised P&L of a losing trade."],
+    ["Turnover / yr", m.turnover == null ? dash : fmtNum(m.turnover, 1),
+     "Round trips per name per year — the unit the walk-forward sheets report, so the two compare."],
+    ["Bars recorded", m.bars.toLocaleString(),
+     "Closed bars behind every figure above. This is the number that says how much to trust them."],
+  ];
+}
+
+function liveMetricsSection(rows, curve, cls, tf) {
+  const m = liveMetrics(rows, curve, cls, tf);
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>Performance metrics</h2>
+      <span class="sec-note">the live record itself — no benchmark column</span></div>
+    <div class="tbl-wrap metrics-box"><table>
+      <thead><tr><th class="l">Metric</th><th>Value</th>
+        <th class="l">What it means</th></tr></thead>
+      <tbody>${liveMetricRows(m).map(([name, val, help]) => `
+        <tr><td class="l">${name}</td>
+          <td class="num">${val}</td>
+          <td class="l" style="white-space:normal;color:var(--muted);font-size:12.5px">${help}</td>
+        </tr>`).join("")}</tbody>
+      <caption>Measured over ${m.bars} closed bar${m.bars === 1 ? "" : "s"} of
+      ${isReplay() ? "replay" : "paper trading"}${m.capped ? ` and the last
+      ${systemFills(rows).length} fills the board carries` : ""} — a record this short
+      describes the plumbing, not the rule. There is deliberately no buy-and-hold column:
+      the comparison that decides whether a strategy is worth running is the risk-matched
+      one over decades, on the <a href="#/backtest">backtest</a> page. These are also the
+      desk's own arithmetic and not the research definitions in
+      <code>stockhunt/stats.py</code>, so do not quote them against a sheet.</caption>
+    </table></div>
+  </section>`;
+}
+
+/* ---------- the fills ----------
+ * Every deployment's published fills as one list, newest first, with the symbol carried
+ * onto each row — a book's fills already name theirs, a per-symbol deployment's do not.
+ *
+ * `paper_state.MAX_TRADES` caps what the desk publishes at 200 per strategy while
+ * `lifetime_trades` counts the whole database, so the two disagree on a busy system and
+ * the page has to say which it is showing rather than quietly printing the shorter one. */
+const systemFills = rows => rows
+  .flatMap(s => (s.trades || []).map(t => ({ ...t, symbol: t.symbol || s.symbol })))
+  .sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+
+const csvCell = v => {
+  const s = v == null ? "" : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+function fillsCsv(rows) {
+  const head = ["time", "symbol", "side", "qty", "price", "realised_pnl"];
+  const body = systemFills(rows).map(t =>
+    [t.ts, t.symbol, t.side, t.qty, t.price, t.pnl].map(csvCell).join(","));
+  return [head.join(","), ...body].join("\n") + "\n";
+}
+
+/* A Blob and a synthetic click — the board is static files behind a login and has no
+ * endpoint to ask for a file, and it does not need one: everything in the table is
+ * already in the page. */
+function downloadFills(rows, cls, tf, rule) {
+  const blob = new Blob([fillsCsv(rows)], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `stockhunt-${slug(cls)}-${slug(tf)}-${slug(rule)}-fills.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function fillsSection(rows) {
+  const fills = systemFills(rows);
+  const lifetime = rows.reduce((a, s) => a + fillsOf(s), 0);
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>Trade history</h2>
+      <span class="sec-note">${fills.length < lifetime
+        ? `the last ${fills.length.toLocaleString()} of ${lifetime.toLocaleString()} fills`
+        : `${fills.length.toLocaleString()} fill${fills.length === 1 ? "" : "s"}`},
+        newest first</span></div>
+    ${fills.length ? `
+    <div class="tbl-tools">
+      <button class="btn" data-csv="fills">Export CSV</button>
+      ${fills.length < lifetime ? `<span class="sec-note">The desk publishes its most
+        recent ${fills.length.toLocaleString()} fills per system; the full record stays in
+        <code>paper.db</code>.</span>` : ""}
+    </div>
+    <div class="tbl-wrap fills-box"><table>
+      <thead><tr><th class="l">Time</th><th class="l">Asset</th><th class="l">Side</th>
+        <th>Qty</th><th>Price</th><th>Realised P&amp;L</th></tr></thead>
+      <tbody>${fills.map(t => `
+        <tr><td class="l">${esc(t.ts || "")}</td>
+          <td class="l">${esc(t.symbol || "")}</td>
+          <td class="l ${t.side === "BUY" ? "gain" : "loss"}">${esc(t.side || "")}</td>
+          <td>${fmtUnits(t.qty)}</td>
+          <td>${t.price == null ? "—"
+            : Number(t.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+          <td class="${sign(t.pnl)}">${t.pnl == null ? "—"
+            : (t.pnl >= 0 ? "+" : "−") + "$" + Math.abs(t.pnl).toLocaleString(undefined,
+                { maximumFractionDigits: 2 })}</td></tr>`).join("")}</tbody>
+    </table></div>`
+    : `<p class="sec-note">No fills yet — this system has not opened a position.</p>`}
+  </section>`;
 }
 
 /* One curve for the SYSTEM, from however many deployments it has. Books are one row and
@@ -902,17 +1138,18 @@ function systemCurve(rows, field) {
 // the marks are kept only where they can still be read literally: a single record.
 const systemBreaks = rows => rows.length === 1 ? (rows[0].curve_breaks || []) : [];
 
-function pnlPanel(entry, label, withBench) {
+/* One simulated window. The rule's own line and nothing else — no dashed basket and no
+ * "buy & hold x%" beside the label, for the reason given on `pnlFigure`. */
+function pnlPanel(entry, label) {
   if (!entry) return `<p class="sec-note">No simulated history for this window.</p>`;
   const d = entry.dates || [];
   return `
   <div class="pnl-wrap">
     <div class="pnl-head">
       <span class="pnl-val num ${sign(entry.pnl_pct)}">${fmtPct(entry.pnl_pct)}</span>
-      <span class="pnl-lbl">${label}${withBench && entry.bench_pnl_pct != null
-        ? ` · buy &amp; hold ${fmtPct(entry.bench_pnl_pct)}` : ""}</span>
+      <span class="pnl-lbl">${label}</span>
     </div>
-    ${pnlSpark(entry.curve, withBench ? entry.bench : null)}
+    ${pnlSpark(entry.curve, 600, 150)}
     <div class="pnl-axis"><span>${esc(d[0] || "")}</span><span>${esc(d[d.length - 1] || "")}</span></div>
   </div>`;
 }
@@ -1133,7 +1370,6 @@ function paintSystem() {
 
   const a = aggregate(rows);
   const live = systemCurve(rows, "paper_curve");
-  const bench = systemCurve(rows, "bench_curve");
   const breaks = systemBreaks(rows);
   const since = rows[0].since;
   const days = Math.max(...rows.map(s => s.days || 0), 0);
@@ -1182,9 +1418,8 @@ function paintSystem() {
               if (!e) return "";
               return `<div class="mini-win">
                 <span class="hist-lbl">${label}</span>
-                ${pnlSpark(e.curve, e.bench, 300, 46)}
-                <span class="hist-nums"><b class="${sign(e.pnl_pct)}">${fmtPct(e.pnl_pct)}</b>
-                  <span>hold ${fmtPct(e.bench_pnl_pct)}</span></span>
+                ${pnlSpark(e.curve, 300, 46)}
+                <span class="hist-nums"><b class="${sign(e.pnl_pct)}">${fmtPct(e.pnl_pct)}</b></span>
               </div>`; }).join("")}
           </figure>`; }).join("");
         return cards ? `<div class="minis">${cards}</div>` : "";
@@ -1230,7 +1465,7 @@ function paintSystem() {
           since ? ` since ${esc(since)}` : ""}</span>
       </div>
       ${live.length > 1
-        ? pnlFigure(live, bench, breaks, {
+        ? pnlFigure(live, breaks, {
             from: since || "start",
             to: days ? `${days} day${days === 1 ? "" : "s"} in` : "today" })
         : `<p class="pnl-young">The live record is
@@ -1240,24 +1475,34 @@ function paintSystem() {
     </div>
   </section>
 
+  ${liveMetricsSection(rows, live, cls, tf)}
+
   <section class="sec">
     <div class="sec-head"><h2>Simulated history</h2>
       <span class="sec-note">not traded — the same rule over recent bars</span></div>
     ${sim ? `
     <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
-      pnlPanel(sim[w], label, true)).join("")}</div>
-    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: the same
-      rule over the same instruments' recent history, solid the system and dashed the
-      basket held. They say how it <em>would</em> have gone; the record above is what it
-      did.</p>`
+      pnlPanel(sim[w], label)).join("")}</div>
+    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: this rule
+      over the same instruments' recent history. They say how it <em>would</em> have gone;
+      the record above is what it did. Whether it beats holding is the multi-year
+      question, and it is answered on the backtest page, not by three months of either
+      line.</p>`
     : `<p class="sec-note pnl-caveat">No simulated history for this system —
       <code>python paper_curves.py</code> has not been run since it was promoted, so there
       is nothing to show beside the live record.</p>`}
   </section>
 
+  ${fillsSection(rows)}
+
   ${assets || `<p class="sec-note">No holdings published for this system yet.</p>`}`;
 
   bindGo(host);
+  /* Re-bound on every tick repaint, which is the point: `#sys-body` is rewritten whole, so
+   * a listener attached once would be attached to a node that no longer exists. The rows
+   * are read at click time, so the file is always the fills currently on the page. */
+  const dl = host.querySelector("[data-csv]");
+  if (dl) dl.onclick = () => downloadFills(rows, cls, tf, rule);
 }
 
 
@@ -1300,11 +1545,10 @@ function paperDetail(id) {
          `lineChart` draws its reference line at 100 — an index baseline, off the top of a
          chart that runs either side of zero. It also knows about `curve_breaks`. */
       ? `<div class="panel sys-live">
-          ${pnlLive(s.paper_curve, s.bench_curve, s.curve_breaks)}
+          ${pnlLive(s.paper_curve, null, s.curve_breaks, 1200, 220)}
           <div class="legend"><span><i class="sw"
               style="background:${(s.paper_pnl_pct || 0) >= 0 ? "var(--gain)" : "var(--loss)"}"></i>
-              Cumulative P&amp;L</span>
-            <span><i class="sw" style="background:var(--muted)"></i>Buy &amp; hold</span></div>
+              Cumulative P&amp;L</span></div>
           <p class="sec-note">${isReplay()
             ? `Historical bars, so this <em>is</em> long enough to look at — but it is the
                same period the research already scored, not new evidence. Its job here is
@@ -1352,6 +1596,13 @@ const CLASS_LABEL = { stocks: "Top 100 US Stocks", crypto: "Crypto", etf: "ETFs"
 const CLASS_ARG = { stocks: "us_stocks", crypto: "crypto", etf: "us_etfs",
                     commodities: "commodities" };
 const universePills = () => Object.keys(D.backtest).map(k => [k, CLASS_LABEL[k] || k]);
+/* `dash_config.TIMEFRAMES` through the payload, not a literal pair. It is the list
+ * `payload.build` asked for sheets on, so a timeframe the research gains appears here the
+ * moment its sheets do — and one it has no sheet for still gets a button, which is what
+ * leaves the empty state (the command to run) reachable. */
+const btTimeframes = () => (D.timeframes && D.timeframes.length ? D.timeframes
+  : ["1d", "4h"]);
+const btTfPills = () => btTimeframes().map(t => [t, t]);
 
 function backtestMaster() {
   if (!D.backtest[bf.cls]) bf.cls = Object.keys(D.backtest)[0];
@@ -1376,7 +1627,7 @@ function backtestMaster() {
     <span class="f-group"><span class="f-label">Asset class</span>
       ${pills(universePills(), bf.cls, "data-bcls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${pills([["1d", "1d"], ["4h", "4h"]], bf.tf, "data-btf")}</span></div>
+      ${pills(btTfPills(), bf.tf, "data-btf")}</span></div>
 
   <div id="bt-body"></div>`;
 
@@ -2837,11 +3088,17 @@ function repaintPaper() {
   if (location.hash.startsWith("#/paper/sys/")) {
     const host = document.getElementById("sys-body");
     if (!host) return;
-    const lefts = [...host.querySelectorAll(".tbl-wrap")].map(w => w.scrollLeft);
+    // Vertical as well as horizontal: the fills list scrolls inside its own box, and a
+    // reader three hundred rows down it would otherwise be thrown back to the newest fill
+    // on every tick.
+    const at = [...host.querySelectorAll(".tbl-wrap")]
+      .map(w => [w.scrollLeft, w.scrollTop]);
     const y = window.scrollY;
     paintSystem();
     [...host.querySelectorAll(".tbl-wrap")].forEach((w, i) => {
-      if (lefts[i]) w.scrollLeft = lefts[i];
+      if (!at[i]) return;
+      if (at[i][0]) w.scrollLeft = at[i][0];
+      if (at[i][1]) w.scrollTop = at[i][1];
     });
     window.scrollTo(0, y);
     return;

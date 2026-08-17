@@ -33,6 +33,18 @@ from dash_config import (BRIEF_EQUITIES, GROUPS, HEADLINE, TIMEFRAMES, TOP_N,
                          WFO_RESULTS)
 from stockhunt.artifacts import read_bulk
 
+# The timeframes the DESK offers, taken from the desk rather than restated. The paper
+# page's filter strip was a hard-coded `1d / 4h` while `MEMBER_TIMEFRAMES` had grown to
+# six, so a member's strategy registered at 1h or 5m ran, published, and could not be
+# reached from this board at all -- the same failure the class strip had, one axis over.
+#
+# `paper_config` is safe to import here and is the ONLY module in that folder that is: it
+# imports the backtest engine's `config` and nothing heavier, where `run_paper` and
+# `backtest_paper` would drag `nautilus_trader` into a page builder.
+if str(dash_config.PAPER) not in sys.path:
+    sys.path.insert(0, str(dash_config.PAPER))
+import paper_config                                                     # noqa: E402
+
 HERE = dash_config.HERE
 WEB = dash_config.WEB
 # Kept as `BM` because ~20 call sites below read it; it now points at the walk-forward
@@ -1102,8 +1114,13 @@ def paper_state() -> dict:
         return {"strategies": [], "venue": {"name": "Nautilus sandbox",
                                             "balance": 100000, "equity": 100000},
                 "feed": {"source": "Twelve Data", "plan": "pro",
-                         "status": "not running", "last_bar": "—"}}
+                         "status": "not running", "last_bar": "—"},
+                "timeframes": list(paper_config.MEMBER_TIMEFRAMES)}
     state = json.loads(p.read_text(encoding="utf-8"))
+    # Every timeframe the desk CAN run, not the ones something happens to be deployed on
+    # today -- the same rule the class strip follows, and for the same reason: a filter
+    # derived only from the live rows cannot show you that nothing is running at 1h.
+    state["timeframes"] = list(paper_config.MEMBER_TIMEFRAMES)
     # Tag membership here rather than in the node: it is a presentation concern, and doing
     # it at build time means the grouping can change without restarting a running desk.
     for s in state.get("strategies", []):
@@ -1338,6 +1355,12 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
         "feed": paper["feed"], "venue": paper["venue"],
         "strategies": paper["strategies"],
         "paper_groups": paper.get("groups", []),
+        # Both filter strips read their options from here rather than carrying a literal
+        # pair in the page. `timeframes` is what the RESEARCH has sheets for
+        # (`dash_config.TIMEFRAMES`); `paper_timeframes` is what the DESK will accept a
+        # registration at, which is the wider list.
+        "timeframes": list(TIMEFRAMES),
+        "paper_timeframes": paper.get("timeframes", []),
         "research": {
             # The retired four, so the diagnostic strip on each leaderboard row is
             # explicable rather than mysterious.

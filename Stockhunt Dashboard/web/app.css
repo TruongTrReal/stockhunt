@@ -469,8 +469,12 @@ code{font-family:var(--mono);font-size:.9em;color:var(--ink-2);}
 .grp-live{display:flex;flex-direction:column;justify-content:center;min-width:0;
   min-height:34px;}
 .grp-live .pnl-chart{width:100%;height:34px;}
-.sys-live{display:flex;flex-direction:column;gap:14px;padding:10px 0 18px;max-width:820px;}
-.sys-live .pnl-chart{height:128px;}
+/* Full rail, not 820px. The record is the thing this page is FOR, and it was drawn in the
+   left two thirds of the column with the rest of the row empty — so the one series on it
+   was compressed into a flat wiggle beside a gap. It gets the width the table under it
+   already had. */
+.sys-live{display:flex;flex-direction:column;gap:14px;padding:10px 0 18px;}
+.sys-live .pnl-chart{height:220px;}
 .sys-headline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
 .sys-headline .pnl-val{font-size:26px;}
 
@@ -512,9 +516,27 @@ code{font-family:var(--mono);font-size:.9em;color:var(--ink-2);}
 .sys-facts dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;
   font-size:15px;color:var(--ink);}
 .sys-facts .of{font-family:var(--sans);font-size:12px;color:var(--muted);}
-.sim-wins{display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:820px;
-  padding-bottom:4px;}
+.sim-wins{display:grid;grid-template-columns:1fr 1fr;gap:32px;padding-bottom:4px;}
+.sim-wins .pnl-chart{height:150px;}
 @media (max-width:700px){.sim-wins{grid-template-columns:1fr;}}
+
+/* ---------- the fills, and the file they come out as ----------
+   The list is capped in height rather than paginated: 200 fills is a scroll, not a
+   navigation problem, and `#sys-body` is rewritten on every tick — so any expand/collapse
+   state would be thrown away twice a second. A scroll position survives, because
+   `repaintPaper` puts it back. */
+.tbl-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:2px 0 12px;}
+.btn{font:inherit;font-size:12.5px;line-height:1;white-space:nowrap;padding:8px 14px;
+  cursor:pointer;color:var(--ink);background:none;border:1px solid var(--hair-2);
+  border-radius:999px;}
+.btn:hover{border-color:var(--ink);}
+.fills-box{max-height:560px;overflow-y:auto;}
+.fills-box thead th{position:sticky;top:0;z-index:2;background:var(--paper);}
+.fills-box tbody tr,.metrics-box tbody tr{cursor:default;}
+/* The value column is the one being read down; the explanation beside it is prose and is
+   given the room to wrap instead of being a fourth of a nine-column table. */
+.metrics-box td:nth-child(2){min-width:9ch;}
+.metrics-box td:last-child,.metrics-box th:last-child{width:100%;}
 
 /* Two windows side by side: "lately" and "this year" are the pair people compare, and a
    toggle would have made that a memory test. */

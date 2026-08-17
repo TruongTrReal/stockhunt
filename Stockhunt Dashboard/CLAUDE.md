@@ -393,6 +393,37 @@ What replaced them is per system, in the row:
   It re-ranks when the reader acts — loads the view, clicks a filter — and every tick
   repaint in between reuses that order. Numbers move several times a second; a list that
   re-sorts under the cursor cannot be read.
+- **Every DETAIL chart on the paper side draws one line: the system's own** (2026-08-17).
+  `pnlFigure`, `pnlPanel` and `pnlSpark` no longer take a benchmark, and the "buy & hold
+  x%" that sat beside each simulated window went with the dashed line. The `bench_curve`
+  is still published and is still drawn on **the ranked list**, at 34px, where a market
+  line is context rather than a verdict. Everything full-size is the record alone, and the
+  comparison a strategy is judged on stays where it can be made properly — risk-matched,
+  over decades, on `#/backtest`. The paper figures also stopped being capped at 820px:
+  they take the full 1240px rail, because the record is what these pages are for.
+
+### Every filter strip reads its options from the payload, never from a literal
+
+Both pill rows are built from lists `payload.build` ships, and the paper one had drifted
+badly: it was `1d / 4h` — the two horizons the **house** promotes its own books at — while
+the desk accepts a registration at any of six (`paper_config.MEMBER_TIMEFRAMES`, which is
+what `/v1/limits` advertises and what the join wizard offers). A member registering at 1h
+or 5m got a strategy that ran, filled and published, and a board with no button that could
+reach it. Same failure the class strip had before `paperClasses`, one axis over.
+
+| strip | source | field |
+|---|---|---|
+| paper timeframe | `paper_config.MEMBER_TIMEFRAMES`, via `paper_state()` | `D.paper_timeframes` |
+| backtest timeframe | `dash_config.TIMEFRAMES` — what `build` asked for sheets on | `D.timeframes` |
+| paper asset class | `PAPER_CLASS_ORDER` + anything unknown in the rows | — |
+
+Two rules that follow from it. **The list is what the desk CAN run, not what it happens to
+be running** — a timeframe with nothing deployed still gets a pill, because "nothing is
+running at 1h" is a fact worth being able to check, and the empty state under it already
+says so. And **anything unknown in the rows is appended, never dropped**, so an old record
+still has a home. `payload.py` imports `paper_config` for this: it is the one module in
+that folder that is safe here, importing the backtest engine's `config` and nothing
+heavier.
 
 ## The list is a list; a system has its own page (2026-08-17)
 
@@ -408,10 +439,11 @@ unreadable — which is the only thing the list is for. None of it had a URL eit
 disclosure triangle cannot be bookmarked, linked in a message, or sent to somebody.
 
 The page carries, in this order: a `.strip` of six tiles (P&L, fills, names held, turnover,
-equity, running), the live record as a `pnlFigure` rather than a 34px sparkline, the two
-simulated windows, and then **one section per universe** with every name in it.
+equity, running), the live record as a `pnlFigure` rather than a 34px sparkline, the
+**performance metrics** table, the two simulated windows, the **trade history** with its
+CSV export, and then **one section per universe** with every name in it.
 
-Five things to preserve:
+Seven things to preserve:
 
 - **The route sits BEFORE `#/paper/<id>` in `render`.** That pattern is `(.+)`, so it
   swallows `sys/...` whole and hands `paperDetail` an id no strategy has, which bounces
@@ -425,8 +457,28 @@ Five things to preserve:
   matching `slug(s.rule)` against the segment, the same way `backtestDetail` does.
 - **`#sys-body` is the volatile half.** The hero, the banners and the backtest pointer sit
   outside it so a tick repaint cannot move them. `repaintPaper` rebuilds only that
-  container, and it puts back the **horizontal** scroll of every `.tbl-wrap` as well as
-  `scrollY` — the holdings table is nine columns and would otherwise snap to column one
+  container, and it puts back the **horizontal and vertical** scroll of every `.tbl-wrap`
+  as well as `scrollY` — the holdings table is nine columns and would otherwise snap to
+  column one twice a second, and the fills list scrolls inside its own box.
+- **The metrics table has no benchmark column, and that is not the same decision as the
+  backtest page's.** There, a strategy is scored against the same basket held *at the
+  strategy's own volatility over decades*, which is a comparison that decides something.
+  Days of paper fills against days of holding is not that comparison, and printed beside
+  these figures it was being read as one. `liveMetrics` is the desk's own arithmetic over
+  `paper_curve` and the published fills — computed in the page so it moves with the tick
+  stream instead of freezing at build time, and deliberately **not** the research
+  definitions in `stockhunt/stats.py`. The caption says both. Volatility and Sharpe print
+  an em-dash under `MIN_METRIC_BARS` (20) rather than annualising a two-day record, and
+  `BARS_PER_YEAR` is nominal per (timeframe, 24/7-ness): a US equity 4h "day" is two bars,
+  not six.
+- **The fills table is what the DESK PUBLISHES, which is not the whole record.**
+  `paper_state.MAX_TRADES` caps it at 200 per strategy while `lifetime_trades` counts the
+  database, so the section header and the caption say which of the two is on screen. The
+  CSV export is a Blob built from the same rows — the board is static files behind a login
+  and has no endpoint to ask for a file, and it does not need one. Its handler is re-bound
+  inside `paintSystem` on every repaint, because `#sys-body` is rewritten whole and a
+  listener attached once would be attached to a node that no longer exists. For the same
+  reason the list is a scroll box and never an expand/collapse: state would be thrown away
   twice a second.
 - **The pointer to the backtest is checked, not assumed** (`backtestHref`). The desk runs
   promotions whose leaderboard row was cut by `TOP_N`, and a link that bounces back to the
