@@ -398,7 +398,7 @@ Collecting either from the root would make `pytest` require `fastapi` or
 
 ```powershell
 cd "paper api";            ..\.venv\Scripts\python -m pytest -q     # 148 tests
-cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py -q
+cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py -q
 ```
 
 The engine's files are named explicitly because the same folder also holds `__main__`

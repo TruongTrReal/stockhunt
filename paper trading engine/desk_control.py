@@ -89,6 +89,12 @@ DEFAULT_CAPITAL = 10_000.0
 # registering strategies until the venue account is meaningless.
 MAX_MEMBER_STRATEGIES = 60
 
+# How many of its own bars a member strategy may go without a single price before the desk
+# says so in the ledger. Three, because one missed poll is normal — `td_nautilus` retries,
+# and a vendor that is slow to settle a bar produces exactly one gap — while three in a row
+# is a subscription that is not working rather than a feed that is late.
+FEED_SILENCE_BARS = 3
+
 
 # Nautilus caps `order_id_tag` at 36 characters and REJECTS a duplicate outright, so a
 # plain slice is a collision waiting for two long names that share a prefix.
@@ -129,6 +135,8 @@ class DeskController(Controller):
     def __init__(self, config: DeskControllerConfig, trader) -> None:
         super().__init__(trader=trader, config=config)
         self._running: dict[str, object] = {}       # registration_id -> strategy instance
+        self._attached_at: dict[str, object] = {}   # registration_id -> when it went live
+        self._quiet: set[str] = set()               # already reported as receiving nothing
         self._universe_at = None                    # when the slow lane last ran
         self.ticks = 0
         self.applied = 0
@@ -175,6 +183,11 @@ class DeskController(Controller):
             except Exception as exc:
                 self.log.error(f"membership refresh failed: {exc}")
                 failed = failed or f"membership refresh failed: {exc}"
+        try:
+            self._watch_feeds(now)
+        except Exception as exc:
+            self.log.error(f"feed watch failed: {exc}")
+            failed = failed or f"feed watch failed: {exc}"
         try:
             self._drain()
         except Exception as exc:
@@ -336,6 +349,8 @@ class DeskController(Controller):
         # exactly the kind of red herring that gets investigated at 2am.
         self.create_strategy(strategy, start=self._trader.is_running)
         self._running[rid] = strategy
+        self._attached_at[rid] = self.clock.utc_now()
+        self._quiet.discard(rid)
         deskdb.mark_registration(rid, "live")
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
 
@@ -394,7 +409,55 @@ class DeskController(Controller):
             note=f"{reg['name']}: orders arrive over the API. The desk executes and "
                  f"accounts; the strategy itself runs on the manager's own machine."))
 
+    # ------------------------------------------------------------------ is it fed?
+    def _watch_feeds(self, now) -> None:
+        """Say so when a strategy is attached and no prices are arriving.
+
+        A subscription that fails does so inside the data client, in a Nautilus task,
+        where the exception is logged and goes no further. The registration stays `live`,
+        the console stays green, and the only symptom reaches the manager as a refusal on
+        every order — *"no price for BTC/USD yet ... try again after the next 5m close"* —
+        which blames the next bar close for something no bar close will fix. Two member
+        strategies sat exactly like that for fifteen hours, both reading `live`.
+
+        So the desk checks the one thing it can observe from here: attached for longer
+        than `FEED_SILENCE_BARS` of its own bars, and still not one price. It writes a
+        REASON and leaves `state` alone — `live` is the truth, the strategy is attached
+        and would trade the moment a bar arrived, and demoting it would race `_reconcile`,
+        which owns that column. `reason` is already carried by `/v1/strategies` and
+        rendered under *Desk says*, so it reaches the person who can act on it.
+
+        Reported once per silence, and cleared when a price shows up, so a strategy that
+        recovers stops being accused of it.
+        """
+        for rid, strat in self._running.items():
+            if not isinstance(strat, MemberStrategy):
+                continue
+            since = self._attached_at.get(rid)
+            if since is None:
+                continue
+            fed = any(p for p in strat.prices().values())
+            if fed:
+                if rid in self._quiet:
+                    self._quiet.discard(rid)
+                    deskdb.mark_registration(rid, "live", reason=None)
+                    self.log.info(f"{rid}: prices are arriving again")
+                continue
+            if rid in self._quiet:
+                continue
+            if now - since < _bar_interval(strat.config.tf) * FEED_SILENCE_BARS:
+                continue
+            self._quiet.add(rid)
+            reason = (f"attached, but no {strat.config.tf} bar has arrived for "
+                      f"{', '.join(strat.config.symbols)} since it started. Orders will "
+                      f"be refused for want of a price until one does. Check the desk log "
+                      f"for a failed subscription.")
+            deskdb.mark_registration(rid, "live", reason=reason)
+            self.log.error(f"{rid}: {reason}")
+
     def _retire(self, rid: str) -> None:
+        self._attached_at.pop(rid, None)
+        self._quiet.discard(rid)
         strategy = self._running.pop(rid, None)
         if strategy is None:
             return
@@ -450,6 +513,18 @@ class DeskController(Controller):
 def td_equity(symbol: str, venue: str):
     import td_nautilus
     return td_nautilus.equity_instrument(symbol, venue)
+
+
+def _bar_interval(tf: str):
+    """How long one of this timeframe's bars is. Lazily, for the same reason as above:
+    `td_live` is the vendor client, and this module must stay readable without it.
+
+    `td_live.INTERVALS` is the one place a timeframe's length is written down — the same
+    table `td_nautilus.timeframe_of` now derives from — so the watchdog and the poller
+    cannot disagree about how long "three bars" is.
+    """
+    import td_live
+    return td_live.INTERVALS[tf][1]
 
 
 def td_pair(symbol: str, venue: str):

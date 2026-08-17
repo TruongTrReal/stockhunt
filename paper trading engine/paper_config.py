@@ -86,6 +86,16 @@ MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "2h", "1h", "15m", "5m")]
 # A timeframe on offer that the desk cannot subscribe to is a registration that is accepted
 # and then rejected minutes later, which is exactly the confusion the console was rebuilt
 # to remove. Checked at import so it fails on start rather than on somebody's first order.
+#
+# **This check is necessary and it is NOT sufficient, and the difference cost fifteen
+# hours.** `BAR_SPEC` comes from the BACKTEST engine's `TIMEFRAMES`, so all this proves is
+# that a bar type can be *spelled*. Whether the live vendor client can *subscribe* to it is
+# a fact about `td_nautilus.timeframe_of` and `td_live.INTERVALS`, and for a long time it
+# could not: six timeframes were offered here, two were feedable, and a member registering
+# at 5m got a strategy that read `live` in the console and had every order it ever sent
+# refused for want of a price. The capability check lives in `td_nautilus`, next to the
+# capability — this module is imported by `Stockhunt Dashboard/` and may not import the
+# trading stack to do it. Do not widen this list without checking that one too.
 _missing = [tf for tf in MEMBER_TIMEFRAMES if tf not in BAR_SPEC]
 if _missing:
     raise SystemExit(f"{', '.join(_missing)} in MEMBER_TIMEFRAMES has no BAR_SPEC; "

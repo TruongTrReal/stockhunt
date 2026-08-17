@@ -306,6 +306,37 @@ raised `KeyError('30m')` from inside `on_start` — leaving the registration `pe
 nothing said to its owner. `paper_config` also raises at import if any member timeframe has
 no bar spec.
 
+**That check proves a bar type can be SPELLED, not that it can be SUBSCRIBED TO, and the
+gap between those two cost fifteen hours of a forward test** (2026-08-17).
+`td_nautilus.timeframe_of` was two hardcoded branches — `1d` and `4h` — while this list
+offered six and `/v1/limits` advertised six. A member registering at `5m` got 201 from the
+API, a strategy that attached and logged `RUNNING`, and a registration marked **`live`**;
+the `ValueError` was raised inside `_subscribe_bars`, in a Nautilus task, where it is
+logged as an ERROR and goes nowhere. No bar ever arrived, so `_last_price` stayed empty, so
+every order that strategy ever sent was refused with *"no price for BTC/USD yet — try again
+after the next 5m close"*. Two strategies sat like that overnight, green in the console.
+
+Three things now stand where nothing stood:
+
+- **`timeframe_of` derives from `td_live.INTERVALS`** instead of listing branches. Nothing
+  else had to change to make `5m` work — the poller already knew `5min`, `_interval_delta`
+  already read the step from that table, and `_seconds_to_next_close` is modular arithmetic
+  over it. The two branches were the whole obstacle.
+- **`td_nautilus` raises `SystemExit` at import** if any `MEMBER_TIMEFRAMES` entry is
+  missing from `td_live.INTERVALS`. The check lives there rather than in `paper_config`
+  because the capability does, and because `paper_config` is imported by
+  `Stockhunt Dashboard/` and may not pull in the trading stack. **A guard belongs next to
+  the capability it guards, not next to the list it reads.**
+- **`DeskController._watch_feeds` reports silence.** A member strategy attached for more
+  than `FEED_SILENCE_BARS` (3) of its own bars with no price at all gets a `reason` written
+  onto its registration, which `/v1/strategies` already carries and the console already
+  renders under *Desk says*. `state` is left at `live`, because `live` is true and
+  `_reconcile` owns that column. The reason is cleared if prices start arriving.
+
+`test_feed_timeframes.py` is the regression test: every offered timeframe is feedable, and
+every one **round-trips** — a spec that maps to the wrong key polls on the wrong cadence,
+which is quieter still.
+
 **`1m` is excluded on purpose, and the reason is cost, not capability.** `td_nautilus` runs
 one poll task per subscription aligned to the bar close, so a minute book of ten symbols is
 ten Twelve Data requests every minute — a different credit regime, not a faster version of

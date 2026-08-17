@@ -188,18 +188,61 @@ def vendor_symbol(instrument_id: InstrumentId) -> str:
     return paper_config.SAFE_TO_VENDOR.get(s, s)
 
 
+# Nautilus aggregation -> the suffix this project spells a timeframe with. `INTERVALS` is
+# the authority on which of the resulting keys the vendor can actually serve.
+_TF_UNIT = {
+    BarAggregation.DAY: "d",
+    BarAggregation.HOUR: "h",
+    BarAggregation.MINUTE: "m",
+}
+
+
 def timeframe_of(bar_type: BarType) -> str:
     """Map a Nautilus bar spec back to this project's timeframe key.
 
     `spec.aggregation` is an int at runtime, not the enum member and not a string, so
     this compares against `BarAggregation` rather than pattern-matching a repr.
+
+    **Derived from `td_live.INTERVALS`, not from a list of branches.** It was two
+    hardcoded cases — `1d` and `4h` — while `paper_config.MEMBER_TIMEFRAMES` offered six
+    and `/v1/limits` advertised all six to managers. The failure that produced was as
+    quiet as it gets: a member registers at `5m`, the API returns 201, `_attach` accepts
+    it because the timeframe IS in `MEMBER_TIMEFRAMES`, the strategy attaches and logs
+    `RUNNING`, the desk marks the registration `live` — and then `_subscribe_bars` raises
+    in here, inside a Nautilus task, where it is logged as an ERROR and goes no further.
+    No bar ever arrives, so `_last_price` stays empty, so **every order that strategy ever
+    sends is rejected** with "no price for BTC/USD yet ... try again after the next 5m
+    close", which is advice that cannot come true. Two strategies sat like that for
+    fifteen hours, reading `live` in the console the whole time.
+
+    Nothing else needed changing: `td_live.INTERVALS` already carries `5min`, `15min`,
+    `1h` and `2h`, `_interval_delta` reads the step from it, and
+    `_seconds_to_next_close` is modular arithmetic over that step. The two branches were
+    the only thing in the way.
     """
     spec = bar_type.spec
-    if spec.aggregation == BarAggregation.DAY and spec.step == 1:
-        return "1d"
-    if spec.aggregation == BarAggregation.HOUR and spec.step == 4:
-        return "4h"
+    unit = _TF_UNIT.get(spec.aggregation)
+    key = f"{spec.step}{unit}" if unit else None
+    if key in td_live.INTERVALS:
+        return key
     raise ValueError(f"unsupported bar spec for this forward test: {spec}")
+
+
+# The offer and the capability, checked against each other at import.
+#
+# `paper_config` cannot do this itself — it is imported by `Stockhunt Dashboard/`, which
+# must not drag `nautilus_trader` into a build — so the check lives here, in the module
+# that owns the capability, and fires when the DESK starts rather than on somebody's first
+# order. This is the guard `paper_config.MEMBER_TIMEFRAMES` documents; it was previously
+# made against `BAR_SPEC`, which is derived from the BACKTEST engine's timeframe list and
+# therefore says nothing whatever about what the live vendor client can subscribe to.
+_unfeedable = [tf for tf in paper_config.MEMBER_TIMEFRAMES if tf not in td_live.INTERVALS]
+if _unfeedable:
+    raise SystemExit(
+        f"{', '.join(_unfeedable)} is offered in paper_config.MEMBER_TIMEFRAMES but "
+        f"td_live.INTERVALS cannot feed it. A timeframe a manager can register at and "
+        f"the desk cannot subscribe to is a strategy that reads `live` and can never "
+        f"trade.")
 
 
 def _interval_delta(timeframe: str) -> timedelta:
