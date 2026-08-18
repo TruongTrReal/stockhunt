@@ -17,6 +17,17 @@ Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
 
+# A BACKSTOP, not the fix. The descriptor leak that made this necessary is fixed in
+# `authdb._reap`; this is here so that the next leak of the same shape degrades slowly
+# enough to be noticed instead of taking the board down in an afternoon.
+#
+# systemd's default is 1024, which this process reached in about seven hours of ordinary
+# traffic on 2026-08-18 -- one visitor, a tab polling `index.html` once a minute. At the
+# limit every request that has to open a file fails with `OSError: [Errno 24]`, including
+# serving the board's own index.html, while the unit still reports active and nginx
+# returns 500. The symptom names the victim, never the cause.
+LimitNOFILE=65536
+
 # This process owns no trading and writes only its own state. Keep it that way.
 NoNewPrivileges=true
 PrivateTmp=true

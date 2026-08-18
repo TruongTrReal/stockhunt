@@ -38,10 +38,28 @@ import api_paths
 _lock = threading.RLock()
 
 # One connection per thread — see `connect()` for why a shared one silently corrupts reads
-# on a credential store. `_open` is every connection handed out, so `close()` can reach the
-# ones this thread did not create; `_generation` is what `use()` bumps to invalidate them.
+# on a credential store. `_open` lets `close()` reach the ones this thread did not create;
+# `_generation` is what `use()` bumps to invalidate them.
 _local = threading.local()
-_open: list[sqlite3.Connection] = []
+# Keyed by thread ident, and holding the Thread so liveness can be asked. It was a plain
+# list, and that leaked a file descriptor per short-lived caller: `_local` drops its
+# reference when a thread exits, but the list kept a strong one forever, so the connection
+# was never collected and its fd never closed. `sqlite3.Connection` cannot be weak-
+# referenced, so the registry has to be pruned rather than made weak — see `_reap`.
+#
+# This is the SAME bug `stockhunt/deskdb.py` fixed, and the same fix; it is written twice
+# because the two stores share no code. It is the BOARD that hits this one. FastAPI runs
+# every sync endpoint on an anyio worker thread, those expire after ~10s idle, and a page
+# left open polls `index.html` once a minute — so a quiet board gets a fresh thread, and
+# therefore a fresh connection, almost every request. The API reached the 1024-fd soft
+# limit in about seven hours of ordinary traffic, after which every request that had to
+# open a file — including serving the board's own `index.html` — failed with
+# `OSError: [Errno 24]` while systemd still reported the unit healthy and nginx served
+# 500s. Measured on the box 2026-08-18: 1023 of 1024 fds, 10.5 hours after a restart.
+#
+# It does not reproduce on Windows, which has no comparable per-process fd ceiling — so
+# this is a bug the dev box structurally cannot show you.
+_open: dict[int, tuple[threading.Thread, sqlite3.Connection]] = {}
 _generation = 0
 _db_path: Path = api_paths.AUTH_DB
 
@@ -209,6 +227,24 @@ def ago(seconds: float) -> str:
 
 # ---------------------------------------------------------------------------- connection
 
+def _reap() -> None:
+    """Close the connections of threads that have exited. Caller must hold `_lock`.
+
+    This is the whole fix for the descriptor leak described above `_open`. It runs from
+    `connect()` and therefore only on a cache miss — which, for the caller that leaks, is
+    exactly once per new thread, so the registry stays the size of the live thread count
+    instead of growing without bound.
+    """
+    for ident, (thread, conn) in list(_open.items()):
+        if thread.is_alive():
+            continue
+        try:
+            conn.close()
+        except Exception:
+            pass              # already closed; reaping must never raise into a request
+        _open.pop(ident, None)
+
+
 def connect() -> sqlite3.Connection:
     """Open (and migrate) the database. Safe to call repeatedly, and FROM ANY THREAD.
 
@@ -244,7 +280,19 @@ def connect() -> sqlite3.Connection:
         conn.executescript(SCHEMA)
         _migrate(conn)
         conn.executescript(POST_MIGRATION)
-        _open.append(conn)                 # so `close()` can reach every thread's
+        # Prune first, then register under this thread's ident. A recycled ident would
+        # otherwise orphan the previous connection exactly as the old list did.
+        _reap()
+        ident = threading.get_ident()
+        previous = _open.get(ident)
+        if previous is not None:
+            try:
+                previous[1].close()
+            except Exception:
+                pass
+        _open[ident] = (threading.current_thread(), conn)   # so `close()` reaches every
+                                                            # thread's, and `_reap` the
+                                                            # dead ones
         _local.conn = conn
         _local.generation = _generation
         return conn
@@ -290,14 +338,14 @@ def close() -> None:
     It is also what makes `use()` reach threads that already opened one: without it a
     worker keeps serving the previous allowlist.
     """
-    global _open, _generation
+    global _generation
     with _lock:
-        for conn in _open:
+        for _thread, conn in list(_open.values()):
             try:
                 conn.close()
             except Exception:
                 pass          # already closed, or its thread is gone; closing must not raise
-        _open = []
+        _open.clear()
         _generation += 1
     _local.conn = None
 
