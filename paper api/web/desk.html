@@ -557,11 +557,17 @@
         <button data-tab="1">Python</button>
         <button data-tab="2">cURL</button>
         <button data-tab="3">.env</button>
+        <!-- A different integration, not a fifth language. The three code tabs all send a
+             HEADER, which is the one thing a TradingView alert cannot do — so this tab
+             hands over a different credential and a message rather than a snippet. -->
+        <button data-tab="4">TradingView</button>
       </div>
       <pre id="code"></pre>
       <div class="codebar">
         <span id="code-note"></span>
         <span class="spacer"></span>
+        <button class="ghost small" id="w-tvurl" hidden>Copy the URL</button>
+        <button class="ghost small" id="w-tvmint" hidden>Mint the webhook secret</button>
         <button class="ghost small" data-copy="code">Copy</button>
         <button class="ghost small" id="dl" hidden>Download .md</button>
       </div>
@@ -1058,7 +1064,8 @@ const W = {                       // everything one run through the wizard colle
   step: 1, open: false,
   draft: null,                    // what step 1 gathered
   strategy: null,                 // what POST /v1/strategies gave back
-  key: null,                      // the secret, only if minted in this run
+  key: null,                      // the API key, only if minted in this run
+  tv: null,                       // the webhook secret, only if minted in this run
   mint: true,                     // which branch of step 3
   tab: 0,
   poll: null, baseline: null, hits: {key: false, order: false, applied: false},
@@ -1112,7 +1119,8 @@ function openWizard() {
         true);
     return;
   }
-  W.open = true; W.draft = null; W.strategy = null; W.key = null; W.mint = true; W.tab = 0;
+  W.open = true; W.draft = null; W.strategy = null; W.key = null; W.tv = null;
+  W.mint = true; W.tab = 0;
   W.hits = {key: false, order: false, applied: false};
   el("key-out").hidden = true; el("key-pick").hidden = false;
   el("f-name").value = ""; el("f-sym").value = ""; el("f-bench").value = "";
@@ -1133,11 +1141,14 @@ function openWizard() {
 }
 
 function closeWizard(force) {
-  // The key is the one thing that cannot be recovered, so leaving with it unread is the
-  // one exit worth interrupting.
-  if (!force && W.key && W.step < 5 &&
-      !confirm("Close now?\n\nYour key is not saved anywhere and cannot be shown again. " +
-               "Copy it first if you have not.")) return;
+  // A secret that cannot be shown again is the one thing leaving here can lose, so it is
+  // the one exit worth interrupting. Both credentials count: the webhook secret is stored
+  // as a hash exactly as the key is, and minting another is the only way back.
+  const unread = [W.key && "your API key", W.tv && "this strategy's webhook secret"]
+    .filter(Boolean).join(" and ");
+  if (!force && unread && W.step < 5 &&
+      !confirm(`Close now?\n\nYou minted ${unread}. That is not saved anywhere and ` +
+               "cannot be shown again. Copy it first if you have not.")) return;
   stopWatching();
   W.open = false;
   el("wiz").hidden = true;
@@ -1492,24 +1503,89 @@ STOCKHUNT_STRATEGY_ID=${W.strategy.strategy_id}
 STOCKHUNT_API_KEY=${W.key || KEY_PLACEHOLDER}`;
 }
 
+// The TradingView tab is not a fourth language, and the difference is the whole reason it
+// is here: the three snippets above put the API key in a HEADER, and a TradingView alert
+// cannot send one. So it hands over a different credential — scoped to this one strategy —
+// and a message to paste, not code to run.
+//
+// **Two secrets are now on one screen and they must never be swapped.** The key trades
+// everything the account owns; the webhook secret places orders for this strategy and
+// nothing else. Each appears in exactly ONE tab — the key in `.env`, the secret here — and
+// neither is in the agent brief, which exists to be pasted into a model's context.
+//
+// The message deliberately contains NOTHING but the JSON. The URL is a separate copy
+// button, because a comment line explaining it would be copied straight into TradingView's
+// Message box along with everything else, and the alert would fail on a body that is no
+// longer JSON.
+const WEBHOOK_PLACEHOLDER = "whk_…  ← press “Mint the webhook secret”";
+
+function tvSnippet() {
+  // Once minted, the message is the SERVER's — `_alert_body` in `api_strategies.py`, the
+  // same builder the desk-row panel shows. This page must not compose its own: the
+  // endpoint was written against that body, and a second copy here is the one that would
+  // still say `{{timenow}}` the day the first one stopped.
+  if (W.tv) return JSON.stringify(W.tv.alert, null, 2);
+
+  // Before minting there is nothing to hand over, so this is a preview of the shape with
+  // the secret missing. It is never what gets copied into a working alert.
+  const s = W.strategy;
+  const body = {
+    strategyId: s.strategy_id,
+    secret: WEBHOOK_PLACEHOLDER,
+    action: "{{strategy.order.action}}",
+    qty: "{{strategy.order.contracts}}",
+    bar_time: "{{time}}",
+  };
+  if (s.symbols.length > 1) body.ticker = "{{ticker}}";
+  return JSON.stringify(body, null, 2);
+}
+
+// Read off the mint response when there is one, for the reason the agent brief substitutes
+// `{{BASE}}` per request rather than baking it in: behind a tunnel or a proxy the scheme is
+// knowable only from the forwarded header, and this string goes straight into TradingView.
+function webhookUrl() {
+  return (W.tv && W.tv.url) || `${BASE}/v1/webhook/tradingview`;
+}
+
 const TAB_NOTE = [
   "Written for a model. Copy takes this plus the full contract from /desk/agent.md.",
   "The key is read from the environment, never written into the file.",
   "Set STOCKHUNT_API_KEY in your shell first.",
   "",
+  "",
 ];
 
 function drawTab() {
-  const body = [brief, pythonSnippet, curlSnippet, envSnippet][W.tab]();
+  const body = [brief, pythonSnippet, curlSnippet, envSnippet, tvSnippet][W.tab]();
   el("code").textContent = body;
   el("dl").hidden = W.tab !== 0;
-  el("code-note").textContent = W.tab === 3
-    ? (W.key ? "Contains your key. Treat this file as the secret."
-             : "Paste in the key you already hold.")
+  el("w-tvurl").hidden = W.tab !== 4;
+  el("w-tvmint").hidden = W.tab !== 4 || !!W.tv;
+  el("code-note").textContent =
+    W.tab === 3 ? (W.key ? "Contains your key. Treat this file as the secret."
+                         : "Paste in the key you already hold.")
+    : W.tab === 4 ? (W.tv
+        ? "Contains this strategy's webhook secret — not your API key. Alert Message box."
+        : "Alert on a STRATEGY, not an indicator. Mint the secret to fill it in.")
     : TAB_NOTE[W.tab];
   document.querySelectorAll("#tabs button").forEach(b =>
     b.classList.toggle("on", +b.dataset.tab === W.tab));
 }
+
+// Minted on a press, never on opening the tab. Clicking a tab to see what is behind it
+// must not leave a live credential on a strategy nobody is connecting.
+el("w-tvmint").onclick = async () => {
+  const b = el("w-tvmint");
+  b.disabled = true;
+  try {
+    W.tv = await j("POST",
+                   `/v1/strategies/${encodeURIComponent(W.strategy.strategy_id)}/webhook`);
+    drawTab();
+    wsay("Webhook secret minted. It is in the message below, and shown only here.");
+  } catch (e) { wsay(e.message, true); b.disabled = false; }
+};
+
+el("w-tvurl").onclick = ev => copy(webhookUrl(), ev.currentTarget);
 
 el("tabs").addEventListener("click", ev => {
   const b = ev.target.closest("button"); if (!b) return;
@@ -1556,16 +1632,26 @@ function tick(id, text) {
 
 async function pollOnce() {
   try {
-    const [keys, orders] = await Promise.all([
+    const sid = encodeURIComponent(W.strategy.strategy_id);
+    // The webhook is asked about only when one was minted in this run. Polling it
+    // otherwise would be a request per three seconds for a credential that does not exist.
+    const [keys, orders, hook] = await Promise.all([
       j("GET", "/auth/keys"),
-      j("GET", `/v1/orders?strategy_id=${encodeURIComponent(W.strategy.strategy_id)}` +
-               `&since_seq=0&limit=1`),
+      j("GET", `/v1/orders?strategy_id=${sid}&since_seq=0&limit=1`),
+      W.tv ? j("GET", `/v1/strategies/${sid}/webhook`) : Promise.resolve(null),
     ]);
     for (const k of keys) {
       if (k.last_used_at && k.last_used_at !== (W.baseline.get(k.id) || null)) {
         W.hits.key = true;
         tick("w-key", `Key ${k.prefix}… used at ${k.last_used_at.slice(11, 19)} UTC`);
       }
+    }
+    // A TradingView integration never uses the API key, so without this the first line
+    // could never tick and the screen would sit on "Watching…" through a working alert —
+    // the one outcome this panel exists to rule out.
+    if (hook && hook.last_used_at) {
+      W.hits.key = true;
+      tick("w-key", `TradingView called at ${hook.last_used_at.slice(11, 19)} UTC`);
     }
     if (orders.length) {
       const o = orders[0];
@@ -1593,7 +1679,11 @@ function startWatching() {
     el(id).classList.remove("hit");
     el(id).querySelector(".m").textContent = "·";
   }
-  el("w-key").lastElementChild.textContent = "Your key authenticates a request";
+  // Named after whichever credential this run actually produced. "Your key authenticates
+  // a request" is a false description of a TradingView setup, which never sends one.
+  el("w-key").lastElementChild.textContent = W.tv && !W.key
+    ? "TradingView calls with the webhook secret"
+    : "Your credential authenticates a request";
   el("w-order").lastElementChild.textContent = "An order reaches the ledger";
   el("w-applied").lastElementChild.textContent = "The desk applies it on its next pass";
   let left = 200;                     // ~10 minutes at 3s, then it stops asking

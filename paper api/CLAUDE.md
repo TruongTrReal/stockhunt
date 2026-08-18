@@ -285,14 +285,37 @@ Three things it must keep doing:
   the place to revoke, and both call the same `/auth/keys`. Closing the wizard with a key
   minted and uncopied is the one exit that interrupts, because that secret is genuinely
   unrecoverable.
-* **The secret appears in exactly one snippet — the `.env` tab.** Not in the agent brief:
-  that document exists to be pasted into a model's context, and a key pasted into a chat
-  log is a key that has to be treated as revoked. Python reads it from the environment and
-  cURL from `$STOCKHUNT_API_KEY` for the same reason.
+* **Each secret appears in exactly one tab, and neither is in the agent brief.** The API
+  key is in `.env`; the webhook secret is in `TradingView`. The brief exists to be pasted
+  into a model's context, and a credential pasted into a chat log is one that has to be
+  treated as revoked — which is also why Python and cURL read the key from
+  `$STOCKHUNT_API_KEY` rather than carrying it.
 
-The last screen polls two things a copied snippet cannot promise: whether a key has been
-used since the screen opened, and whether an order for *this* strategy reached the ledger.
-That is the integration proven end to end rather than asserted.
+  **The TradingView tab is a different integration, not a fifth language.** The three code
+  tabs all send a *header*, which is the one thing an alert cannot do, so this one hands
+  over a different credential and a message to paste. Two secrets are therefore on one
+  screen and must never be swapped — the key trades everything the account owns, the
+  webhook secret places orders for one strategy — so the note under the block names which
+  one is in it. It is minted on a **press**, never on opening the tab: clicking a tab to
+  see what is behind it must not leave a live credential on a strategy nobody is
+  connecting. And the message is the server's `_alert_body`, fetched rather than composed
+  here, because a second copy on this page is the one that would still say `{{timenow}}`
+  the day the first one stopped.
+
+  The block holds **nothing but the JSON**, and the webhook URL is a separate copy button
+  rather than a comment line above it — a comment would be copied straight into
+  TradingView's Message box with everything else, and the alert would fail on a body that
+  is no longer JSON.
+
+The last screen polls two things a copied snippet cannot promise: whether the **credential**
+has been used since the screen opened, and whether an order for *this* strategy reached the
+ledger. That is the integration proven end to end rather than asserted.
+
+Credential, not *key*, and the distinction is load-bearing now: a TradingView integration
+never sends the API key, so a check that only watched `/auth/keys` would sit on
+"Watching…" through a working alert — the exact outcome the panel exists to rule out. When
+a webhook secret was minted in the run, its `last_used_at` ticks the same line. The webhook
+is asked about only when one exists, so an ordinary run makes no extra request.
 
 ## There is one integration document, and the page renders it
 

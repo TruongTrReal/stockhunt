@@ -149,7 +149,8 @@ Everything else about it is `/v1/orders`: the same ledger, the same per-minute c
 same `202` meaning written down and never filled.
 
 **The credential is a per-strategy webhook secret, not your API key.** Mint it in the
-console next to the strategy it belongs to — `whk_…`, shown once. It can do exactly one
+console — the **TradingView** tab while registering, or the **TradingView** button on the
+strategy's row afterwards. It is `whk_…`, and it is shown once. It can do exactly one
 thing: place orders for that one strategy. Your `sk_live_…` key trades everything you own,
 reads your whole book and retires registrations, and an alert message is stored in plain
 text in TradingView's UI and travels in exports, so the two are deliberately not the same
