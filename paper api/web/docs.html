@@ -159,7 +159,12 @@ function render(md) {
     }
     if (raw.trim().startsWith("```")) { flushPara(); fence = raw; continue; }
 
-    if (/^ {4}\S/.test(raw) || (code.length && !raw.trim())) {   // indented block
+    // Starting a block takes four spaces and then content. CONTINUING one takes any line
+    // indented at least that far, blank ones included — and that middle case is the whole
+    // fix: a JSON example indents its fields six, so without it the `{` rendered as code
+    // and every field under it as a run-on paragraph. EVERY request body on this page was
+    // torn in half that way, /v1/orders included, which is the one people copy.
+    if (/^ {4}\S/.test(raw) || (code.length && (!raw.trim() || /^ {4}/.test(raw)))) {
       flushPara();
       code.push(raw.replace(/^ {4}/, ""));
       continue;

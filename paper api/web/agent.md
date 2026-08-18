@@ -10,7 +10,7 @@ is the whole contract. Everything in it is enforced; nothing in it is advisory.
 
 There is exactly one exception to that AUTH line, and it exists because TradingView cannot
 send a header at all: `POST /v1/webhook/tradingview` carries a per-strategy secret in the
-body instead. See *TradingView* below. Everything else on this page needs the key.
+body instead. See **TradingView** below. Everything else on this page needs the key.
 
 Your key and your `strategy_id` come from the desk console at `{{BASE}}/desk`. A key is
 shown once, at the moment it is minted, and is stored as a hash — it cannot be retrieved
@@ -175,7 +175,7 @@ already in it:
 Four things about that body, each of which is the difference between working and looking
 like it works:
 
-**1. It must be a *strategy* alert, not an indicator alert.** Only a strategy can fill in
+**1. The alert must be on a strategy, not on an indicator.** Only a strategy can fill in
 `{{strategy.order.action}}` and `{{strategy.order.contracts}}`; on an indicator TradingView
 substitutes nothing and sends the braces through, and the reply says exactly that.
 
