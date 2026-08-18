@@ -1645,9 +1645,9 @@ const sheetOf = (cls, tf) => D.backtest[cls].sheets.find(s => s.timeframe === tf
  * states print as the command to run, so a key missing from it tells a reader to run
  * `walkforward.py --class undefined`. Add to both when adding a tab. */
 const CLASS_LABEL = { stocks: "Top 100 US Stocks", crypto: "Crypto", etf: "ETFs",
-                      commodities: "Commodities" };
+                      commodities: "Commodities", futures: "CME Futures" };
 const CLASS_ARG = { stocks: "us_stocks", crypto: "crypto", etf: "us_etfs",
-                    commodities: "commodities" };
+                    commodities: "commodities", futures: "cme_futures" };
 const universePills = () => Object.keys(D.backtest).map(k => [k, CLASS_LABEL[k] || k]);
 /* `dash_config.TIMEFRAMES` through the payload, not a literal pair. It is the list
  * `payload.build` asked for sheets on, so a timeframe the research gains appears here the

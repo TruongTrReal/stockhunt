@@ -339,6 +339,35 @@ from, which venue it trades on, and how it is grouped on the dashboard.
 Three rules per leg per timeframe (`TOP_N_RULES`), two timeframes: **24 systems, 258
 deployments**.
 
+### A fifth leg, `cme_futures`, is researched but NOT deployed here
+
+`backtest engine/db_loader.py` now fetches CME contracts from Databento and the class
+sweeps and walk-forwards like any other. It is deliberately absent from `UNIVERSE`,
+because a leg is not a list of symbols — it is a feed, an instrument, a venue and a sheet,
+and two of those four are missing. Adding the symbols without them would not start a
+futures desk; it would break the one that is running, since `all_cells()` would generate
+cells `td_live` cannot price.
+
+What it needs, in the order it blocks:
+
+1. **A live feed.** Twelve Data cannot serve this class at all, so `td_live`/`td_nautilus`
+   do not extend to it. The good news is that no equivalent has to be written: Nautilus
+   1.230 ships `nautilus_trader.adapters.databento`, with a live client and instrument
+   provider already in the venv. The cost is a **Databento live subscription**, which is
+   billed separately from the historical archive this repo's key already covers — a
+   decision to be made, not a line of code.
+2. **A `FuturesContract` instrument, not an equity.** Multiplier, tick and expiry all
+   matter for sizing, and `futures_specs.CME_CONTRACTS` already carries them. Venue is
+   `GLBX`, and it must be its own entry in `VENUES` for the same reason `BINANCE` and
+   `SPOT` are separate: `run_paper.route_bars_to_sandbox` filters by venue.
+3. **A 4h sheet, which does not exist.** `FORWARD_TIMEFRAMES` and `BOOK_TIMEFRAMES` are
+   both `1d, 4h`, and this class is 1d only because the vendor's hourly archive is holed
+   before 2013. Either the futures leg runs 1d alone, or the intraday bars get rebuilt
+   from the `trades` schema first. See `../backtest engine/CLAUDE.md`.
+4. **A sheet with something on it.** The same gate every other leg passed: `promote_top`
+   selects from `wf_summary_cme_futures_1d`, and if nothing on it clears the edge
+   standard there is nothing to deploy. That is a result, and results do not live here.
+
 ## The house runs two timeframes; a member may run six
 
 `BOOK_TIMEFRAMES` is `1d, 4h` and stays there — a book follows a walk-forward sheet, and

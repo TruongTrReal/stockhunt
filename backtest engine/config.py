@@ -204,6 +204,83 @@ US_ETFS = ETF_TOP10
 # vendor; `XPT/XPD` start only in 2012 and carry the class's thinnest quotes.
 COMMODITIES = ["XAU/USD", "XAG/USD", "XPT/USD", "XPD/USD", "WTI/USD"]
 
+# ------------------------------------------------------- CME futures
+#
+# Exchange-listed futures on CME Globex — CME, CBOT, NYMEX and COMEX — from Databento's
+# `GLBX.MDP3`, fetched by `db_loader.py`. Four things separate this class from every
+# other one here, and each of them changes how a result on it must be read.
+#
+# **A symbol here is `ES.v.0`, not `ES`.** The suffix is the vendor's continuous
+# symbology: root, roll rule (`v` = roll on volume), rank (0 = front month). It is
+# carried into the project's own spelling on purpose. `CL` is Colgate-Palmolive in
+# `US_STOCKS` and WTI crude here, and `config.class_of` returns the first class that
+# claims a symbol — so a bare root would have silently resolved crude oil to a toothpaste
+# company. It also states the thing that is easiest to forget about a futures series:
+# there is no such instrument as "ES", only a rule for choosing which contract to hold.
+#
+# **The bars are ratio back-adjusted, so a price here is not a price.** Only the most
+# recent bars are real quotes; everything earlier is scaled so that returns across a roll
+# are the returns an actual roll would have earned. Levels are therefore not comparable
+# to a chart, and `MIN_PRICE_USD` is meaningless on this class.
+#
+# **History starts 2010-06-06 and cannot be extended.** That is the first day of
+# Databento's CME archive, not a choice. `BACKTEST_START` never binds here; the class
+# gets ~16 years where the us_stocks daily sheet gets ~26, and since `metrics.se_ir`
+# falls as 1/sqrt(years) every gate on this sheet is roughly 1.3x harder to clear.
+#
+# **Buy-and-hold means something different.** A future has no cost basis: holding one is
+# a fully collateralised position whose return is the roll-adjusted price change *plus*
+# the bill rate on the collateral. The cash treatment in `riskmatch_wf.levered_net` is
+# what makes that comparable to the other classes, and it must be on for this one.
+#
+# This is the FETCH POOL, not the universe: every root liquid enough to be worth pulling.
+# `futures_screen.py` ranks it and writes the traded subset below, the same way
+# `universe_screen.py` stands to `US_ETFS`. Micros (MES, MNQ, MGC, MCL, ...) are absent
+# by construction — they are the same underlying as their parent at a fraction of the
+# size, so holding both would double the apparent breadth of a class whose noise ceiling
+# already assumes its assets are independent.
+CME_POOL = [
+    # equity index
+    "ES.v.0", "NQ.v.0", "YM.v.0", "RTY.v.0", "EMD.v.0", "NKD.v.0",
+    # rates
+    "ZT.v.0", "ZF.v.0", "ZN.v.0", "TN.v.0", "ZB.v.0", "UB.v.0", "SR3.v.0",
+    # FX
+    "6E.v.0", "6J.v.0", "6B.v.0", "6A.v.0", "6C.v.0", "6S.v.0", "6N.v.0", "6M.v.0",
+    "6L.v.0",
+    # energy
+    "CL.v.0", "BZ.v.0", "NG.v.0", "RB.v.0", "HO.v.0",
+    # metals
+    "GC.v.0", "SI.v.0", "HG.v.0", "PL.v.0", "PA.v.0",
+    # grains and oilseeds
+    "ZC.v.0", "ZS.v.0", "ZW.v.0", "KE.v.0", "ZL.v.0", "ZM.v.0",
+    # livestock
+    "LE.v.0", "GF.v.0", "HE.v.0",
+    # crypto — listed 2017-12 (BTC) and 2021-02 (ETH), so both are short-history
+    # candidates that the screen's tradable-years gate is expected to reject. They are
+    # in the pool so that rejection is measured rather than assumed.
+    "BTC.v.0", "ETH.v.0",
+]
+
+# The traded universe: 26 of the 43, from `futures_screen.py --write`. What the gates
+# removed, and why it is the right removal:
+#
+# * **NQ, YM, EMD** — 0.91 to 0.95 correlated with ES. Four US equity index contracts are
+#   one bet, and `metrics.se_ir` would have been told they were four.
+# * **ZF, ZB, TN, UB** — 0.86 to 0.97 with ZN. Six points on one curve, kept as two.
+# * **RTY, BTC, ETH, SR3** — too short. The E-mini Russell only moved to CME in 2017 and
+#   SOFR did not exist before 2018, so none of them has the 12 tradable years the class
+#   floor demands against its own 16.2-year ceiling.
+# * **BZ, GF, KE, HE, PA, 6L** — under $1B a day.
+#
+# The number that says whether the screen worked is the correlation among what it kept:
+# **mean |pairwise| 0.20, max 0.82, across seven sectors.** The ETF class sits at 0.44
+# after its own screen and was at 0.72 before it, so this is the widest universe in the
+# repo by a distance — which is the whole argument for carrying the class, since the noise
+# ceiling `metrics.se_ir` computes assumes exactly that independence.
+from universes_futures import CME_SCREENED
+
+CME_FUTURES = CME_SCREENED
+
 CLASSES = {
     "us_stocks": {
         "label": "US stocks",
@@ -248,6 +325,25 @@ CLASSES = {
         # Spot metals trade nearly around the clock (a ~1h break at the CME daily
         # settlement), so there is no session close to flatten into.
         "flatten_eod": False,
+    },
+    "cme_futures": {
+        "label": "CME futures",
+        "noun": "contracts",
+        "symbols": CME_FUTURES,
+        # The equity index front month is this class's market portfolio the way SPY is
+        # the equity classes'. Like SPY in `us_etfs` it is also a universe member, which
+        # only means BETA and CORREL on `ES.v.0` are computed against itself.
+        "benchmark": "ES.v.0",
+        # Globex runs ~23 hours a day, so there is no close to flatten into. The bars are
+        # already bucketed on the exchange's own 17:00->16:00 Chicago session by
+        # `db_loader`, which is a stronger statement than flattening: a "day" here is a
+        # trading day, not a timezone.
+        "flatten_eod": False,
+        # This class does NOT come from Twelve Data, which carries no futures at all —
+        # every CME root there resolves to an equity wearing the same letters. Read by
+        # `td_loader.main`, which would otherwise try to fetch it and cache 43 wrong
+        # instruments. See `../CLAUDE.md` on why a bare ticker is not an identity.
+        "source": "databento",
     },
 }
 
@@ -442,8 +538,65 @@ FEE_SCENARIOS["commodities"] = [
              "stress case."},
 ]
 
+# Exchange-listed futures are the cheapest thing in this repo to trade, and by a wide
+# margin: one ES contract is ~$320,000 of index exposure and costs about $2.25 all-in for
+# the round turn, which is 0.035bps a side. The equity `retail` scenario charges 0.5bps of
+# half-spread alone — fourteen times as much — so a rule that dies on the stock sheet
+# purely on costs is not automatically dead here, and that asymmetry is the main reason
+# this class is worth carrying at all.
+#
+# Three things about this grid are not like the others:
+#
+# **Commission is per contract, so a bps figure is an approximation that scales the wrong
+# way.** The same $2.25 is 0.035bps on ES and 0.33bps on a $68,750 crude contract, an
+# order of magnitude apart. The rates here are set from the *median* contract in the
+# screened universe, so the largest contracts are charged slightly too much and the
+# smallest slightly too little. It errs toward too much, which is the safe direction.
+#
+# **`borrow_annual` is zero and that is not a simplification.** A short future is not a
+# borrowed asset — it is the other side of a contract — so there is no locate, no recall
+# and no fee. This is a real structural advantage over the equity classes, where a short
+# pays 30-100bps a year, and it is one of the few places in this repo where zero is the
+# honest number rather than a missing one.
+#
+# **The roll is not charged here, and does not need to be.** Rolling a position costs a
+# round turn every expiry — four a year on ES, twelve on CL — but `db_loader` back-adjusts
+# the series so a roll is not a position change, and the engine charges on position
+# change. That looks like an understatement until you notice the baseline rolls too: a
+# buy-and-hold on a continuous futures series holds through every roll and pays exactly
+# the same toll. It is identical on both sides of the comparison and cancels out of the
+# excess, which is the one thing `../CLAUDE.md` requires of a benchmark. It does NOT
+# cancel out of an absolute CAGR, so quote the roll count from
+# `../data/reference/futures_rolls.csv` beside any absolute figure on this class.
+FEE_SCENARIOS["cme_futures"] = [
+    {"key": "gross", "label": "gross",
+     "commission_bps": 0.0, "half_spread_bps": 0.0, "sell_fee_bps": 0.0,
+     "borrow_annual": 0.0,
+     "note": "No costs at all — never evidence."},
+    {"key": "tight", "label": "tight (ES/NQ/ZN)",
+     "commission_bps": 0.05, "half_spread_bps": 0.2, "sell_fee_bps": 0.0,
+     "borrow_annual": 0.0,
+     "note": "The top of the class. ES, NQ, ZN and ZF quote one tick wide essentially "
+             "all session — 0.25 index points on 6,400 is 0.39bps, so half of it is "
+             "0.2 — and a discount futures broker charges $0.25-$0.85 plus ~$1.40 of "
+             "exchange and NFA fees per round turn."},
+    {"key": "retail", "label": "retail",
+     "commission_bps": 0.25, "half_spread_bps": 0.5, "sell_fee_bps": 0.0,
+     "borrow_annual": 0.0,
+     "note": "The headline. A one-tick spread on the median screened contract and a "
+             "$2.25-$4.00 all-in round turn, which is what a retail futures account "
+             "actually pays. Wide enough to cover the grains and livestock, whose ticks "
+             "run 2-6bps, without pricing the whole class off the deepest contracts."},
+    {"key": "wide", "label": "wide",
+     "commission_bps": 0.5, "half_spread_bps": 2.0, "sell_fee_bps": 0.0,
+     "borrow_annual": 0.0,
+     "note": "The thin end and the bad hours: palladium, feeder cattle, KC wheat, and "
+             "anything traded in the Asian session or into a limit move. The stress "
+             "case, not the expectation."},
+]
+
 HEADLINE_SCENARIO = {"us_stocks": "retail", "us_etfs": "retail", "crypto": "binance",
-                     "commodities": "retail"}
+                     "commodities": "retail", "cme_futures": "retail"}
 
 
 # Timeframes that run a SINGLE cost scenario instead of the full grid.
@@ -651,6 +804,20 @@ WINDOWS = {
     ("commodities", "1d"): {"start": "1979-12-01", "window_days": 4000},
     ("commodities", "4h"): {"start": "2020-01-20", "window_days": 1000},
 
+    # 2010-06-06 is the first day of Databento's CME archive and there is nothing before
+    # it at any price, so unlike every other row here this is a hard floor rather than a
+    # probe result. `window_days` is unused for this class: `db_loader` chunks by years
+    # and is bounded by response size, not by a bar cap, because Databento streams.
+    #
+    # **1d and no intraday row, deliberately.** The vendor's hourly archive for this
+    # dataset is incomplete before 2013 — on affected days it collapses a whole session
+    # into one or two bars, so June 2011 returns 230 hourly bars where ~500 exist, while
+    # `ohlcv-1d` over the same days is complete and its volumes tie out to the hourly sum
+    # exactly. A 4h sheet cut from that would be silently wrong over the first third of
+    # the sample. Rebuilding bars from the `trades` schema would fix it and is metered at
+    # $28/GB before 2026, roughly $100 per root per year; see `db_loader`'s docstring.
+    ("cme_futures", "1d"): {"start": "2010-06-06", "window_days": 4000},
+
     ("crypto", "1d"):  {"start": "2017-08-29", "window_days": 4000},
     ("crypto", "4h"):  {"start": "2020-01-07", "window_days": 580},
     ("crypto", "2h"):  {"start": "2020-01-07", "window_days": 290},
@@ -819,7 +986,7 @@ def rule_needs_volume(rule: str, volume_funcs: frozenset[str]) -> bool:
 # class names; the values are what the shared `data/` tree is organised by, so a human
 # browsing it sees `data/stocks/1d/` rather than `data/cache_us_stocks_1d/`.
 CLASS_DIR = {"us_stocks": "stocks", "crypto": "crypto", "us_etfs": "etfs",
-             "commodities": "commodities"}
+             "commodities": "commodities", "cme_futures": "futures"}
 # Adding a class to CLASSES without adding it here fetches seven stages and then dies on
 # a bare KeyError in `cache_dir` at the eighth, after the in-memory frames for that class
 # have already been downloaded and cannot be recovered without refetching.

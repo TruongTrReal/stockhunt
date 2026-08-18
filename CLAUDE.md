@@ -41,14 +41,18 @@ tools/                      golden.py    hash positions before/after a refactor
 tests/                      the unit suite. synthetic bars only -- no data/, no vendor,
    |                        no result CSV. conftest.py does the path bootstrap once
 data/                       every price bar, shared. stocks/ crypto/ etfs/ commodities/
+   |                        futures/ CME continuous contracts, the one class that does
+   |                        NOT come from Twelve Data
    |                        rates/ DTB3 T-bill path
    |                        reference/ sp500 membership, Fama-French factors, quarantine,
-   |                        trials ledger
+   |                        trials ledger, futures roll ledger
 strategies/                 talib_signals.py (231 rules, ONE dispatcher) +
    |                        published/ ONE FILE PER STRATEGY (31), discovered by
    |                        registry.py. tests/test_causality.py gates them all
    |
 backtest engine/            the machinery: engines, signals, metrics, td_loader, parity
+   |                        db_loader.py + futures_specs.py + futures_screen.py: the CME
+   |                        FUTURES class, and the second vendor. Databento GLBX.MDP3
    |                        universes.py + sp500_membership.py: who is in the INDEX
    |                        universes_top100.py + top100_membership.py: WHO IS IN THE
    |                        UNIVERSE -- the point-in-time top 100, which is what
@@ -270,6 +274,37 @@ volume before this was caught. Two defences, and both are load-bearing:
 No bar-level test can find these, because the bars are not malformed — they are somebody
 else's. Re-probe after any fetch that adds symbols.
 
+### There are two vendors, and the futures class may only ask the second one
+
+Twelve Data carries **no CME contract at all**, and — exactly as above — it does not
+answer "no". `CL` there is Colgate-Palmolive and `ES` is Eversource Energy. So
+`cme_futures` names its own source and `td_loader.fetch` refuses it outright:
+
+| class | vendor | what it writes |
+|---|---|---|
+| `us_stocks`, `us_etfs`, `crypto`, `commodities` | Twelve Data | `td_loader.py` |
+| `cme_futures` | Databento `GLBX.MDP3` | `db_loader.py` |
+
+`td_loader.load` still reads every class, whatever filled the cache. The single door
+matters more than the vendor behind it, and the parquet on disk is identical either way.
+
+Three things about the futures class differ from everything else here, and each of them
+changes how a number on it must be read:
+
+* **A symbol is `ES.v.0`** — root, roll rule, rank — not `ES`. `CL` is already a member
+  of `US_STOCKS`, and `config.class_of` returns the first class that claims a symbol.
+* **Prices are ratio back-adjusted, so only the newest bars are real quotes.** A roll
+  otherwise hands a rule a return nobody earned: WTI's front month closed at 18.12 in
+  April 2020 and the series' next print was 24.76. `data/reference/futures_rolls.csv`
+  records every adjustment and whether it was exact.
+* **History begins 2010-06-06 and cannot be extended** — that is the first day of the
+  vendor's CME archive. ~16 years against the equity sheet's ~26, and `metrics.se_ir`
+  falls as 1/sqrt(years), so every gate on this class is about 1.3x harder to clear.
+
+And the class is **1d only**, which is a measured vendor defect rather than a choice: the
+hourly archive collapses whole sessions into single bars before 2013. See
+`backtest engine/CLAUDE.md`.
+
 ## How a strategy is compared to buy-and-hold
 
 **A benchmark is valid only if it differs from the strategy in exactly one thing: the
@@ -416,6 +451,9 @@ python sp500_membership.py --probe            # who is in the INDEX, point-in-ti
 python top100_membership.py                   # WHO IS IN THE UNIVERSE: the top 100 of it
 python factors.py                             # Fama-French daily -> ../data/reference/
 python td_loader.py --class crypto --tf 1d    # fetch  -> ../data/crypto/1d/
+python db_loader.py --check                   # CME futures: price the pull first
+python db_loader.py                           # ...then fetch -> ../data/futures/1d/
+python futures_screen.py --write              # which roots are tradable AND independent
 python check_data.py --fix                    # OHLC integrity; run after ANY fetch
 python check_data.py --probe-listing          # is each ticker even the US company?
 python parity.py --n 3                        # three engines must agree. gate on this

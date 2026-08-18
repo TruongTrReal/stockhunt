@@ -29,6 +29,10 @@ Run everything **from this directory** — modules import each other by bare nam
 ```powershell
 python td_loader.py                       # fetch everything (~5h, ~13k credits)
 python td_loader.py --class crypto --tf 1d
+python db_loader.py --check               # CME futures: price the pull, download nothing
+python db_loader.py                       # ...and fetch it (daily, 2010-06-06 on)
+python futures_screen.py                  # which CME roots are tradable and independent
+python futures_screen.py --write          # ...and commit that to universes_futures.py
 python sp500_membership.py --probe        # point-in-time membership + priceability
 python top100_membership.py               # the top 100 of it, point-in-time
 python top100_membership.py --show 2008   # ...and who that was in a given year
@@ -76,6 +80,16 @@ td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs|commodities>/<tf>/*.
    |             applies BACKTEST_START and the quarantine, once, for the whole repo
    |             span_for(class): the head cut. us_stocks -> membership_span (top-100
    |             record), us_etfs -> etf_entry_span (the liquidity screen), others none
+   |             `load` reads EVERY class, whatever the vendor. `fetch` refuses any class
+   |             whose spec names another `source`
+db_loader.py     Databento GLBX.MDP3 -> ../data/futures/1d/*.parquet. THE SECOND VENDOR,
+   |             and the only one. Continuous contracts, Sunday stubs merged into the
+   |             session they open, ratio back-adjusted across rolls, every request
+   |             costed before it is made -> ../data/reference/futures_rolls.csv
+futures_specs.py what one CME contract is WORTH: multiplier, quote scale, tick, sector.
+   |             A price alone says nothing here -- ZC at 438 is $21,912
+futures_screen.py the CME equivalent of universe_screen: liquidity, tradable years,
+   |             price grid, and a correlation gate no other class needs
 check_data.py    OHLC integrity scan, repair, and the quarantine rules
    |
 signals.py       the ONE way a rule name becomes a position series
@@ -154,6 +168,26 @@ once; adding a third caller means feeding it the same six inputs, never re-deriv
   liquidity floor catches an impostor that is THIN; this catches one that is FAT.
   `sp500_membership.probe_priceable` still sends a bare symbol, and its answer is
   therefore a claim about the ticker rather than about the company.
+- **There are two vendors now, and only one of them may be asked for futures.** Twelve
+  Data carries no CME contract at all, and — exactly as with the foreign namesakes above —
+  it does not answer "no". `CL` there is Colgate-Palmolive and `ES` is Eversource Energy,
+  returned as full, clean, plausible equity series. `CLASSES["cme_futures"]["source"]`
+  says `databento` and `td_loader.fetch` raises on it rather than trusting anyone to
+  remember. `td_loader.load` still reads the class, because the cache format is identical
+  and the single-door rule matters more than which vendor filled it.
+- **A CME symbol here is `ES.v.0`, not `ES`.** Root, roll rule, rank — the vendor's own
+  continuous symbology, kept as the project spelling. `config.class_of` returns the first
+  class that claims a symbol, and `CL` is already a member of `US_STOCKS`, so a bare root
+  would have resolved crude oil to a toothpaste company silently. It also says the true
+  thing about the series: there is no instrument called "ES", only a rule for picking
+  which contract to hold.
+- **The futures class is 1d only, and that is a vendor defect, not a choice.** Databento's
+  hourly archive for GLBX collapses whole sessions into one or two bars before 2013 —
+  2015-01-06 returns 2 hourly bars whose volume sums to the full day's 2,344,424, June
+  2011 returns 230 where ~500 exist. `ohlcv-1d` over the same days is complete and ties
+  out to the hourly sum exactly. Anything cut from hourly would be wrong over the first
+  third of the sample; a 4h sheet needs bars rebuilt from `trades`, which is complete and
+  is metered at ~$100 per root per year before 2026.
 - **Run `check_data.py --fix` after any fetch, before sweeping.** A scoped
   `--class X --tf Y` merges into `quarantine.csv` rather than rewriting it; rows outside the
   scanned scope are preserved, rows inside are re-derived so a repaired symbol can leave.

@@ -1,0 +1,259 @@
+"""Which CME contracts are worth carrying, and which are the same bet twice.
+
+`universe_screen.py` is to `us_etfs` and `crypto` what this is to `cme_futures`: it turns
+a pool of plausible symbols into the traded universe, and writes down why each rejection
+happened so the decision survives the person who made it.
+
+The gates are the same three questions the ETF screen asks, plus one this class forces:
+
+**Can it be traded?** Median daily notional turnover, computed properly — a futures
+volume is a contract count, and 1.4M ZN contracts is a different amount of money from
+141k GC contracts by a factor no ranking on raw volume can see. `futures_specs` supplies
+the multiplier.
+
+**Is there enough of it?** Tradable years, measured on bars actually present. Nothing
+here can reach further back than 2010-06-06 (`futures_specs.GLBX_START`), so the gate is
+set against that ceiling rather than the 20 years the ETF screen can demand.
+
+**Is the price a market or a grid?** The exchange's tick as a fraction of a typical day's
+range. A rule that mean-reverts on a coarse grid is harvesting the rounding, which is
+exactly how a recycled penny stock compounded to 6.4e17% in this repo before `check_data`
+learned to quarantine it.
+
+**And: is it a different asset, or the same one wearing a different symbol?** This is the
+gate the equity classes never needed and this class cannot do without. Six points on the
+Treasury curve are not six assets; ES and YM are the same index to two decimal places.
+`metrics.se_ir` assumes its assets are independent and has no way to notice that they are
+not, so a universe of correlated roots quietly claims statistical weight it does not
+have. The ETF screen learned this the expensive way — ten funds picked on listing date
+came out at mean pairwise correlation 0.72, and picking on tradable years instead got it
+to 0.44 and roughly doubled the real weight of the same ten names.
+
+So the last gate is **greedy, in liquidity order**: take the deepest contract first, then
+accept a candidate only if its return correlation against everything already accepted
+stays under `MAX_CORR`. That keeps the most tradable member of each cluster and drops the
+echoes, and because the order is liquidity there is nothing arbitrary in which survives.
+
+Run::
+
+    python futures_screen.py                  # the table, and what it would keep
+    python futures_screen.py --write          # ...and commit it to universes_futures.py
+    python futures_screen.py --tf 1d --max-corr 0.80
+"""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import config
+import futures_specs
+import td_loader
+
+# Every threshold that decides a name, in one place.
+#
+# `MIN_ADV_USD` at $1B/day sounds enormous next to the ETF screen's $20M, and it is: the
+# smallest thing here still turns over more than the largest thing there. Futures are
+# where the institutional flow is, and a $1B floor is roughly the point below which a CME
+# product stops quoting one tick wide all session.
+MIN_ADV_USD = 1_000_000_000.0
+# 12 years, against a hard ceiling of ~16.2. The ETF screen asks for 20 tradable years;
+# it can, because ETFs go back to 1993. Asking for 20 here would empty the class.
+MIN_TRADABLE_YEARS = 12.0
+# One tick may not be more than this share of a typical session's range — so at 5%, a
+# day's move is at least twenty ticks wide.
+#
+# The number to reason from is what it does to `IBS`, which is `(C-L)/(H-L)` and is the
+# most grid-sensitive statistic in the repo. With N ticks in a typical range, IBS can only
+# take about N values; below roughly twenty it stops describing where the close sat and
+# starts describing the rounding. That is the failure a recycled penny stock's 1-cent grid
+# produced, and it is the thing this gate exists to catch.
+#
+# **It was 2% first, and 2% was wrong.** Fifty ticks per day's range is more resolution
+# than most real instruments have, and it rejected the ENTIRE rates sector — ZN at 3.4%,
+# ZF 2.8%, ZT 4.8%, ZB 3.4%, TN 2.6%, UB 2.5%. A 10-year Treasury future ticks in 1/64ths
+# on a ~43bp daily range, which is about thirty ticks: coarse next to an equity index, and
+# nowhere near a grid. Losing the whole sector would also have cost the most independent
+# block in the universe, since rates correlate ~0.1-0.3 with everything else here — the
+# exact quantity the correlation gate below is trying to buy.
+#
+# At 5% the gate still fires, and on the right name: SR3 at 11.1%, whose median daily
+# range is 0.047% and therefore about nine ticks wide.
+MAX_TICK_OF_RANGE = 0.05
+# Two roots correlating above this are one asset. 0.85 is deliberately looser than the
+# 0.72 the ETF screen ended up at, because the sectors here are genuinely distinct and a
+# tighter bar would start cutting real diversification (GC and SI run ~0.8 and are not
+# the same trade).
+MAX_CORR = 0.85
+
+OUT_CSV = config.RESULTS_DIR / "universe_screen_cme_futures.csv"
+GENERATED = Path(__file__).resolve().parent / "universes_futures.py"
+
+
+def measure(timeframe: str = "1d") -> pd.DataFrame:
+    """One row per pooled root: how much money, how many years, how coarse the grid."""
+    bars = td_loader.load("cme_futures", timeframe, config.CME_POOL)
+    rows = []
+    for symbol in config.CME_POOL:
+        df = bars.get(symbol)
+        if df is None or df.empty:
+            rows.append({"symbol": symbol, "root": symbol.split(".")[0], "bars": 0})
+            continue
+        root = symbol.split(".")[0]
+        s = futures_specs.spec(root)
+        # Notional is computed on the LAST close, the one bar of a back-adjusted series
+        # that is still a real quote. Using the adjusted history would price 2010 corn at
+        # today's contract level and inflate the turnover of every long-dated root.
+        per_contract = futures_specs.notional_usd(root, float(df["Close"].iloc[-1]))
+        rng = (df["High"] - df["Low"]) / df["Close"]
+        rows.append({
+            "symbol": symbol,
+            "root": root,
+            "sector": s["sector"],
+            "exchange": s["exchange"],
+            "desc": s["desc"],
+            "bars": len(df),
+            "first": df.index[0].date().isoformat(),
+            "last": df.index[-1].date().isoformat(),
+            "years": (df.index[-1] - df.index[0]).days / 365.25,
+            "notional_per_contract": per_contract,
+            "median_volume": float(df["Volume"].median()),
+            "adv_usd": float(df["Volume"].median()) * per_contract,
+            "daily_range_pct": 100.0 * float(rng.median()),
+            "tick_of_range": (s["tick"] / float(df["Close"].iloc[-1])) / float(rng.median()),
+            "ann_vol_pct": 100.0 * float(df["Close"].pct_change().std() * np.sqrt(252)),
+        })
+    return pd.DataFrame(rows)
+
+
+def correlations(timeframe: str, symbols: list[str]) -> pd.DataFrame:
+    """Pairwise correlation of daily returns over the window every name shares."""
+    bars = td_loader.load("cme_futures", timeframe, symbols)
+    rets = pd.DataFrame({s: bars[s]["Close"].pct_change() for s in symbols if s in bars})
+    return rets.corr()
+
+
+def screen(timeframe: str = "1d",
+           max_corr: float = MAX_CORR) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:
+    """Returns (the ranked table, the accepted symbols in order, the correlation matrix).
+
+    Three return values rather than one frame carrying `.attrs`: pandas does not promise
+    to carry `attrs` through a `sort_values`, and a screen that silently forgets which
+    names it accepted is worse than one that is verbose about it.
+    """
+    table = measure(timeframe)
+    if table.empty or "adv_usd" not in table:
+        return table, [], pd.DataFrame()
+
+    reasons = {}
+    for _, r in table.iterrows():
+        if not r.get("bars"):
+            reasons[r["symbol"]] = "no bars cached"
+        elif r["years"] < MIN_TRADABLE_YEARS:
+            reasons[r["symbol"]] = (f"only {r['years']:.1f} tradable years "
+                                    f"(need {MIN_TRADABLE_YEARS:.0f})")
+        elif r["adv_usd"] < MIN_ADV_USD:
+            reasons[r["symbol"]] = (f"${r['adv_usd'] / 1e6:,.0f}M/day "
+                                    f"(need ${MIN_ADV_USD / 1e6:,.0f}M)")
+        elif r["tick_of_range"] > MAX_TICK_OF_RANGE:
+            reasons[r["symbol"]] = (f"one tick is {100 * r['tick_of_range']:.1f}% of a "
+                                    f"day's range -- a grid, not a market")
+
+    # Correlation runs last and only over what survived, because a name rejected for
+    # liquidity must not be able to knock out a name that would have been kept.
+    survivors = [s for s in table["symbol"] if s not in reasons]
+    survivors = sorted(survivors,
+                       key=lambda s: -table.set_index("symbol").loc[s, "adv_usd"])
+    corr = correlations(timeframe, survivors) if survivors else pd.DataFrame()
+
+    accepted: list[str] = []
+    for symbol in survivors:
+        clash = None
+        for kept in accepted:
+            if symbol in corr.index and kept in corr.columns:
+                c = corr.loc[symbol, kept]
+                if pd.notna(c) and abs(c) > max_corr:
+                    clash = (kept, c)
+                    break
+        if clash:
+            reasons[symbol] = f"corr {clash[1]:+.2f} with {clash[0]} -- the same asset"
+        else:
+            accepted.append(symbol)
+
+    table["kept"] = ~table["symbol"].isin(reasons)
+    table["reason"] = table["symbol"].map(reasons).fillna("")
+    ranked = table.sort_values("adv_usd", ascending=False, na_position="last")
+    return ranked, accepted, corr
+
+
+def write_module(accepted: list[str], table: pd.DataFrame) -> None:
+    """Emit `universes_futures.py`, the generated list `config.CME_FUTURES` reads."""
+    kept = table[table["kept"]].set_index("symbol")
+    lines = [
+        '"""GENERATED by `futures_screen.py --write`. Do not edit.',
+        "",
+        "The CME roots that survived the liquidity, history, price-grid and correlation",
+        "gates. `config.CME_POOL` is what was ranked; this is what is traded.",
+        '"""',
+        "",
+        "CME_SCREENED = [",
+    ]
+    for symbol in accepted:
+        r = kept.loc[symbol]
+        lines.append(f'    "{symbol}",'.ljust(16)
+                     + f"  # {r['desc']}, ${r['adv_usd'] / 1e9:,.1f}B/day")
+    lines += ["]", ""]
+    GENERATED.write_text("\n".join(lines), encoding="utf-8")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--tf", default="1d")
+    ap.add_argument("--max-corr", type=float, default=MAX_CORR)
+    ap.add_argument("--write", action="store_true",
+                    help="commit the survivors to universes_futures.py")
+    args = ap.parse_args()
+
+    table, accepted, corr = screen(args.tf, args.max_corr)
+    if table.empty or "adv_usd" not in table:
+        raise SystemExit("nothing cached — run `python db_loader.py` first")
+
+    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(OUT_CSV, index=False)
+
+    show = ["root", "sector", "years", "adv_usd", "daily_range_pct", "tick_of_range",
+            "ann_vol_pct", "kept", "reason"]
+    view = table[[c for c in show if c in table.columns]].copy()
+    if "adv_usd" in view:
+        view["adv_usd"] = (view["adv_usd"] / 1e9).round(2)
+        view = view.rename(columns={"adv_usd": "adv_$B"})
+    if "tick_of_range" in view:
+        view["tick_of_range"] = (100 * view["tick_of_range"]).round(2)
+        view = view.rename(columns={"tick_of_range": "tick_%range"})
+    print(view.to_string(index=False))
+
+    print(f"\nkept {len(accepted)} of {len(config.CME_POOL)}: {' '.join(accepted)}")
+    if len(accepted) > 1 and not corr.empty:
+        block = corr.loc[accepted, accepted].to_numpy()
+        off = np.abs(block[np.triu_indices(len(accepted), k=1)])
+        # The one number to quote about a universe whose noise ceiling assumes its assets
+        # are independent. The ETF class sits at 0.44 after its screen and was at 0.72
+        # before it; anything approaching that is a universe pretending to be wider than
+        # it is.
+        print(f"mean |pairwise correlation| among the kept: {np.nanmean(off):.2f} "
+              f"(max {np.nanmax(off):.2f})")
+    by_sector = table[table["kept"]].groupby("sector").size().to_dict()
+    print(f"sectors: {by_sector}")
+    print(f"-> {OUT_CSV}")
+
+    if args.write:
+        write_module(accepted, table)
+        print(f"-> {GENERATED}\n   now point `config.CME_FUTURES` at "
+              f"`universes_futures.CME_SCREENED`.")
+
+
+if __name__ == "__main__":
+    main()

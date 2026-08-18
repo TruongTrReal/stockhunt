@@ -1,5 +1,6 @@
 class,timeframe,n_assets,n_rules_run,n_rules_skipped,skipped_rules,n_bars_min,n_bars_max,start,end,source,seconds
-us_etfs,1d,10,232,0,[],5070,6689,2000-01-03 00:00:00,2026-08-07 00:00:00,"Twelve Data time_series, adjust=all",4.208045482635498
-us_etfs,4h,10,232,0,[],3269,3286,2020-02-10 07:00:00,2026-08-07 13:30:00,"Twelve Data time_series, adjust=all",3.5201802253723145
+cme_futures,1d,26,232,0,[],4073,4202,2010-06-07 00:00:00,2026-08-17 00:00:00,"Twelve Data time_series, adjust=all",6.606702566146851
 crypto,1d,20,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",1999,3267,2017-08-29 00:00:00,2026-08-08 00:00:00,"Twelve Data time_series, adjust=all",4.167865514755249
 crypto,4h,20,228,4,"['AD', 'ADOSC', 'MFI', 'OBV']",7124,14422,2020-01-07 00:00:00,2026-08-08 16:00:00,"Twelve Data time_series, adjust=all",6.53976845741272
+us_etfs,1d,10,232,0,[],5070,6689,2000-01-03 00:00:00,2026-08-07 00:00:00,"Twelve Data time_series, adjust=all",4.208045482635498
+us_etfs,4h,10,232,0,[],3269,3286,2020-02-10 07:00:00,2026-08-07 13:30:00,"Twelve Data time_series, adjust=all",3.5201802253723145

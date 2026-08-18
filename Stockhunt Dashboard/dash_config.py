@@ -57,7 +57,16 @@ GROUPS = [("stocks", "us_stocks", "Top 100 US stocks, point-in-time", bt_config.
           ("crypto", "crypto", "20 pairs, screened on spread and price grid", bt_config.CRYPTO),
           ("etf", "us_etfs", "10 ETFs, each held only while liquid", bt_config.US_ETFS),
           ("commodities", "commodities", "5 spot metals and oil, quoted as FX pairs",
-           bt_config.COMMODITIES)]
+           bt_config.COMMODITIES),
+          # The fifth tab, and the one whose column headings mean something different.
+          # Prices are ratio back-adjusted across contract rolls, so a level on this sheet
+          # is not a price anybody paid; the sample starts 2010-06-06 because that is the
+          # first day of the vendor's CME archive, which makes it the SHORTEST sheet here
+          # at ~13 out-of-sample years against us_stocks' 24; and it has **no 4h sheet**,
+          # because the vendor's hourly archive is holed before 2013. The 4h tab is
+          # therefore permanently empty for this class, which is the empty state's job.
+          ("futures", "cme_futures", "26 CME contracts, screened on turnover and "
+           "correlation", bt_config.CME_FUTURES)]
 TIMEFRAMES = ["1d", "4h"]
 BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
 TOP_N = 30                       # leaderboard depth; the tail is all worse, not different

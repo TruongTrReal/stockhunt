@@ -222,6 +222,16 @@ def _windows(start: str, window_days: int) -> list[tuple[str, str]]:
 def fetch(asset_class: str, timeframe: str,
           symbols: list[str] | None = None) -> dict[str, int]:
     spec = CLASSES[asset_class]
+    # A class can name its own vendor, and one does: `cme_futures` comes from Databento
+    # via `db_loader.py`. Refusing here rather than in `main` matters, because Twelve
+    # Data would not fail on a CME root — it would return the equity that wears the same
+    # letters, in full, and every downstream check would pass it. `CL` is crude oil to
+    # this class and Colgate-Palmolive to the vendor.
+    source = spec.get("source", "twelvedata")
+    if source != "twelvedata":
+        raise ValueError(
+            f"{asset_class} is sourced from {source}, not Twelve Data. Fetch it with "
+            f"`python db_loader.py --class {asset_class}` instead.")
     win = window_spec(asset_class, timeframe)
     interval = TIMEFRAMES[timeframe]["interval"]
 
@@ -532,6 +542,10 @@ def main() -> None:
     args = ap.parse_args()
 
     for asset_class in args.classes:
+        if CLASSES[asset_class].get("source", "twelvedata") != "twelvedata":
+            print(f"\n=== {asset_class} === skipped: not a Twelve Data class. "
+                  f"Run `python db_loader.py --class {asset_class}`.")
+            continue
         for timeframe in args.timeframes:
             print(f"\n=== {asset_class} / {timeframe} ===")
             counts = fetch(asset_class, timeframe, args.symbols)

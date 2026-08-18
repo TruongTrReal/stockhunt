@@ -40,6 +40,9 @@ SHEETS=(
   "crypto      4h 2023-01-07"
   "commodities 1d 2003-01-03"
   "commodities 4h 2023-01-20"
+  # 1d only: the vendor's hourly CME archive is holed before 2013, so there is no 4h
+  # futures sheet to book. See `../backtest engine/db_loader.py`.
+  "cme_futures 1d 2013-06-07"
 )
 
 fail=0
