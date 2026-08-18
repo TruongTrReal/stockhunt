@@ -8,6 +8,10 @@ is the whole contract. Everything in it is enforced; nothing in it is advisory.
     DOCS   {{BASE}}/desk/docs        human reference
            {{BASE}}/openapi.json     machine-readable schema
 
+There is exactly one exception to that AUTH line, and it exists because TradingView cannot
+send a header at all: `POST /v1/webhook/tradingview` carries a per-strategy secret in the
+body instead. See *TradingView* below. Everything else on this page needs the key.
+
 Your key and your `strategy_id` come from the desk console at `{{BASE}}/desk`. A key is
 shown once, at the moment it is minted, and is stored as a hash — it cannot be retrieved
 later. If you do not have one, stop and ask the person who runs your strategy.
@@ -133,6 +137,77 @@ rejected one.
 
 Without the flag `DELETE` behaves exactly as it always has, so a client that has never
 heard of purging cannot lose a strategy by being upgraded.
+
+## TradingView, where the credential is in the body
+
+TradingView posts JSON to a URL and offers **no way to add a header**, so an alert cannot
+authenticate the way everything above does. One route exists for that constraint:
+
+    POST {{BASE}}/v1/webhook/tradingview     no Authorization header, no cookie
+
+Everything else about it is `/v1/orders`: the same ledger, the same per-minute cap, the
+same `202` meaning written down and never filled.
+
+**The credential is a per-strategy webhook secret, not your API key.** Mint it in the
+console next to the strategy it belongs to — `whk_…`, shown once. It can do exactly one
+thing: place orders for that one strategy. Your `sk_live_…` key trades everything you own,
+reads your whole book and retires registrations, and an alert message is stored in plain
+text in TradingView's UI and travels in exports, so the two are deliberately not the same
+credential. Minting again rotates it and kills the previous one.
+
+Paste this into the alert's **Message** box — the console generates it with your secret
+already in it:
+
+    {
+      "strategyId": "str_01_meanrev",
+      "secret":     "whk_...",
+      "action":     "{{strategy.order.action}}",
+      "qty":        "{{strategy.order.contracts}}",
+      "bar_time":   "{{time}}",
+      "ticker":     "{{ticker}}"
+    }
+
+    → 202 {"ok": true,
+           "resolved": {"symbol": "SPY", "side": "buy", "qty": 10,
+                        "client_order_id": "tv-SPY-buy-9f2c1a0b3d4e", "dedupe": "bar"},
+           "order": {"seq": 41, "state": "accepted", ...}}
+
+Four things about that body, each of which is the difference between working and looking
+like it works:
+
+**1. It must be a *strategy* alert, not an indicator alert.** Only a strategy can fill in
+`{{strategy.order.action}}` and `{{strategy.order.contracts}}`; on an indicator TradingView
+substitutes nothing and sends the braces through, and the reply says exactly that.
+
+**2. `bar_time` is `{{time}}`, never `{{timenow}}`.** There is no `client_order_id` in a
+TradingView alert, so one is derived from strategy, symbol, side and the bar — which makes
+an alert that fires twice on one bar **one** order instead of a doubled position. `{{time}}`
+is the bar's own timestamp and is identical across those two firings; `{{timenow}}` is the
+moment the alert fired and differs between them, which would defeat the protection it
+looks like it provides. Leave the field out and the fallback is a one-minute bucket; the
+reply says which applied, as `dedupe`: `bar`, `minute` or `client`.
+
+**3. The size is yours.** `qty` is required, from `{{strategy.order.contracts}}`. This desk
+does not size positions for you — it cannot see your book, and a quantity invented here
+would be the API's opinion inside your track record.
+
+**4. `ticker` is optional when the strategy holds one symbol.** When you send it, the chart's
+spelling is matched against what you registered: `BINANCE:BTCUSDT`, `BTCUSDT.P` and
+`COINBASE:BTCUSD` all resolve to a registered `BTC/USD`. Anything that resolves to nothing
+you registered is refused with `422` and the list of what you did.
+
+Field names are generous, because the body is typed by hand: `strategyId`/`strategy_id`,
+`secret`/`password`/`key`, `qty`/`contracts`/`size`, `symbol`/`ticker`, `bar_time`/`time`.
+Extra fields are ignored, so adding `{{close}}` for your own log costs nothing.
+
+**Read the status, not the body.** TradingView's alert log shows you whether the request
+failed and nothing else, so every refusal here is a `4xx` on purpose — `401` for a wrong or
+revoked secret, `422` for a symbol or a size it could not use, `429` over the cap. A green
+tick means the order reached the ledger. It still does not mean a fill; that is `GET
+/v1/orders`, and it needs an API key.
+
+**The URL must be port 80 or 443, on a publicly trusted certificate** — that is
+TradingView's rule, not this desk's. `{{BASE}}` above already satisfies it.
 
 ## Is the desk actually running?
 

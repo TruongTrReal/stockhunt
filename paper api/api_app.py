@@ -98,10 +98,16 @@ def create_app() -> FastAPI:
     import api_house
     import api_orders
     import api_strategies
+    import api_webhook
 
     app.include_router(api_strategies.limits_router)
     app.include_router(api_strategies.router)
     app.include_router(api_orders.router)
+    # The one route whose credential is in the body, because TradingView can send no
+    # header. It carries a per-strategy secret and reaches the same ledger under the same
+    # limits; see `api_webhook.py` for why it is a separate door rather than a flag on
+    # `/v1/orders`.
+    app.include_router(api_webhook.router)
     app.include_router(api_house.router)
 
     @app.get("/healthz", tags=["meta"], summary="Liveness, with nothing sensitive in it")

@@ -28,11 +28,14 @@ wedged, taken down or compromised, `run_paper.py` keeps trading.
 ```
 api_paths.py    paths, .env.local, the server secret. Import first; imports no trading code
 api_config.py   every tunable, with what it trades against
-authdb.py       state/auth.db - users, api_keys, otp_challenges, sessions, audit
+authdb.py       state/auth.db - users, api_keys, webhook_secrets, otp_challenges,
+                sessions, audit
 mailer.py       the code, over Gmail SMTP. `python mailer.py --check` tests the credentials
 api_auth.py     /auth/*, `current_session`, `current_principal`, and the API-key endpoints
 api_strategies.py  /v1/strategies - a manager registers, pauses, retires
 api_orders.py   /v1/orders - the hot path. 202 means written down, never filled
+api_webhook.py  /v1/webhook/tradingview - the ONE route whose credential is in the BODY,
+                because a TradingView alert can send no header
 api_house.py    /v1/house - the catalog, and promoting a backtested rule to the desk
 api_live.py     the per-account cut of live.json. ONE implementation of that cut
 api_board.py    the dashboard behind that session, plus /ws
@@ -49,6 +52,7 @@ test_board.py   the board is actually behind one
 test_accounts.py    account ids are permanent and unique
 test_strategies.py  keys, and the strategy control plane
 test_orders.py      idempotency, ordering, scoping, honest status codes
+test_webhook.py     the body-credential door: scope, rotation, derived idempotency
 test_house_and_board.py  promotion, and the per-account cut
 ```
 
@@ -73,10 +77,16 @@ POST   /v1/strategies/{id}/resume
 DELETE /v1/strategies/{id}         retire. The record is kept, always
 DELETE /v1/strategies/{id}?purge=true   remove one that NEVER traded -> 204
 
+POST   /v1/strategies/{id}/webhook mint/rotate the TradingView secret. SESSION ONLY
+GET    /v1/strategies/{id}/webhook does one exist, and has TradingView ever called
+DELETE /v1/strategies/{id}/webhook revoke it
+
 POST   /v1/orders                  202 = written down and sequenced. NOT filled
 DELETE /v1/orders/{coid}           request a cancel; it may already have filled
 GET    /v1/orders                  ?strategy_id= &state= &since_seq= to poll
 GET    /v1/orders/{coid}
+
+POST   /v1/webhook/tradingview     an alert. NO header; the secret is in the body
 
 GET    /v1/house/catalog           promotable rules. Any member may read it
 GET    /v1/house/strategies        what the house desk runs. Any member may read it
@@ -92,6 +102,76 @@ DELETE /auth/keys/{id}
 the first order with `200` instead of `202`. Without it every network timeout on a
 manager's side is a doubled position, invisible until somebody reconciles a book by hand.
 `seq` is monotonic and the desk drains in that order, so a cancel cannot overtake its order.
+
+## TradingView is the one caller that cannot send a header
+
+An alert posts a JSON body to a URL and TradingView offers **no way to add one**, so an
+alert cannot reach `/v1/orders` at all. `POST /v1/webhook/tradingview` exists for that
+constraint and no other: same ledger, same `strategy_of`, same `rate_limit`, same `202`.
+
+**The credential is a per-strategy secret, never the account key.** An alert message sits
+in plain text in TradingView's UI, travels in exports and gets pasted into chat — it is
+where a secret *leaks*, so the one that lives there is the weakest the desk can issue.
+`sk_live_…` trades every strategy on the account, reads the book and retires
+registrations; `whk_…` submits orders for **one** strategy and does nothing else. The
+prefix is load-bearing twice over: `current_principal` routes a bearer credential by it, so
+a `whk_` in an `Authorization` header falls through to the sessions table and answers 401.
+
+Minted behind the browser login and never by a key or by itself, which is `/auth/keys`'
+containment for a sharper reason — this is the credential most likely to leak, so
+revocation must be an ending rather than a race. Minting again revokes the previous one, so
+there is one live secret per strategy and rotating is a single act. It is keyed on
+`account_id`, not `email`, and stays alive while **any** address on the account is active:
+a webhook belongs to a strategy, a strategy belongs to an account, and killing a live alert
+because one of two linked mailboxes was retired would be the wrong granularity.
+
+**`client_order_id` is derived, because TradingView has no such concept.** That field is
+the property the whole order API rests on, and an alert re-firing on one bar is exactly
+what it defends against. So the id is built from strategy, symbol, side and the bar:
+
+    "bar_time": "{{time}}"      the BAR's timestamp   -> dedupe = "bar"     stable
+    "bar_time": "{{timenow}}"   when the alert FIRED  -> differs per firing, defeats it
+    omitted                     -> dedupe = "minute", a one-minute bucket
+
+The middle row is the trap and it has no error attached: `{{timenow}}` looks like the right
+placeholder and silently turns two copies of one signal into two orders. The console's
+generated message therefore uses `{{time}}` and says so in words, and the reply carries
+`dedupe` so which promise applied is never a guess. The minute fallback is a knowing
+trade-off in the other direction — two *deliberate* same-side orders on one symbol inside
+one minute collapse into one — and it is taken because this desk trades `1d` and `4h` bar
+closes, where a doubled position is the far likelier accident.
+
+**The size comes from the alert and is required.** `{{strategy.order.contracts}}`. This
+process cannot see the book, and a quantity invented here would be the API's opinion inside
+somebody's track record.
+
+**A chart ticker is not a desk symbol.** `{{ticker}}` is whatever the chart says —
+`BINANCE:BTCUSDT`, `BTCUSDT.P`, `NASDAQ:AAPL`, `ES1!` — for a book holding `BTC/USD`.
+`normalize_symbol` reduces both sides (venue prefix, perpetual and continuous suffixes,
+punctuation, stablecoin quote folded to USD) and the match is against the registration's
+own list. It is a comparison key and is **never stored**: the order carries the symbol as
+the desk spells it, because that is the instrument the desk holds.
+
+**Every refusal is a 4xx, deliberately.** TradingView never reads the `202`; its alert log
+shows the status and nothing else. A soft "accepted, but I ignored it" would be a green
+tick over an alert that traded nothing.
+
+**The body is parsed by hand rather than by a declared pydantic parameter.** TradingView
+labels the request `text/plain` unless it decides the message is JSON, and FastAPI hands a
+model raw bytes in that case — a 422 reading "input should be a valid dictionary" for a
+body that is perfectly good JSON, about a header the caller cannot set. So `_parse` reads
+the body and never consults the content type. That is why the endpoint is `async` and the
+database work goes through `run_in_threadpool`.
+
+Field names are generous on input (`strategyId`/`strategy_id`, `password`/`secret`,
+`contracts`/`qty`, `ticker`/`symbol`, `time`/`bar_time`) and extra fields are ignored,
+because the body is typed by hand into an alert box with no client library to get it right.
+An unsubstituted `{{…}}` is caught before any field parser sees it and named as what it
+actually is: a strategy placeholder on an *indicator* alert.
+
+**TradingView will only call port 80 or 443, on a publicly trusted certificate.** That is
+its rule, not this desk's; `https://srv1903626.hstgr.cloud` already satisfies it and needs
+no change. There is no such thing as HTTPS on port 80.
 
 ## Retiring keeps everything; the one exception is a row that recorded nothing
 

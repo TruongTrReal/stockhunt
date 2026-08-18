@@ -133,6 +133,34 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at   TEXT
 );
 
+-- Webhook secrets, for the half of the audience that cannot send a header at all.
+--
+-- TradingView posts a JSON body to a URL and offers no way to add one, so the only place a
+-- credential can travel is the body — which is also a place credentials get pasted into
+-- chat logs, screenshotted, and exported with the alert. So this is deliberately NOT the
+-- account key: it is scoped to ONE strategy, it can only submit orders for that strategy,
+-- and rotating it costs that one alert rather than every integration on the account.
+--
+-- Keyed on `account_id` rather than `email`, unlike `api_keys`. A webhook belongs to a
+-- strategy, a strategy belongs to an account, and an account may have several sign-in
+-- addresses; keying it on whichever address happened to mint it would kill a live alert
+-- the day that address was retired. `webhook_secret()` requires SOME active user on the
+-- account instead, which is the same protection at the right granularity.
+--
+-- One live secret per strategy at a time: minting again revokes the previous one, so
+-- "rotate" is a single act rather than a list somebody has to prune. The revoked rows stay
+-- for the audit trail.
+CREATE TABLE IF NOT EXISTS webhook_secrets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    secret_hash  TEXT NOT NULL UNIQUE,
+    account_id   TEXT NOT NULL,
+    strategy_id  TEXT NOT NULL,
+    prefix       TEXT NOT NULL,          -- the visible head, so a leak is identifiable
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at   TEXT
+);
+
 -- Append-only. Every auth decision lands here, successful or not, because the failures
 -- are the interesting half.
 CREATE TABLE IF NOT EXISTS audit (
@@ -149,6 +177,8 @@ CREATE INDEX IF NOT EXISTS ix_otp_ip     ON otp_challenges(ip, created_at);
 CREATE INDEX IF NOT EXISTS ix_sess_email ON sessions(email, expires_at);
 CREATE INDEX IF NOT EXISTS ix_audit_ts   ON audit(ts);
 CREATE INDEX IF NOT EXISTS ix_keys_email ON api_keys(email, revoked_at);
+CREATE INDEX IF NOT EXISTS ix_whk_strategy ON webhook_secrets(strategy_id, revoked_at);
+CREATE INDEX IF NOT EXISTS ix_whk_account  ON webhook_secrets(account_id, revoked_at);
 """
 
 # Runs after `_migrate`, because it indexes a column that migration may have just added.
@@ -473,6 +503,84 @@ def revoke_api_keys(email: str) -> int:
         cur = conn.execute("""UPDATE api_keys SET revoked_at = ?
                               WHERE email = ? AND revoked_at IS NULL""",
                            (utcnow(), normalize_email(email)))
+    return cur.rowcount
+
+
+# --------------------------------------------------------------------- webhook secrets
+
+# A different prefix from `sk_live_`, and that is load-bearing rather than cosmetic:
+# `current_principal` routes a bearer credential BY PREFIX, so a webhook secret sent in an
+# `Authorization` header falls through to the sessions table and answers 401. It opens the
+# one route it was minted for and nothing else, which is the whole point of it existing.
+WEBHOOK_PREFIX = "whk_"
+WEBHOOK_BYTES = 32                  # 256 bits, same reasoning as an API key
+
+
+def create_webhook_secret(account: str, strategy_id: str) -> tuple[str, dict]:
+    """Mint (or rotate) the webhook secret for one strategy. Returns `(raw, row)`.
+
+    Minting revokes whatever was live on that strategy, so there is never more than one
+    working secret per alert and rotating is a single act. Returned once and stored as a
+    hash, exactly as an API key is — a secret the database can hand back is a secret a
+    database leak hands to the reader.
+    """
+    raw = WEBHOOK_PREFIX + secrets.token_hex(WEBHOOK_BYTES)
+    now = utcnow()
+    conn = connect()
+    with _lock:
+        conn.execute("""UPDATE webhook_secrets SET revoked_at = ?
+                        WHERE strategy_id = ? AND account_id = ? AND revoked_at IS NULL""",
+                     (now, strategy_id, account))
+        cur = conn.execute("""
+            INSERT INTO webhook_secrets
+                (secret_hash, account_id, strategy_id, prefix, created_at)
+            VALUES (?,?,?,?,?)
+        """, (hash_key(raw), account, strategy_id,
+              raw[:len(WEBHOOK_PREFIX) + 6], now))
+        row = _row("SELECT * FROM webhook_secrets WHERE id = ?", (cur.lastrowid,))
+    return raw, row                                       # type: ignore[return-value]
+
+
+def webhook_secret(secret_hash: str, touch: bool = True) -> dict | None:
+    """Resolve a webhook secret to its strategy and account, or None.
+
+    The `EXISTS` clause is what `api_key`'s join against `users` is: a secret belonging to
+    an account whose every sign-in address has been revoked stops working on the next call
+    rather than whenever somebody remembers this table exists. `EXISTS` and not a join,
+    because an account may have several addresses and a join would return the secret once
+    per address.
+    """
+    row = _row("""SELECT * FROM webhook_secrets w
+                  WHERE w.secret_hash = ? AND w.revoked_at IS NULL
+                    AND EXISTS (SELECT 1 FROM users u
+                                WHERE u.account_id = w.account_id AND u.active = 1)""",
+               (secret_hash,))
+    if row is None:
+        return None
+    if touch:
+        with _lock:
+            connect().execute("UPDATE webhook_secrets SET last_used_at = ? WHERE id = ?",
+                              (utcnow(), row["id"]))
+    return row
+
+
+def webhook_secret_for(account: str, strategy_id: str) -> dict | None:
+    """The live secret's METADATA for one strategy — never the secret itself."""
+    return _row("""SELECT id, strategy_id, prefix, created_at, last_used_at
+                   FROM webhook_secrets
+                   WHERE account_id = ? AND strategy_id = ? AND revoked_at IS NULL
+                   ORDER BY id DESC LIMIT 1""", (account, strategy_id))
+
+
+def revoke_webhook_secret(account: str, strategy_id: str) -> int:
+    """Turn the alert off. Scoped by account in the WHERE clause, so guessing a
+    `strategy_id` cannot revoke somebody else's."""
+    conn = connect()
+    with _lock:
+        cur = conn.execute("""UPDATE webhook_secrets SET revoked_at = ?
+                              WHERE account_id = ? AND strategy_id = ?
+                                AND revoked_at IS NULL""",
+                           (utcnow(), account, strategy_id))
     return cur.rowcount
 
 

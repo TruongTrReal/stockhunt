@@ -26,6 +26,7 @@ import api_auth
 import api_config
 import api_live
 import api_paths                                                        # noqa: F401
+import api_webhook
 import authdb
 from stockhunt import deskdb
 
@@ -315,6 +316,132 @@ def resume(strategy_id: str, request: Request,
     authdb.audit("strategy.resumed", who["email"], api_auth.client_ip(request),
                  strategy_id)
     return _out(_mine(strategy_id, who["account_id"]))
+
+
+# ------------------------------------------------------------------ the webhook secret
+#
+# Minted behind the browser login and never by a key or by the webhook itself — the same
+# containment `/auth/keys` has, for a sharper reason here. This credential travels in a
+# request body and lives in plain text inside a TradingView alert, so it is the one most
+# likely to leak; if it could mint its own replacement, revoking it would be a race rather
+# than an ending.
+#
+# It is scoped to ONE strategy and can do exactly one thing: submit an order for it. That
+# is the whole argument for its existing at all — the alternative is `sk_live_…`, which
+# trades every strategy on the account, reads the book and retires registrations, pasted
+# into a field TradingView shows on screen.
+
+
+class WebhookInfo(BaseModel):
+    """The live secret's metadata. Never the secret."""
+    strategy_id: str
+    url: str
+    exists: bool
+    prefix: str | None = None
+    created_at: str | None = None
+    # Whether TradingView has ever actually called with it. The console shows this because
+    # "I set up the alert" and "the alert fires" are different claims, and only one of them
+    # is checkable from here.
+    last_used_at: str | None = None
+
+
+class NewWebhookOut(WebhookInfo):
+    """The one response that carries the secret. It is never retrievable again."""
+    secret: str
+    alert: dict
+    warning: str = ("Store this now — it is not saved anywhere and cannot be shown "
+                    "again. Anyone who has it can place orders for this one strategy.")
+
+
+def _webhook_url(request: Request) -> str:
+    """Where the alert posts. Read from the route itself, and substituted per request for
+    the reason `agent.md`'s `{{BASE}}` is: this string goes straight into a TradingView
+    alert, and behind the tunnel the scheme is knowable only from the forwarded header."""
+    return api_auth.public_base_url(request) + api_webhook.PATH
+
+
+def _alert_body(strategy_id: str, secret: str, symbols: list[str]) -> dict:
+    """The JSON to paste into TradingView's Message box, ready to work.
+
+    `{{…}}` placeholders are what TradingView substitutes at fire time. Three of them are
+    load-bearing and the console says so:
+
+    * `{{strategy.order.action}}` — buy or sell. Only a STRATEGY alert can fill this in.
+    * `{{strategy.order.contracts}}` — the size. The desk does not size for you.
+    * `{{time}}` — the BAR's timestamp, which is what makes a duplicate alert on one bar
+      idempotent. `{{timenow}}` is the moment the alert fired and differs between two
+      copies of the same signal, so it would defeat exactly the protection it looks like.
+
+    `ticker` is included whenever the strategy holds more than one symbol, and omitted
+    when it holds one — a field that can only ever be right is noise, and TradingView's
+    chart ticker will not match the desk's spelling on every venue anyway.
+    """
+    body = {
+        "strategyId": strategy_id,
+        "secret": secret,
+        "action": "{{strategy.order.action}}",
+        "qty": "{{strategy.order.contracts}}",
+        "bar_time": "{{time}}",
+    }
+    if len(symbols) > 1:
+        body["ticker"] = "{{ticker}}"
+    return body
+
+
+@router.post("/{strategy_id}/webhook", response_model=NewWebhookOut,
+             status_code=status.HTTP_201_CREATED,
+             summary="Mint (or rotate) this strategy's TradingView webhook secret")
+def mint_webhook(strategy_id: str, request: Request,
+                 session: dict = Depends(api_auth.current_session)) -> NewWebhookOut:
+    """Turn the alert on, or replace the secret behind it.
+
+    Minting a second time revokes the first, so there is never more than one live secret
+    per strategy — rotating after a leak is one click and takes effect on the next alert,
+    rather than leaving a list somebody has to remember to prune.
+    """
+    account = session["account_id"]
+    row = _mine(strategy_id, account)
+    if row["kind"] != "member":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="This strategy trades a rule the desk selected; it does not take "
+                   "orders, so a webhook would have nothing to send.")
+
+    raw, secret = authdb.create_webhook_secret(account, strategy_id)
+    authdb.audit("webhook.minted", session["email"], api_auth.client_ip(request),
+                 strategy_id)
+    return NewWebhookOut(
+        strategy_id=strategy_id, url=_webhook_url(request), exists=True,
+        prefix=secret["prefix"], created_at=secret["created_at"], secret=raw,
+        alert=_alert_body(strategy_id, raw, list(row["symbols"])))
+
+
+@router.get("/{strategy_id}/webhook", response_model=WebhookInfo,
+            summary="Whether this strategy has a live webhook, and if it has been used")
+def get_webhook(strategy_id: str, request: Request,
+                who: dict = Depends(api_auth.current_principal)) -> WebhookInfo:
+    account = who["account_id"]
+    _mine(strategy_id, account)
+    secret = authdb.webhook_secret_for(account, strategy_id)
+    return WebhookInfo(
+        strategy_id=strategy_id, url=_webhook_url(request), exists=secret is not None,
+        prefix=(secret or {}).get("prefix"),
+        created_at=(secret or {}).get("created_at"),
+        last_used_at=(secret or {}).get("last_used_at"))
+
+
+@router.delete("/{strategy_id}/webhook", status_code=status.HTTP_204_NO_CONTENT,
+               summary="Revoke it. The alert stops working on its next fire.")
+def revoke_webhook(strategy_id: str, request: Request,
+                   session: dict = Depends(api_auth.current_session)) -> Response:
+    account = session["account_id"]
+    _mine(strategy_id, account)
+    if not authdb.revoke_webhook_secret(account, strategy_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail="This strategy has no live webhook secret.")
+    authdb.audit("webhook.revoked", session["email"], api_auth.client_ip(request),
+                 strategy_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{strategy_id}", response_model=None,

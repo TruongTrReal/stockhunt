@@ -80,6 +80,9 @@ paper api/                  the invitation-only HTTP layer in front of that desk
    |                        MANAGER DESK: /v1/strategies, /v1/orders, /v1/house.
    |                        joining is a five-step wizard, and /desk/agent.md is the
    |                        ONE integration contract -- docs.html only renders it.
+   |                        /v1/webhook/tradingview is the ONE route with no auth
+   |                        HEADER: an alert cannot send one, so it carries a
+   |                        per-strategy secret in the body instead
    |                        owns no trading and never will: it writes requests, the
    |                        desk acts on them
 Stockhunt Dashboard/        the monitor. one builder, two outputs (served SPA + one file)
@@ -432,7 +435,7 @@ Collecting either from the root would make `pytest` require `fastapi` or
 `nautilus_trader` to be installed, and the unit suite depends on numpy and pandas only.
 
 ```powershell
-cd "paper api";            ..\.venv\Scripts\python -m pytest -q     # 148 tests
+cd "paper api";            ..\.venv\Scripts\python -m pytest -q
 cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py test_fill_pnl.py -q
 ```
 

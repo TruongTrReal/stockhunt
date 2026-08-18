@@ -114,7 +114,7 @@ class OrderOut(BaseModel):
     applied_at: str | None = None
 
 
-def _out(row: dict) -> OrderOut:
+def order_out(row: dict) -> OrderOut:
     return OrderOut(
         seq=row["seq"], client_order_id=row["client_order_id"],
         strategy_id=row["strategy_id"], action=row["action"],
@@ -126,7 +126,14 @@ def _out(row: dict) -> OrderOut:
         applied_at=row["applied_at"])
 
 
-def _strategy_of(account: str, strategy_id: str) -> dict:
+def strategy_of(account: str, strategy_id: str) -> dict:
+    """One of my member strategies, or the right refusal.
+
+    Public, and `api_webhook` is the second caller: the TradingView route carries a
+    different credential but writes to the same ledger under the same rules, and a second
+    copy of "is this yours, and does it take orders" is a second place for the two answers
+    to drift apart.
+    """
     reg = deskdb.registration(strategy_id, account=account)
     if reg is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such strategy.")
@@ -138,7 +145,7 @@ def _strategy_of(account: str, strategy_id: str) -> dict:
     return reg
 
 
-def _rate_limit(account: str) -> None:
+def rate_limit(account: str) -> None:
     """Orders per minute, per account.
 
     Counted from the ledger rather than from an in-process window, so restarting the API
@@ -173,8 +180,8 @@ def submit(body: OrderRequest, response: Response, request: Request,
     this order, once.
     """
     account = who["account_id"]
-    _strategy_of(account, body.strategy_id)
-    _rate_limit(account)
+    strategy_of(account, body.strategy_id)
+    rate_limit(account)
 
     row, created = deskdb.submit_order(
         account, body.strategy_id, body.client_order_id,
@@ -183,7 +190,7 @@ def submit(body: OrderRequest, response: Response, request: Request,
 
     if not created:
         response.status_code = status.HTTP_200_OK
-    return _out(row)
+    return order_out(row)
 
 
 @router.delete("/orders/{client_order_id}", response_model=OrderOut,
@@ -209,13 +216,13 @@ def cancel(client_order_id: str, response: Response,
             status.HTTP_409_CONFLICT,
             detail=f"That order is already {target['state']}; there is nothing to cancel.")
 
-    _rate_limit(account)
+    rate_limit(account)
     row, created = deskdb.submit_order(
         account, target["strategy_id"], f"cancel:{client_order_id}",
         action="cancel", target_coid=client_order_id)
     if not created:
         response.status_code = status.HTTP_200_OK
-    return _out(row)
+    return order_out(row)
 
 
 @router.get("/orders", response_model=list[OrderOut], summary="Your orders")
@@ -225,7 +232,7 @@ def listing(who: dict = Depends(api_auth.current_principal),
             since_seq: int = Query(0, ge=0,
                                    description="Poll from the last seq you saw"),
             limit: int = Query(200, ge=1, le=1000)) -> list[OrderOut]:
-    return [_out(r) for r in deskdb.orders(
+    return [order_out(r) for r in deskdb.orders(
         who["account_id"], strategy_id=strategy_id, state=state,
         since_seq=since_seq, limit=limit)]
 
@@ -236,4 +243,4 @@ def one(client_order_id: str,
     row = deskdb.order(who["account_id"], client_order_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such order.")
-    return _out(row)
+    return order_out(row)

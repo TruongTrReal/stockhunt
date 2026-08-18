@@ -349,6 +349,18 @@
     <th>Asked for</th><th>Desk says</th><th></th></tr></thead>
     <tbody id="strategies"></tbody></table>
 
+  <!-- The TradingView panel. Opened from a row, because a webhook secret belongs to ONE
+       strategy and a section of its own would invite the question this design exists to
+       answer: which strategy does this credential trade? Exactly one, always. -->
+  <div id="tv" hidden>
+    <h2>TradingView webhook <span class="mono" id="tv-sid"></span></h2>
+    <p class="note">TradingView can only post a JSON body — it cannot send your API key in
+      a header. So this strategy gets its own secret, and that secret can do exactly one
+      thing: place orders for this strategy. It is not your API key and must never be
+      replaced with one.</p>
+    <div id="tv-body"></div>
+  </div>
+
   <!-- Its own section, because a retired strategy is not a running one and listing it
        under a heading that says RUNNING is simply a false statement about the desk. -->
   <div id="retired-block" hidden>
@@ -579,6 +591,13 @@
           on the board under your account only. Nobody else sees them.</span></div>
         <div class="n"><span class="m">3</span><span>Pause, resume and retire live on your
           desk. Retire keeps the record, always.</span></div>
+        <!-- Said here because a TradingView user has just been handed a credential they
+             cannot use: an alert sends a body and no headers, so the key on the previous
+             screen will never authenticate one. The row button is the only place that is
+             discoverable from. -->
+        <div class="n"><span class="m">4</span><span>Trading from <b>TradingView</b>? An alert
+          cannot send your key — press <b>TradingView</b> on your desk row for a webhook URL
+          and a message to paste into the alert.</span></div>
       </div>
       <div class="aside">
         <b>Keep the brief.</b> The contract stays at <a href="/desk/docs">/desk/docs</a> —
@@ -691,7 +710,10 @@ async function loadStrategies() {
       <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}</td>
       <td>${stateTag(s.want)}</td>
       <td>${stateTag(s.state)}${s.reason ? `<div class="note">${esc(s.reason)}</div>` : ""}</td>
-      <td>${over ? "" : `
+      <td>${over || s.kind !== "member" ? "" : `
+        <button class="ghost small" data-act="webhook"
+                data-id="${esc(s.strategy_id)}">TradingView</button>`}
+        ${over ? "" : `
         <button class="ghost small" data-act="${s.want === "paused" ? "resume" : "pause"}"
                 data-id="${esc(s.strategy_id)}">${s.want === "paused" ? "Resume" : "Pause"}</button>`}
         ${settled ? "" : `
@@ -799,6 +821,9 @@ async function onStrategyClick(ev) {
   const b = ev.target.closest("button[data-act]");
   if (!b) return;
   const {act, id} = b.dataset;
+  // Opening a panel is not a request to the desk, so it takes none of the machinery
+  // below: no confirmation, no disabled button, and nothing to settle.
+  if (act === "webhook") return openWebhook(id);
   // Retiring keeps the record — always. It is worth saying out loud, because "delete"
   // is what the button looks like it does.
   if (act === "retire" && !confirm(
@@ -869,6 +894,121 @@ async function settle(id, act) {
         + `when the desk next starts.`, true);
   }
 }
+
+// ------------------------------------------------------------- page: the TradingView panel
+//
+// Three things this panel has to keep doing, each of which is the difference between an
+// alert that trades and one that only looks configured:
+//
+// * **It hands over the whole message, not a description of it.** The server builds the
+//   JSON — `_alert_body` in `api_strategies.py` — so the block somebody pastes into
+//   TradingView is the block the endpoint was written against. Retyped here it would be a
+//   second contract, and the copy nobody tests.
+// * **`{{time}}`, never `{{timenow}}`.** The derived `client_order_id` is what stops an
+//   alert that fires twice on one bar from doubling a position, and it is stable only
+//   because the bar's timestamp is. That is a footgun with no error attached, so the panel
+//   says it in words rather than trusting the JSON to be read closely.
+// * **The secret is shown once.** It is stored as a hash, exactly like an API key, so
+//   closing this without copying it means minting again.
+let TV = null;                    // {strategy_id, url, exists, prefix, …} — never a secret
+
+async function openWebhook(id) {
+  TV = null;
+  el("tv-sid").textContent = id;
+  el("tv").hidden = false;
+  el("tv-body").innerHTML = `<p class="empty">Loading…</p>`;
+  el("tv").scrollIntoView({behavior: "smooth", block: "nearest"});
+  try {
+    TV = await j("GET", `/v1/strategies/${encodeURIComponent(id)}/webhook`);
+    renderWebhook();
+  } catch (e) { el("tv-body").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+}
+
+function renderWebhook(minted) {
+  const s = STRATEGIES.find(x => x.strategy_id === TV.strategy_id);
+  const many = s && s.symbols.length > 1;
+  el("tv-body").innerHTML = `
+    <div class="codebar" style="margin:0 0 14px">
+      <span>Webhook URL</span>
+      <code class="mono">${esc(TV.url)}</code>
+      <button class="ghost small" data-tv="url">Copy</button>
+    </div>
+    ${minted ? `
+      <div class="secret">${esc(minted.secret)}</div>
+      <div class="msg">${esc(minted.warning)}</div>
+      <p class="note">Paste this into the alert's <b>Message</b> box, whole. The
+        <code>{{…}}</code> parts are TradingView's — it fills them in when the alert
+        fires.</p>
+      <pre>${esc(JSON.stringify(minted.alert, null, 2))}</pre>
+      <div class="codebar">
+        <button class="ghost small" data-tv="alert">Copy the message</button>
+        <span class="spacer"></span>
+        <button class="ghost small" data-tv="close">Close</button>
+      </div>
+      <div class="warn">Set the alert on a <b>strategy</b>, not an indicator: only a
+        strategy can fill in <code>{{strategy.order.action}}</code> and
+        <code>{{strategy.order.contracts}}</code>. Leave
+        <code>bar_time</code> as <code>{{time}}</code> — that is the bar's own timestamp,
+        and it is what makes an alert that fires twice on one bar a single order instead
+        of a doubled position. <code>{{timenow}}</code> would look identical and do the
+        opposite.${many ? ` This strategy holds ${s.symbols.length} symbols, so
+        <code>ticker</code> has to stay in the message.` : ""}</div>
+    ` : TV.exists ? `
+      <p class="note">A secret is live on this strategy
+        (<span class="mono">${esc(TV.prefix)}…</span>, created
+        ${esc((TV.created_at || "").slice(0, 10))}). TradingView
+        ${TV.last_used_at
+          ? `last called with it at <span class="mono">${esc(TV.last_used_at.slice(0, 16))}</span>.`
+          : `<b>has never called with it.</b>`}
+        It cannot be shown again — if you no longer have it, mint a new one, which replaces
+        this one.</p>
+      <div class="codebar">
+        <button class="ghost small" data-tv="mint">Mint a new one</button>
+        <button class="ghost small" data-tv="revoke">Revoke</button>
+        <span class="spacer"></span>
+        <button class="ghost small" data-tv="close">Close</button>
+      </div>
+    ` : `
+      <p class="note">No secret yet, so nothing can post to this strategy.</p>
+      <div class="codebar">
+        <button class="ghost small" data-tv="mint">Mint the secret</button>
+        <span class="spacer"></span>
+        <button class="ghost small" data-tv="close">Close</button>
+      </div>
+    `}`;
+}
+
+el("tv").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-tv]");
+  if (!b || !TV) return;
+  const what = b.dataset.tv;
+  const id = encodeURIComponent(TV.strategy_id);
+  if (what === "url") return copy(TV.url, b);
+  if (what === "alert") return copy(el("tv-body").querySelector("pre").textContent, b);
+  if (what === "close") { el("tv").hidden = true; TV = null; return; }
+  // Rotating is a real loss if somebody is mid-setup with the old one in a clipboard, so
+  // it asks. Minting the first one cannot lose anything and does not.
+  if (what === "mint" && TV.exists && !confirm(
+      "Mint a new secret?\n\nThe current one stops working immediately, and any " +
+      "TradingView alert still using it will start failing.")) return;
+  if (what === "revoke" && !confirm(
+      "Revoke this webhook secret?\n\nAlerts using it stop reaching the desk on their " +
+      "next fire.")) return;
+  b.disabled = true;
+  try {
+    if (what === "mint") {
+      const minted = await j("POST", `/v1/strategies/${id}/webhook`);
+      TV = {...minted, secret: undefined};
+      renderWebhook(minted);
+      say("Webhook secret minted. Copy it now — it is not shown again.");
+    } else {
+      await j("DELETE", `/v1/strategies/${id}/webhook`);
+      TV = await j("GET", `/v1/strategies/${id}/webhook`);
+      renderWebhook();
+      say("Webhook secret revoked.");
+    }
+  } catch (e) { say(e.message, true); b.disabled = false; }
+});
 
 // ------------------------------------------------------------------------ page: keys
 async function loadKeys() {
