@@ -83,6 +83,30 @@ MIN_TRADABLE_YEARS = 12.0
 # At 5% the gate still fires, and on the right name: SR3 at 11.1%, whose median daily
 # range is 0.047% and therefore about nine ticks wide.
 MAX_TICK_OF_RANGE = 0.05
+# Annualised volatility floor. Below this the contract is not worth a slot.
+#
+# **State the counter-argument first, because it is strong.** Volatility is not
+# opportunity, and this project already neutralises it: `riskmatch_wf` sizes every rule to
+# the benchmark's risk and `portfolio_wf` scores the book, so a 5%-vol Treasury note is
+# simply held in larger size. Futures are margin instruments — leverage is free here in a
+# way it is not for cash equities — so "too slow" is usually a sizing question, not a
+# selection one. Trend-following has historically made much of its money in exactly the
+# rates and FX contracts this gate removes.
+#
+# What survives that argument, and is the actual reason for the floor: **cost and the tick
+# grid do not scale down with volatility.** A round trip costs the same fraction of
+# notional on ZT as on CL, but ZT's median daily range is 0.08% against CL's 2.73% — so
+# the same fee eats ~34x more of the available move, and ZT's tick alone is 4.8% of a
+# typical day where CL's is 0.4%. A rule on ZT is trading a handful of ticks, which is
+# where `MAX_TICK_OF_RANGE` and this floor are really the same objection measured twice.
+#
+# 15% was chosen against the measured distribution, not picked round. The class splits
+# cleanly: two rates and eight FX sit between 1.3% and 11.9%, then there is a gap to LE at
+# 15.8% and everything else above. And it is nearly free — mean pairwise correlation among
+# the kept names stays at **0.20** whether the floor is 0% or 15%, because the FX block
+# was correlated with itself rather than adding independence. Above 25% it does start to
+# cost: 7 names, 3 sectors, correlation 0.25.
+MIN_ANN_VOL_PCT = 15.0
 # Two roots correlating above this are one asset. 0.85 is deliberately looser than the
 # 0.72 the ETF screen ended up at, because the sectors here are genuinely distinct and a
 # tighter bar would start cutting real diversification (GC and SI run ~0.8 and are not
@@ -136,8 +160,8 @@ def correlations(timeframe: str, symbols: list[str]) -> pd.DataFrame:
     return rets.corr()
 
 
-def screen(timeframe: str = "1d",
-           max_corr: float = MAX_CORR) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:
+def screen(timeframe: str = "1d", max_corr: float = MAX_CORR,
+           min_vol: float = MIN_ANN_VOL_PCT) -> tuple[pd.DataFrame, list[str], pd.DataFrame]:
     """Returns (the ranked table, the accepted symbols in order, the correlation matrix).
 
     Three return values rather than one frame carrying `.attrs`: pandas does not promise
@@ -161,6 +185,9 @@ def screen(timeframe: str = "1d",
         elif r["tick_of_range"] > MAX_TICK_OF_RANGE:
             reasons[r["symbol"]] = (f"one tick is {100 * r['tick_of_range']:.1f}% of a "
                                     f"day's range -- a grid, not a market")
+        elif r["ann_vol_pct"] < min_vol:
+            reasons[r["symbol"]] = (f"{r['ann_vol_pct']:.1f}% annual vol, daily range "
+                                    f"{r['daily_range_pct']:.2f}% -- costs eat the move")
 
     # Correlation runs last and only over what survived, because a name rejected for
     # liquidity must not be able to knock out a name that would have been kept.
@@ -213,11 +240,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--tf", default="1d")
     ap.add_argument("--max-corr", type=float, default=MAX_CORR)
+    ap.add_argument("--min-vol", type=float, default=MIN_ANN_VOL_PCT,
+                    help="annualised volatility floor, in percent")
     ap.add_argument("--write", action="store_true",
                     help="commit the survivors to universes_futures.py")
     args = ap.parse_args()
 
-    table, accepted, corr = screen(args.tf, args.max_corr)
+    table, accepted, corr = screen(args.tf, args.max_corr, args.min_vol)
     if table.empty or "adv_usd" not in table:
         raise SystemExit("nothing cached — run `python db_loader.py` first")
 
