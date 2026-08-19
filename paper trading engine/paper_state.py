@@ -330,17 +330,30 @@ def marked_symbols() -> list[str]:
     A book publishes its names in `holdings`; a single-instrument system carries a real
     ticker in `symbol`. A book's `symbol` is a LABEL ("100 names") and is skipped — asking
     the vendor for it is what a price lookup by `symbol` was doing all along.
+
+    **A member's `symbol` is whatever they typed, and it is not always one ticker.** Two
+    registrations on the live desk carry `"AAPL, MSFT, AMZN"` and
+    `"AAPL, MSFT, AMZN, NVDA, GOOGL, META, TSLA"` in that field, and the whole string went
+    to the vendor as a single instrument — a guaranteed miss for the member's own marks,
+    and one more oversized entry in a request that was already too long. Splitting on the
+    comma is safe because no ticker contains one: crypto pairs use `/` (`BTC/USD`). This is
+    a repair at the READ, not a fix at the source — `paper api` should be validating the
+    field on the way in, and until it does this keeps the desk pricing what it can.
     """
     out: set[str] = set()
     for s in _strategies.values():
         for h in (s.get("holdings") or []):
-            sym = h.get("symbol")
-            if sym:
-                out.add(sym)
-        sym = s.get("symbol")
-        if sym and s.get("kind") != "book":
-            out.add(sym)
+            out.update(_tickers(h.get("symbol")))
+        if s.get("kind") != "book":
+            out.update(_tickers(s.get("symbol")))
     return sorted(out)
+
+
+def _tickers(field: str | None) -> list[str]:
+    """The instruments named in one `symbol` field, which may hold several."""
+    if not field:
+        return []
+    return [part.strip() for part in str(field).split(",") if part.strip()]
 
 
 def _mark_one(s: dict, prices: dict[str, float]) -> float | None:

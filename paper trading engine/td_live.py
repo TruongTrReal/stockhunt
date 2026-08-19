@@ -147,12 +147,51 @@ def is_market_open(symbol: str) -> bool | None:
     return r.json().get("is_market_open")
 
 
-def fetch_prices(symbols: list[str]) -> dict[str, float]:
-    """Current price for many symbols in one call.
+# How much of one `/price` request the symbol list may fill. The vendor puts the batch in
+# the QUERY STRING, so the ceiling is its gateway's URL limit and not anything it
+# documents: at 125 symbols the desk's request was ~1.1 kB of URL and came back
+# `414 URI Too Long` every single time. Both guards are needed — a count alone still
+# overflows on crypto pairs, which cost 11 characters each once `/` is percent-encoded,
+# and a length alone would send one enormous request the day the vendor raises the limit.
+MAX_PRICE_SYMBOLS = 50
+MAX_PRICE_CHARS = 400
 
-    `/price` is batched — a comma-separated list returns a dict keyed by symbol — which
-    matters when 33 instruments need marking every minute. A single-symbol request returns
-    the bare object instead of a dict of them, so both shapes are handled.
+
+def _price_chunks(symbols: list[str]) -> list[list[str]]:
+    """Split a symbol list into requests that will fit in a URL."""
+    chunks: list[list[str]] = []
+    run: list[str] = []
+    run_len = 0
+    for sym in symbols:
+        cost = len(sym) * 3 + 3               # worst-case percent-encoding, plus a comma
+        if run and (len(run) >= MAX_PRICE_SYMBOLS or run_len + cost > MAX_PRICE_CHARS):
+            chunks.append(run)
+            run, run_len = [], 0
+        run.append(sym)
+        run_len += cost
+    if run:
+        chunks.append(run)
+    return chunks
+
+
+def fetch_prices(symbols: list[str]) -> dict[str, float]:
+    """Current price for many symbols, in as few calls as will fit in a URL.
+
+    `/price` is batched — a comma-separated list returns a dict keyed by symbol. A
+    single-symbol request returns the bare object instead of a dict of them, so both shapes
+    are handled.
+
+    **It is batched into the URL, which is why this chunks.** The docstring here used to
+    promise "one call", and that held while the desk marked 33 instruments. The point-in-time
+    top 100 took it to ~125, the request grew past the vendor's URL limit, and mark-to-market
+    then failed with `414 URI Too Long` on every pass — 1,035 failures and no successes in a
+    day, while the desk went on filling orders against prices it could no longer refresh. A
+    batch endpoint has a size, and nothing here was bounding it.
+
+    **A chunk that fails does not take the others down with it.** Partial marks are the
+    point: one unpriceable symbol used to mean the whole book went unpriced. Only a total
+    failure raises, so the caller's "will retry" still fires for a real outage rather than
+    for one bad ticker.
 
     This exists for mark-to-market only, never for signals. Positions are decided on closed
     bars; an intraday price is for showing what the open position is worth right now, and
@@ -160,18 +199,30 @@ def fetch_prices(symbols: list[str]) -> dict[str, float]:
     """
     if not symbols:
         return {}
-    r = requests.get(f"{BASE_URL}/price", timeout=30,
-                     params={"symbol": ",".join(symbols), "apikey": api_key()})
-    r.raise_for_status()
-    payload = r.json()
-    if "price" in payload:                       # single symbol: bare object
-        payload = {symbols[0]: payload}
-    out = {}
-    for sym, v in payload.items():
+    out: dict[str, float] = {}
+    failures: list[Exception] = []
+    chunks = _price_chunks(symbols)
+    for chunk in chunks:
         try:
-            out[sym] = float(v["price"])
-        except (TypeError, ValueError, KeyError):
+            r = requests.get(f"{BASE_URL}/price", timeout=30,
+                             params={"symbol": ",".join(chunk), "apikey": api_key()})
+            r.raise_for_status()
+            payload = r.json()
+        except Exception as exc:               # noqa: BLE001 - reported below, not swallowed
+            failures.append(exc)
             continue
+        if "price" in payload:                 # single symbol: bare object
+            payload = {chunk[0]: payload}
+        for sym, v in payload.items():
+            try:
+                out[sym] = float(v["price"])
+            except (TypeError, ValueError, KeyError):
+                continue
+    if failures and len(failures) == len(chunks):
+        raise failures[0]
+    if failures:
+        print(f"fetch_prices: {len(failures)} of {len(chunks)} chunks failed "
+              f"({failures[0]}); marked {len(out)} of {len(symbols)} symbols", flush=True)
     return out
 
 

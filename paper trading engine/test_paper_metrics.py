@@ -331,3 +331,111 @@ def test_a_books_label_is_never_asked_of_the_vendor(desk):
     books being marked in the first place."""
     book(desk)
     assert not any("names" in s for s in desk.marked_symbols())
+
+
+def test_a_members_multi_symbol_field_becomes_several_tickers(desk):
+    """A member types the field; it is not always one ticker.
+
+    Two live registrations carry `"AAPL, MSFT, AMZN"` and a seven-name version of it, and
+    the whole string was going to the vendor as one instrument -- a guaranteed miss, and
+    one more oversized entry in a `/price` URL that was already over the limit.
+    """
+    book(desk, sid="01:test", kind="member", names=3, holdings=None,
+         symbol="AAPL, MSFT, AMZN")
+    got = desk.marked_symbols()
+    assert got == ["AAPL", "AMZN", "MSFT"], got
+    assert not any("," in s for s in got), got
+
+
+def test_no_symbol_carries_whitespace_or_empties(desk):
+    """`"AAPL,,  MSFT "` is three fields and two tickers."""
+    book(desk, sid="01:sloppy", kind="member", names=2, holdings=None,
+         symbol="AAPL,,  MSFT ")
+    assert desk.marked_symbols() == ["AAPL", "MSFT"]
+
+
+# --------------------------------------------------------------- the /price URL has a size
+
+def test_price_requests_are_chunked_to_fit_a_url():
+    """The vendor batches `/price` in the QUERY STRING, so the batch has a ceiling.
+
+    At ~125 symbols the desk's request was `414 URI Too Long` on every pass: 1,035
+    failures and no successes in a day, while it went on filling orders against prices it
+    could not refresh. Nothing was bounding the size.
+    """
+    import td_live
+    symbols = [f"SYM{i:03d}" for i in range(125)]
+    chunks = td_live._price_chunks(symbols)
+
+    assert len(chunks) > 1, "125 symbols must not go out as one request"
+    assert [s for c in chunks for s in c] == symbols, "every symbol, in order, exactly once"
+    for c in chunks:
+        assert len(c) <= td_live.MAX_PRICE_SYMBOLS
+        assert len(",".join(c)) <= td_live.MAX_PRICE_CHARS
+
+
+def test_chunking_counts_percent_encoding_of_crypto_pairs():
+    """`BTC/USD` costs 11 characters in a URL, not 7. A count-only guard overflows on a
+    book of pairs even while it reports itself within budget."""
+    import td_live
+    pairs = [f"CO{i:02d}/USD" for i in range(60)]
+    for c in td_live._price_chunks(pairs):
+        encoded = ",".join(c).replace("/", "%2F")
+        assert len(encoded) <= td_live.MAX_PRICE_CHARS * 3, len(encoded)
+        assert len(c) <= td_live.MAX_PRICE_SYMBOLS
+
+
+def test_one_bad_chunk_does_not_unprice_the_whole_book(monkeypatch):
+    """Partial marks are the point. One unpriceable symbol used to mean nothing marked."""
+    import td_live
+
+    class Resp:
+        def __init__(self, payload): self._p = payload
+        def raise_for_status(self): pass
+        def json(self): return self._p
+
+    calls = []
+
+    def fake_get(url, timeout=None, params=None):
+        chunk = params["symbol"].split(",")
+        calls.append(chunk)
+        if "BAD" in chunk:
+            raise RuntimeError("414 Client Error: URI Too Long")
+        return Resp({s: {"price": "10.0"} for s in chunk})
+
+    monkeypatch.setattr(td_live.requests, "get", fake_get)
+    monkeypatch.setattr(td_live, "api_key", lambda: "k")
+    monkeypatch.setattr(td_live, "MAX_PRICE_SYMBOLS", 2)
+
+    out = td_live.fetch_prices(["AAPL", "MSFT", "BAD", "NVDA"])
+    assert len(calls) == 2, calls
+    assert out == {"AAPL": 10.0, "MSFT": 10.0}, out
+
+
+def test_a_total_failure_still_raises(monkeypatch):
+    """Partial tolerance must not hide a real outage: the caller logs "will retry" off
+    this exception, and swallowing it would make a dead vendor look like a quiet one."""
+    import td_live
+
+    def fake_get(url, timeout=None, params=None):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(td_live.requests, "get", fake_get)
+    monkeypatch.setattr(td_live, "api_key", lambda: "k")
+    with pytest.raises(RuntimeError):
+        td_live.fetch_prices(["AAPL", "MSFT"])
+
+
+def test_a_single_symbol_still_reads_the_bare_object(monkeypatch):
+    """`/price` drops the outer dict for one symbol. That shape predates the chunking and
+    must survive it."""
+    import td_live
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"price": "42.5"}
+
+    monkeypatch.setattr(td_live.requests, "get",
+                        lambda url, timeout=None, params=None: Resp())
+    monkeypatch.setattr(td_live, "api_key", lambda: "k")
+    assert td_live.fetch_prices(["SOXL"]) == {"SOXL": 42.5}
