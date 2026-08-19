@@ -815,9 +815,15 @@ function pnlSpark(curve, w = 560, h = 96) {
  * so the reference line is 0 and not 100 — it is money made on the desk, not an index, and
  * it is the one series on this page that is neither simulated nor a backtest.
  *
- * `curve_breaks` marks the points where the desk was down. The line is CUT there rather
+ * `curve_breaks` marks the points where the record LOST A BAR. The line is CUT there rather
  * than drawn straight through: a straight segment across an outage is a claim that nothing
- * happened during it, when the truth is that nobody was watching. */
+ * happened during it, when the truth is that nobody was watching.
+ *
+ * A restart is not by itself a break, and the desk decides that, not this file — see
+ * `store._missed_a_bar`. It used to mark every session boundary, and since the desk
+ * restarts far more often than a bar closes, every point arrived here as its own
+ * single-point segment: the dot fallback below fired for all of them and the chart drew a
+ * field of dots with no line anywhere. */
 function pnlLive(curve, bench, breaks, w = 620, h = 128) {
   const cur = (curve || []).filter(v => isFinite(v));
   if (cur.length < 2) return "";

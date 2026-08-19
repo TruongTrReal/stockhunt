@@ -69,11 +69,22 @@ since_1 = s1["since"]
 
 print("\nsession 2 — restart, replaying the same fills (warm-up)")
 # The gap: benchmark moved +3% while the desk was down.
-def gap_3pct(sid, symbol, tf):
-    last = store.last_point(sid)
-    if last:
-        store.record_gap(sid, last[0],
-                         datetime.now(timezone.utc).isoformat(timespec="seconds"), 3.0)
+#
+# `to_ts` is STATED, not taken from the clock, and that is load-bearing now that a gap
+# shorter than one bar is no longer treated as an outage — see `store._missed_a_bar`. The
+# bar timestamps here are fixed dates in August 2026, so a `datetime.now()` restart time
+# sits a different distance from them on every day the suite is run, and the property
+# under test would quietly start depending on today's date.
+def gap_after(days: float, bench_pct):
+    def record(sid, symbol, tf):
+        last = store.last_point(sid)
+        if last:
+            back = datetime.fromisoformat(last[0]) + timedelta(days=days)
+            store.record_gap(sid, last[0], back.isoformat(timespec="seconds"), bench_pct)
+    return record
+
+
+gap_3pct = gap_after(2, 3.0)          # two days down: a real outage on a 1d system
 
 s2 = session(fills=[("2026-08-08 14:00", "BUY", 10, 100.0),      # replayed
                     ("2026-08-08 15:00", "SELL", 10, 101.0),     # replayed
@@ -97,11 +108,21 @@ check("break marked at the join", s2["curve_breaks"], [3])
 
 print("\nsession 3 — a gap whose benchmark could not be measured")
 s3 = session(fills=[], points=[(0.0, 0.0), (0.5, 0.5)], tag=20,
-             patch_gap=lambda sid, symbol, tf: store.record_gap(
-                 sid, store.last_point(sid)[0],
-                 datetime.now(timezone.utc).isoformat(timespec="seconds"), None))
+             patch_gap=gap_after(2, None))
 check("unknown gap is flagged", s3["unknown_gaps"], 1)
 check("two gaps total", s3["gaps"], 2)
+
+print("\nsession 4 — a restart between two consecutive bars is NOT an outage")
+# The desk restarts far more often than a bar closes: ten sessions over four days, each
+# contributing a single daily point. Marking a break at every session boundary made the
+# chained curve a row of isolated single-point segments, and the dashboard drew a field of
+# dots with no line anywhere — an unbroken record rendered as nothing but breaks. A
+# restart is an outage only if the record lost a bar to it.
+s4 = session(fills=[], points=[(0.0, 0.0)], tag=22,      # the bar right after session 3's
+             patch_gap=gap_after(0.8, 0.0))              # back up well within the day
+check("short restart added no break", s4["curve_breaks"], s3["curve_breaks"])
+check("...and no new outage", s4["gaps"], 2)
+check("its point joined the line", len(s4["paper_curve"]), len(s3["paper_curve"]) + 1)
 
 print("\nstore summary:", store.summary())
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))

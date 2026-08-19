@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -500,6 +501,27 @@ def strategies_for(account: str | None = None) -> list[dict]:
     return [dict(zip(cols, row)) for row in conn.execute(sql, args).fetchall()]
 
 
+# One bar of each timeframe, in seconds, parsed from the tf string the strategy registered
+# with. `paper_state` keeps its own copy for the benchmark lookup; this one exists so that
+# `lifetime_curve` can answer "was a bar actually missed?" without importing it and taking
+# the trading stack along with it. An unrecognised timeframe falls back to a day, which is
+# the conservative direction: it marks fewer breaks, never more.
+_TF_UNITS = {"m": 60.0, "h": 3600.0, "d": 86400.0, "w": 604800.0}
+
+
+def bar_seconds(tf: str | None) -> float:
+    m = re.fullmatch(r"\s*(\d+)\s*([mhdw])\s*", (tf or "").lower())
+    return float(m.group(1)) * _TF_UNITS[m.group(2)] if m else 86400.0
+
+
+def _seconds_between(a: str, b: str) -> float | None:
+    """b - a in seconds, or None if either timestamp will not parse."""
+    try:
+        return (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
 def lifetime_curve(sid: str) -> dict:
     """Chain every session's curve into one series from inception.
 
@@ -525,15 +547,60 @@ def lifetime_curve(sid: str) -> dict:
     # last write win, rather than depending on row order for a tie.
     gap_rows = conn.execute("""SELECT from_ts, to_ts, bench_pct FROM gaps
                                WHERE sid = ? ORDER BY from_ts, to_ts""", (sid,)).fetchall()
-    return _rechain(rows, {g[0]: g for g in gap_rows})
+    tf = conn.execute("SELECT tf FROM strategies WHERE sid = ?", (sid,)).fetchone()
+    return _rechain(rows, {g[0]: g for g in gap_rows}, bar_seconds(tf[0] if tf else None))
 
 
-def _rechain(rows, gaps) -> dict:
+def _missed_a_bar(prev_last_ts, next_first_ts, gap, bar) -> bool:
+    """Did this session boundary actually cost the record a bar?
+
+    **A restart is not an outage.** This is the whole correction. The break marker used to
+    be appended at every session boundary, and the desk restarts far more often than a bar
+    closes — ten sessions over four days, each contributing one daily point. Every point in
+    the chained curve was therefore an isolated segment, and the chart drew a field of
+    disconnected dots with no line anywhere: a record that is in fact unbroken, rendered as
+    one that is nothing but breaks.
+
+    A bar is missed only if BOTH of these hold, and requiring both is deliberate:
+
+    * **the desk was down longer than one bar.** Down from a daily close at 00:00 until
+      21:23 the same day means the next 00:00 bar was still captured, so nothing is
+      missing. This is the same test `paper_state._bench_over_gap` already applies when it
+      decides a sub-bar gap moved the benchmark by a measured 0.0.
+    * **the record itself skips more than one bar.** Two adjacent points exactly one bar
+      apart are consecutive bars whatever the process did between them.
+
+    Either alone is wrong in a way the other covers. Downtime alone cuts the line across
+    every overnight restart of an intraday equity system, where the market was shut and no
+    bar existed to miss. The record's own spacing alone cuts it across every weekend and
+    every close, restart or not, because a 4h series has a 20-hour hole in it each night by
+    construction. Together they cut only where the desk was genuinely away long enough AND
+    the series has a hole to show for it.
+
+    An unmeasurable gap — no row, or timestamps that will not parse — is treated as
+    satisfying its own half of the test rather than vetoing the other. `unknown_gaps`
+    already tells the reader that side is unverified.
+    """
+    span = _seconds_between(prev_last_ts, next_first_ts)
+    if span is not None and span <= bar:
+        return False
+    if gap is not None:
+        down = _seconds_between(gap[0], gap[1])
+        if down is not None and down <= bar:
+            return False
+    return True
+
+
+def _rechain(rows, gaps, bar: float = 86400.0) -> dict:
     """The chaining, done in one pass per session rather than per point.
 
     Kept separate from `lifetime_curve` because the per-point form is easy to get subtly
     wrong: the stored percent is relative to its own session, so the carry must advance
     exactly once per session boundary, using that session's FINAL value.
+
+    `breaks` marks only the boundaries that lost a bar — see `_missed_a_bar`. The benchmark
+    carry is applied at every boundary regardless, because a measured move across a short
+    gap is still a move and dropping it would understate the baseline.
     """
     eq_out: list[float] = []
     bn_out: list[float] = []
@@ -550,13 +617,14 @@ def _rechain(rows, gaps) -> dict:
 
     for i, (_session, pts) in enumerate(groups):
         if i > 0:
-            breaks.append(len(eq_out))
             prev_last_ts = groups[i - 1][1][-1][0]
             g = gaps.get(prev_last_ts)
+            if _missed_a_bar(prev_last_ts, pts[0][0], g, bar):
+                breaks.append(len(eq_out))
+                if g is None or g[2] is None:
+                    unknown += 1
             if g is not None and g[2] is not None:
                 bn_carry *= 1.0 + float(g[2]) / 100.0
-            else:
-                unknown += 1
             # the strategy held nothing across the gap: its multiple is exactly 1.0
         for ts, eq_pct, bn_pct in pts:
             eq_out.append(round((eq_carry * (1.0 + eq_pct / 100.0) - 1.0) * 100.0, 4))
@@ -565,9 +633,13 @@ def _rechain(rows, gaps) -> dict:
         eq_carry *= 1.0 + last_eq / 100.0
         bn_carry *= 1.0 + last_bn / 100.0
 
+    n_breaks = len(breaks)
     eq_out, bn_out, breaks = _thin(eq_out, bn_out, breaks)
+    # `gaps` counts OUTAGES, not restarts, so it agrees with the number of cuts the chart
+    # draws. It used to count session boundaries, which is why a page showing an unbroken
+    # line could still caption itself "cut at 2 outages".
     return {"equity": eq_out, "bench": bn_out, "breaks": breaks,
-            "gaps": max(len(groups) - 1, 0), "unknown_gaps": unknown}
+            "gaps": n_breaks, "unknown_gaps": unknown}
 
 
 def _thin(eq: list[float], bn: list[float], breaks: list[int]):

@@ -304,8 +304,17 @@ One lookup per `(symbol, timeframe, gap start)`, memoised — 330 systems over 3
 ask the same question, and doing it per strategy made startup 330 sequential API calls.
 
 `paper_curve` is the **chained lifetime** series, so the dashboard shows the record since
-inception rather than since the last restart. `curve_breaks` carries the indices where the
-desk was down; `app.js` does not yet break the line there.
+inception rather than since the last restart. `curve_breaks` carries the indices the chart
+cuts the line at, and `gaps` counts them, so the caption and the picture agree.
+
+**A break is a MISSED BAR, not a restart** (`store._missed_a_bar`). This desk restarts far
+more often than a bar closes, so marking every session boundary made each point its own
+one-point segment and the chart drew a field of disconnected dots with no line anywhere.
+Two conditions must now BOTH hold: the desk was down longer than one bar of the strategy's
+timeframe, and the record itself skips more than one bar. Downtime alone cuts the line at
+every overnight restart of an intraday system, where the market was shut and there was no
+bar to miss; the record's own spacing alone cuts it at every weekend, restart or not,
+because a 4h series has a 20-hour hole in it each night by construction.
 
 ## What this folder writes, and where
 
