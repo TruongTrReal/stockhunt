@@ -44,6 +44,7 @@ td_nautilus.py    TwelveDataLiveClient + instrument factories
 live_ws.py        LiveHub: upstream tick socket -> paper_state.mark() -> browser socket
 backtest_paper.py the same strategy through a BacktestEngine on cached bars
 parity_live.py    measures the rolling window each rule needs to match the full series
+test_decide_early.py    a book that decides BEFORE the bell matches the backtest
 test_store.py           a restart resumes instead of resetting
 test_runtime_attach.py  a strategy can join a RUNNING trader. Gate for the whole design
 test_member_desk.py     ledger -> running trader -> fill -> book -> record, end to end
@@ -270,6 +271,67 @@ trailing window reproducing the full-series position exactly on 200/200 recent b
 
 `DEFAULT_WINDOW_BARS = 1500` is that worst case plus 50% headroom. 750 was the old default
 and was wrong for TEMA_200. Re-run `parity_live.py` after adding any rule.
+
+## A book can decide before the bell, and for IBS it must
+
+A rule computed from a bar's own high, low and close and then filled **at that same close**
+assumes a print that was not knowable until it happened. The sandbox will happily sell you
+it — `on_bar` fires on the finished bar and the exchange prices the fill from that bar — so
+the paper desk reproduced the backtest's look-ahead rather than testing it away. Measured
+on this desk's own record: 126 of 126 `us_stocks-1d-ibs` fills were at the signal bar's own
+close, and none at the next bar's open.
+
+**The fix is not to delay the fill by a bar. It is to compute the signal earlier and still
+trade near the close.** `BookStrategyConfig.signal_tf` is that: set it and the book
+
+* subscribes to `signal_tf` bars (`5m`) instead of `tf` bars,
+* folds each day into one row holding the range **so far**, cut at
+  `decide_lead_min` before the bell (`paper_config.SESSION_CLOSE`),
+* and acts once a day, on that bar, at that bar's price.
+
+Every row in the frame is a partial session, history included — a rule whose past is
+full-day bars and whose newest row is partial is comparing two different statistics, and
+for a state machine like IBS's that silently changes which state it is in.
+
+Four things are load-bearing:
+
+**The decision instant is built from the wall clock, then localised.** Local midnight plus
+sixteen hours is 17:00 on the spring-forward Sunday, so the naive arithmetic is right for
+363 days a year and trades the wrong bar on the other two.
+
+**One decision per name per session.** 78 five-minute bars a day must not become 78
+rebalances, and `_export` is gated with it so the curve stays one point a session — the
+same shape the daily books' record has. `_decided` holds the last session each name acted
+on.
+
+**Warm-up is counted in SESSIONS.** `min_warmup_sessions` (30) with
+`DECIDE_EARLY_WINDOW_BARS` (3000 = ~38 sessions) behind it. Truncation-tested with the
+same method as `parity_live.py`: every one of the 21 symbols in `data/stocks/5m`
+reproduces the full-history IBS state from 20 sessions or fewer. IBS has no lookback at
+all — its only memory is the entry/exit state machine — so re-measure before running a
+rule here that does.
+
+**The class must have a bell.** Crypto and spot commodities trade around the clock, so
+"five minutes before the close" names no instant; `desk_control._build` refuses it there
+with a sentence rather than letting a `ValueError` die inside a Nautilus task, which is the
+failure mode this folder has already paid fifteen hours for once.
+
+`test_decide_early.py` is the gate — a `__main__` script, run directly:
+
+```powershell
+..\.venv\Scripts\python test_decide_early.py
+```
+
+It asserts the fold never contains a post-cutoff price, that every decision matches an
+offline reference exactly, that no session is decided twice, and that the book identity
+still holds. The reference is spelled out in the test rather than imported, because one
+that calls the implementation cannot disagree with it.
+
+`deskdb.registrations.signal_tf` carries it to the desk; NULL is the old behaviour and is
+what every existing row has. As of 2026-08-20 the desk carries **both** versions of the two
+daily IBS books — `us_stocks-1d-ibs` and `us_stocks-1d-ibs-early`, and the same pair on
+`us_etfs` — so the peek and the honest signal run on identical bars and can be compared
+forward rather than only in backtest.
 
 ## The record survives restarts
 

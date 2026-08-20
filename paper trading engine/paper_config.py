@@ -101,6 +101,41 @@ if _missing:
     raise SystemExit(f"{', '.join(_missing)} in MEMBER_TIMEFRAMES has no BAR_SPEC; "
                      f"add it to TIMEFRAMES in `backtest engine/config.py` first")
 
+# --------------------------------------------------------------- when a session ends
+#
+# Needed by the DECIDE-EARLY signal mode (`BookStrategyConfig.signal_tf`), which computes
+# a rule from the session **so far** a few minutes before the bell instead of from the
+# finished bar. That is the whole point of the mode: a rule keyed on the current bar's
+# close — IBS, and the reversion family generally — cannot be traded at that close in real
+# life, because the close is not known until it has happened. Deciding at 15:55 and
+# trading then costs the last five minutes of the range and removes the look-ahead.
+#
+# Only the classes with a BELL are here. Crypto and spot commodities trade around the
+# clock, so "five minutes before the close" names no instant and the mode does not apply.
+SESSION_CLOSE = {
+    "us_stocks": ("America/New_York", (16, 0)),
+    "us_etfs":   ("America/New_York", (16, 0)),
+}
+
+# How long before the bell to decide, in minutes. 5 is what was measured: at a 5-minute
+# lead the signal agrees with the finished-bar signal on 86% of stock-days, and the rule's
+# Sharpe gives back about half of what a next-open fill costs. Longer leads have not been
+# measured and should be before being used.
+DEFAULT_DECIDE_LEAD_MIN = 5
+
+# Warmup for the decide-early mode, counted in SESSIONS, not raw bars — the rule sees one
+# folded row per session, so that is the unit its lookback is in. 30 is the measured worst
+# case plus 50% headroom: truncation-tested on the 5m cache, every one of the 21 symbols
+# reproduces the full-history IBS state from 20 sessions or fewer. Re-measure before
+# running a rule here whose lookback is longer than IBS's (which is zero — its only memory
+# is the entry/exit state machine).
+MIN_WARMUP_SESSIONS = 30
+
+# The raw 5m buffer behind those sessions. A US equity session is 78 five-minute bars, so
+# 3,000 is ~38 sessions — the warmup above with room for holidays and half-days.
+DECIDE_EARLY_WINDOW_BARS = 3000
+
+
 # --------------------------------------------------------------- forward-test universe
 #
 # MK's brief, taken in full: SPY, the two leveraged ETFs, and the top-10 crypto by market

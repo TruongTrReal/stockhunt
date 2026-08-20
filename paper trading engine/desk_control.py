@@ -368,17 +368,36 @@ class DeskController(Controller):
             names = paper_config.book_universe(reg["cls"])
             if not names:
                 raise RuntimeError(f"no names live in {reg['cls']} right now")
+            # Refused here rather than at `on_start`, where a ValueError inside a Nautilus
+            # task is logged and goes nowhere — the failure this desk has already paid
+            # fifteen hours for once. A class with no bell has no "before the close".
+            signal_tf = reg.get("signal_tf") or None
+            if signal_tf:
+                if signal_tf not in paper_config.MEMBER_TIMEFRAMES:
+                    raise RuntimeError(
+                        f"signal_tf {signal_tf!r} is not a timeframe the desk can feed")
+                if reg["cls"] not in paper_config.SESSION_CLOSE:
+                    raise RuntimeError(
+                        f"{reg['cls']} trades around the clock, so there is no bell to "
+                        f"decide before; signal_tf only applies to a class with a session")
             return BookStrategy(config=BookStrategyConfig(
                 order_id_tag=tag, rule=reg["rule"], name=reg["name"],
                 account=reg["account"], cls=reg["cls"], tf=reg["tf"],
                 symbols=tuple(names), venue=venue,
                 capital=float(reg["capital"]), allow_short=bool(reg["allow_short"]),
                 benchmark=reg["benchmark"],
-                window_bars=paper_config.DEFAULT_WINDOW_BARS,
+                # A book that DECIDES EARLY watches a finer bar than it trades, so its
+                # warmup is counted in those bars and not in sessions. Both knobs move
+                # together or the book warms for weeks on a buffer sized for days.
+                signal_tf=signal_tf,
+                window_bars=(paper_config.DECIDE_EARLY_WINDOW_BARS if signal_tf
+                             else paper_config.DEFAULT_WINDOW_BARS),
                 export_state=self.config.export_state,
                 note=f"{reg['rule']} held as one book of "
                      f"${float(reg['capital']):,.0f} across {len(names)} "
-                     f"{reg['cls']} names at {reg['tf']}."))
+                     f"{reg['cls']} names at {reg['tf']}"
+                     + (f", deciding {paper_config.DEFAULT_DECIDE_LEAD_MIN}m before the "
+                        f"close off {signal_tf} bars." if signal_tf else ".")))
 
         if reg["kind"] == "house_rule":
             symbol = reg["symbols"][0]

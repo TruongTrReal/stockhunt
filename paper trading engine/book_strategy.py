@@ -30,6 +30,13 @@ re-sizing to an exact fraction every bar produced 637 fills where the research m
 two or three round trips a year — "not a more precise implementation of the backtest, a
 different strategy that pays a spread on every bar".
 
+**It can decide before the bell.** With `signal_tf` set the book reads 5-minute bars,
+rebuilds each day as the range *so far*, and trades once — five minutes before the close.
+A rule computed from a bar's own high, low and close cannot honestly be filled at that
+same close, because the close is not known until it has printed; the fix is not to delay
+the fill by a day but to compute the signal slightly earlier and still trade near the
+close. See `paper_config.SESSION_CLOSE`.
+
 **A replacement inherits what the departing name was worth.** Selling a name that left the
 index returns its value to cash, and the next sizing spreads that cash over whoever is in
 the list now. No money appears or disappears at a membership change, so the $100,000 line
@@ -71,6 +78,13 @@ class BookStrategyConfig(StrategyConfig, frozen=True):
     rebalance_deadband: float = 0.20
     min_warmup_bars: int = paper_config.MIN_WARMUP_BARS
     window_bars: int = paper_config.DEFAULT_WINDOW_BARS
+    # DECIDE EARLY. When set, the book subscribes to `signal_tf` bars instead of `tf`
+    # bars, folds them into one row per SESSION SO FAR, and trades once a day at
+    # `decide_lead_min` before the bell. `tf` still names the horizon the rule was scored
+    # on and still picks the sheet; only how the bar is observed changes.
+    signal_tf: str | None = None
+    decide_lead_min: int = paper_config.DEFAULT_DECIDE_LEAD_MIN
+    min_warmup_sessions: int = paper_config.MIN_WARMUP_SESSIONS
     benchmark: str | None = None
     export_state: bool = True
     note: str = ""
@@ -107,6 +121,10 @@ class BookStrategy(Strategy):
         self._entry: dict[str, float] = {}
         self._fills_by: dict[str, int] = {}
         self._n_fills = 0
+        # Decide-early bookkeeping: the last session each name was decided for, so 78
+        # five-minute bars a day produce one decision and not seventy-eight.
+        self._decided: dict[str, object] = {}
+        self._no_bell_warned = False
         self._start_ts: pd.Timestamp | None = None
         self._bench_start: float | None = None
         self._warned = False
@@ -181,7 +199,13 @@ class BookStrategy(Strategy):
 
         import td_nautilus
         from datetime import timedelta
-        span = {"1d": timedelta(days=1), "4h": timedelta(hours=4)}[self.config.tf]
+        # The bars this book OBSERVES, which is not always the horizon it trades. Deciding
+        # before the bell means watching 5-minute bars and folding them back into sessions.
+        feed_tf = self.config.signal_tf or self.config.tf
+        span = {"1d": timedelta(days=1), "4h": timedelta(hours=4),
+                "2h": timedelta(hours=2), "1h": timedelta(hours=1),
+                "15m": timedelta(minutes=15), "5m": timedelta(minutes=5),
+                "1m": timedelta(minutes=1)}[feed_tf]
         start = self.clock.utc_now() - span * self.config.window_bars * 2
 
         for symbol in watch:
@@ -191,7 +215,7 @@ class BookStrategy(Strategy):
             if self.cache.instrument(inst.id) is None:
                 self.cache.add_instrument(inst)
             bar_type = BarType.from_str(
-                f"{inst.id}-{paper_config.BAR_SPEC[self.config.tf]}")
+                f"{inst.id}-{paper_config.BAR_SPEC[feed_tf]}")
             # HISTORY FIRST, then the live feed. Without this the book holds no bars at
             # all and cannot reach `min_warmup_bars` until that many bars have closed in
             # real time — 250 trading days on a daily book, so it would sit warming for a
@@ -204,9 +228,12 @@ class BookStrategy(Strategy):
             self.request_bars(bar_type, start=start, limit=self.config.window_bars)
             self.subscribe_bars(bar_type)
 
+        how = (f" deciding {self.config.decide_lead_min}m before the bell off "
+               f"{feed_tf} bars" if self.decide_early else "")
         self.log.info(f"book {self._sid}: {self.config.rule} over {len(self._live)} "
                       f"names at {self.config.tf}, ${self.config.capital:,.0f} "
-                      f"(${self.config.capital / max(len(self._live), 1):,.0f} a name)")
+                      f"(${self.config.capital / max(len(self._live), 1):,.0f} a name)"
+                      f"{how}")
 
         if self.config.export_state:
             paper_state.register(
@@ -258,11 +285,107 @@ class BookStrategy(Strategy):
             del buf[:-self.config.window_bars]
         return True
 
-    def _signal(self, symbol: str) -> float | None:
+    # -------------------------------------------------------- deciding before the bell
+    @property
+    def decide_early(self) -> bool:
+        return bool(self.config.signal_tf)
+
+    def _bell(self):
+        """(tz, close time) for this book's class, or None if the class has no bell."""
+        return paper_config.SESSION_CLOSE.get(self.config.cls)
+
+    def _decision_instants(self, idx: pd.DatetimeIndex, tz: str, hh: int, mm: int):
+        """The decision instant for each bar's own session, as a tz-aware index.
+
+        Built from the WALL CLOCK and then localised, not by adding sixteen hours to local
+        midnight. On the spring-forward Sunday an hour does not exist, so midnight plus
+        sixteen hours of elapsed time is 17:00, not 16:00 — an arithmetic that is right for
+        363 days a year and silently trades the wrong bar on the other two.
+        """
+        naive = idx.tz_convert(tz).tz_localize(None).normalize()
+        naive = naive + pd.Timedelta(hours=hh, minutes=mm) - pd.Timedelta(
+            minutes=self.config.decide_lead_min)
+        return naive.tz_localize(tz)
+
+    def _session_of(self, ts: pd.Timestamp):
+        """(session date, decision instant) for a bar close, both in market local time.
+
+        The bar carries its CLOSE timestamp (`td_nautilus._to_bar`), so a 5-minute bar
+        stamped 15:55 is the one covering 15:50-15:55 — the last bar whose contents are
+        known five minutes before a 16:00 bell, and therefore the decision bar itself.
+        """
+        bell = self._bell()
+        if bell is None:
+            return None, None
+        tz, (hh, mm) = bell
+        idx = pd.DatetimeIndex([ts])
+        return idx.tz_convert(tz)[0].date(), self._decision_instants(idx, tz, hh, mm)[0]
+
+    def _sessions(self, symbol: str) -> pd.DataFrame | None:
+        """One row per session, built from the part of it that had happened by decision time.
+
+        This is the frame the rule sees, and every row in it — history included — is a
+        *partial* session. That is deliberate and it is the point: a rule whose history is
+        full-day bars and whose latest row is a partial one is being asked to compare two
+        different statistics, and for a state machine like IBS's that quietly changes which
+        state it is in.
+        """
         buf = self._bars.get(symbol) or []
-        if len(buf) < self.config.min_warmup_bars:
+        bell = self._bell()
+        if not buf or bell is None:
             return None
-        df = pd.DataFrame(buf).set_index("ts")[["Open", "High", "Low", "Close", "Volume"]]
+        tz, (hh, mm) = bell
+        raw = pd.DataFrame(buf)
+        idx = pd.DatetimeIndex(raw["ts"])
+        decide = self._decision_instants(idx, tz, hh, mm)
+        # Vectorised, because this runs once per name per session over a buffer thousands
+        # of bars long, and a per-bar Python loop over tz-aware timestamps is the slowest
+        # thing this strategy could possibly do.
+        keep = idx.tz_convert(tz) <= decide
+        if not keep.any():
+            return None
+        raw = raw[keep]
+        g = raw.groupby(decide[keep])
+        out = pd.DataFrame({"Open": g["Open"].first(), "High": g["High"].max(),
+                            "Low": g["Low"].min(), "Close": g["Close"].last(),
+                            "Volume": g["Volume"].sum()})
+        out.index.name = "ts"
+        return out
+
+    def _is_decision_bar(self, symbol: str, ts: pd.Timestamp) -> bool:
+        """Is this the bar to act on — and has this session not been acted on already?
+
+        Fires at or after the decision instant rather than exactly on it. The exact bar is
+        the normal case; the `>` is for a session whose 15:55 print never arrives, where
+        acting at the bell on the same pre-bell information is better than skipping the day
+        entirely. Either way the SIGNAL only ever reads bars up to the cutoff, so no
+        version of this sees a price it could not have seen.
+        """
+        day, decide = self._session_of(ts)
+        if day is None:
+            if not self._no_bell_warned:
+                self._no_bell_warned = True
+                self.log.error(f"{self.config.cls} has no SESSION_CLOSE; "
+                               f"cannot decide before the bell")
+            return False
+        if self._decided.get(symbol) == day:
+            return False
+        if ts.tz_convert(decide.tz) < decide:
+            return False
+        self._decided[symbol] = day
+        return True
+
+    def _signal(self, symbol: str) -> float | None:
+        if self.decide_early:
+            df = self._sessions(symbol)
+            if df is None or len(df) < self.config.min_warmup_sessions:
+                return None
+        else:
+            buf = self._bars.get(symbol) or []
+            if len(buf) < self.config.min_warmup_bars:
+                return None
+            df = pd.DataFrame(buf).set_index("ts")[
+                ["Open", "High", "Low", "Close", "Volume"]]
         try:
             raw = live_signal.position_for(self.config.rule, df, symbol)
         except Exception as exc:
@@ -275,7 +398,7 @@ class BookStrategy(Strategy):
             return None
         arr = np.nan_to_num(np.asarray(raw, dtype="float64"), nan=0.0,
                             posinf=0.0, neginf=0.0)
-        if arr.size != len(buf):
+        if arr.size != len(df):
             return None
         pos = float(arr[-1])
         return max(pos, 0.0) if not self.config.allow_short else pos
@@ -295,10 +418,23 @@ class BookStrategy(Strategy):
                     self._bench_start = price
             else:
                 # A name that has left the index still has a position to unwind, and it
-                # needs a price to do it — which is this bar.
-                if abs(self._units.get(symbol, 0.0)) > 1e-12:
+                # needs a price to do it — which is this bar. Unwound at the same instant
+                # of the day as everything else when deciding early, not on the first
+                # five-minute bar that happens to arrive.
+                if abs(self._units.get(symbol, 0.0)) > 1e-12 and (
+                        not self.decide_early or self._is_decision_bar(
+                            symbol, pd.Timestamp(bar.ts_event, unit="ns", tz="UTC"))):
                     self._rebalance(symbol, price)
-            self._export(bar)
+            if not self.decide_early:
+                self._export(bar)
+            return
+
+        # Deciding early means most bars are only a price update. Marks move, the buffer
+        # grows, and nothing trades until the one bar a day this book acts on — which is
+        # also the only bar it writes a curve point for, so the record stays one point per
+        # session exactly as the daily books' does.
+        if self.decide_early and not self._is_decision_bar(
+                symbol, pd.Timestamp(bar.ts_event, unit="ns", tz="UTC")):
             return
 
         signal = self._signal(symbol)

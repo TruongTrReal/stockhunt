@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS registrations (
     cls         TEXT NOT NULL,
     symbols     TEXT NOT NULL,             -- JSON array; one venue's worth, see below
     tf          TEXT NOT NULL,
+    -- The bars the strategy WATCHES, when that differs from the horizon it trades. NULL
+    -- is the default and means they are the same. See `_add_late_columns`.
+    signal_tf   TEXT,
     capital     REAL NOT NULL,
     benchmark   TEXT,
     rule        TEXT,                      -- house_rule only
@@ -279,6 +282,15 @@ def _add_late_columns(conn: sqlite3.Connection) -> None:
     if "error" not in have:
         conn.execute("ALTER TABLE heartbeat ADD COLUMN error TEXT")
 
+    # How a book OBSERVES its bars, which is not always the horizon it trades. NULL means
+    # "read bars of `tf` and act on the close", the only behaviour there has ever been.
+    # Set to a finer timeframe, the desk reads those bars instead, folds each day into the
+    # session so far and decides a few minutes before the bell — which is the only honest
+    # way to trade a rule keyed on the current bar's own close.
+    have = {r[1] for r in conn.execute("PRAGMA table_info(registrations)")}
+    if "signal_tf" not in have:
+        conn.execute("ALTER TABLE registrations ADD COLUMN signal_tf TEXT")
+
 
 def use(path: Path | str) -> None:
     """Repoint at another file. For tests, and for nothing else."""
@@ -332,7 +344,8 @@ def _shape(row: dict | None) -> dict | None:
 
 def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
              capital: float, *, kind: str = "member", benchmark: str | None = None,
-             rule: str | None = None, allow_short: bool = False) -> dict:
+             rule: str | None = None, allow_short: bool = False,
+             signal_tf: str | None = None) -> dict:
     """Ask the desk to run a strategy. Idempotent on `(account, name)`.
 
     Re-registering an existing name returns the existing row untouched rather than
@@ -372,11 +385,11 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
     with _lock:
         conn.execute("""
             INSERT INTO registrations
-                (strategy_id, account, name, kind, cls, symbols, tf, capital,
+                (strategy_id, account, name, kind, cls, symbols, tf, signal_tf, capital,
                  benchmark, rule, allow_short, created_at, want, state)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'live','pending')
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending')
         """, (strategy_id, account, name, kind, cls, json.dumps(list(symbols)), tf,
-              float(capital), benchmark, rule, int(allow_short), utcnow()))
+              signal_tf, float(capital), benchmark, rule, int(allow_short), utcnow()))
     return _shape(_row("SELECT * FROM registrations WHERE strategy_id = ?",
                        (strategy_id,)))                      # type: ignore[return-value]
 
