@@ -206,7 +206,15 @@ class BookStrategy(Strategy):
                 "2h": timedelta(hours=2), "1h": timedelta(hours=1),
                 "15m": timedelta(minutes=15), "5m": timedelta(minutes=5),
                 "1m": timedelta(minutes=1)}[feed_tf]
-        start = self.clock.utc_now() - span * self.config.window_bars * 2
+        # A bar only exists while the market is open, so the wall-clock reach needed for N
+        # bars is N bar-lengths divided by the fraction of the week the session covers.
+        # Over-asking is free — `request_bars` is bounded by `limit` — and under-asking is
+        # silent, which is why this is computed rather than guessed at.
+        duty = 1.0
+        if self.decide_early:
+            hours = paper_config.SESSION_SPAN_HOURS.get(self.config.cls, 24.0)
+            duty = (hours / 24.0) * (5.0 / 7.0)
+        start = self.clock.utc_now() - span * self.config.window_bars * 2 / duty
 
         for symbol in watch:
             inst = (td_nautilus.pair_instrument(symbol, self.config.venue)

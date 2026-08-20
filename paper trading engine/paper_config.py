@@ -123,6 +123,17 @@ SESSION_CLOSE = {
 # measured and should be before being used.
 DEFAULT_DECIDE_LEAD_MIN = 5
 
+# How many hours a session actually lasts. Only used to size the WARM-UP REQUEST, and it
+# is load-bearing there: a warmup window is asked for as a wall-clock range, and an
+# intraday equity bar only exists for 6.5 of every 24 hours and only on weekdays. Sized as
+# though bars were continuous — which is true of crypto and false here — a request for
+# 3,000 five-minute bars reaches back 10 days and returns 1,118 of them, and the book then
+# sits warming for weeks with nothing in the log to say why.
+SESSION_SPAN_HOURS = {
+    "us_stocks": 6.5,
+    "us_etfs":   6.5,
+}
+
 # Warmup for the decide-early mode, counted in SESSIONS, not raw bars — the rule sees one
 # folded row per session, so that is the unit its lookback is in. 30 is the measured worst
 # case plus 50% headroom: truncation-tested on the 5m cache, every one of the 21 symbols
