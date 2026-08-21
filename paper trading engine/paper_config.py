@@ -233,9 +233,13 @@ BOOK_CAPITAL = 100_000.0
 #   not a spelling — the distinction that cost this desk fifteen hours when six member
 #   timeframes were offered and two were feedable. See the note on MEMBER_TIMEFRAMES.
 # * **The credit regime carries it.** `td_nautilus` runs one poll per subscription aligned
-#   to the bar close, so a 5m book over 23 US stocks is 23 requests every five minutes
-#   (~4.6/min) and books sharing a (symbol, timeframe) share the subscription. That sits
-#   far inside the key's budget; `1m` still does not and stays out.
+#   to the bar close, and books sharing a (symbol, timeframe) share the subscription — so
+#   the cost is set by the UNIVERSE, not by how many books are promoted. Measured on the
+#   first deploy: `book_universe("us_stocks")` is the live top 100, not the 23-name
+#   `UNIVERSE` roster, so five 5m books cost 100 requests every five minutes (~20/min)
+#   rather than the ~5/min a reading of `UNIVERSE` suggests. Still far inside the key's
+#   budget, but size a 5m promotion off `book_universe`, which is what the desk actually
+#   subscribes to. `1m` would be 100/min on the same universe and stays out.
 # * **The rules reproduce at the default window.** Every strategy promoted at 5m was
 #   checked against its full-series position over a rolling `DEFAULT_WINDOW_BARS` buffer
 #   and matched on 100% of sampled bars. `lorentzian_knn` did NOT (67-83%) — its
