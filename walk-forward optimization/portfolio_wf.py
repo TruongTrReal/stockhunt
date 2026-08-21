@@ -365,10 +365,37 @@ def index_returns(asset_class: str, timeframe: str, index: pd.DatetimeIndex,
     return r, sym
 
 
+def apply_flatten(pos, df, rule: str, asset_class: str):
+    """Force flat on each session's last bar — the ONE copy of the two exemptions.
+
+    `signals.position_for` carries the same two carve-outs and they must not drift, so
+    both delegate to `vector.flatten_eod` and both spell the exemptions the same way:
+
+      * the BASELINE is never flattened. Flattening the benchmark turns it into a
+        different strategy, and that is exactly what made the old 5-minute "beat" an
+        artifact;
+      * a class with `flatten_eod: False` — crypto — is never flattened at all. A 24/7
+        market has no session to flatten into, so forcing a daily flat would invent an
+        exposure gap no trader has.
+
+    The RANDOM_* and ALWAYS_* controls are deliberately NOT exempt. They exist to price
+    exactly this handicap — a no-signal always-long book scores IR -0.59 to -0.84 once
+    flattened, with no signal involved — so exempting them would hand every real rule a
+    cost its own control never pays, and the comparison would read as failed signal.
+
+    Idempotent: flattening an already-flattened series is the same series, so it is safe
+    on a position that arrived through `signals.position_for`.
+    """
+    if rule == BASELINE or not CLASSES[asset_class]["flatten_eod"]:
+        return pos
+    return vector.flatten_eod(pos, df.index)
+
+
 def build_book(data: dict, rule: str, fee: dict, free: dict, intervals,
                cash_override: float | None = None, resolve=None,
                fill: str = "close", bench_fee: dict | None = None,
-               stress_frac: float = 0.0, stress_intervals=None) -> dict | None:
+               stress_frac: float = 0.0, stress_intervals=None,
+               flatten_eod: bool = False, asset_class: str = "") -> dict | None:
     """Equal-weight the rule across whoever is investable on each bar.
 
     Weights are recomputed every bar from the live membership, so a name entering the
@@ -443,6 +470,31 @@ def build_book(data: dict, rule: str, fee: dict, free: dict, intervals,
             pos = resolve(rule, df, close, bpy, symbol)
         if pos is None:
             continue
+        # END-OF-DAY FLATTENING, and the reason it is a FLAG rather than a config lookup.
+        #
+        # `signals.position_for` flattens intraday rules from `FLATTEN_EOD_TIMEFRAMES`,
+        # but `registry.build` — the path every PUBLISHED strategy and every control
+        # takes — does not, so a sheet mixing the two would flatten half its rows and
+        # not the other half. On 1d and 4h that is invisible because neither is in the
+        # set; on the 1m/2m/3m sheets it decides the answer.
+        #
+        # Neither convention is free, and this repo does not get to pick quietly:
+        #   * NOT flattening lets a "day-trading" rule collect the overnight drift that
+        #     is 65-95% of US equity return, which is not what it claims to do — but it
+        #     IS the faithful reading of a Pine `strategy()`, which holds through the
+        #     close unless coded otherwise;
+        #   * flattening charges a handicap the author never took: a no-signal
+        #     always-long control scores IR -0.59 to -0.84 once flattened, with no
+        #     signal involved at all.
+        # So it is a BOUND, reported both ways, exactly as `--fill` is. Default off,
+        # which is the faithful reading and what the published intraday sheets used.
+        #
+        # The baseline is exempt — flattening the benchmark makes it a different
+        # strategy, which is what made the old 5-minute "beat" an artifact — and crypto
+        # is exempt by class, having no session to flatten into. `apply_flatten` owns
+        # both exemptions so they cannot drift from `signals.position_for`'s copy.
+        if flatten_eod:
+            pos = apply_flatten(pos, df, rule, asset_class)
         rf = rm.bar_rates(df.index, bpy, cash_override)
         # The signal is ALWAYS built on closes — that is what the rule is. Only the price
         # the resulting position is paid on moves, and with it one extra bar of lag, so
@@ -1494,6 +1546,13 @@ def main() -> None:
                     help="which price the money is earned on. 'open' fills at the bar "
                          "AFTER the signal and earns open-to-open, which is the control "
                          "for Blume-Stambaugh bid-ask bounce. See build_book")
+    ap.add_argument("--flatten-eod", action="store_true",
+                    help="Force every non-baseline rule flat on each session's last "
+                         "bar. A BOUND for the intraday sheets, not a correction: off "
+                         "is the faithful reading of a Pine strategy (which holds "
+                         "through the close), on is the true day-trading reading. "
+                         "Report both, as with --fill. No effect on crypto, which has "
+                         "no session, or on 1d/4h, which have nothing to flatten.")
     ap.add_argument("--charge-bench", action="store_true",
                     help="charge the baseline the same fee scenario as the strategy. "
                          "Published numbers ran it free")
@@ -1663,7 +1722,9 @@ def main() -> None:
                                     cash_override=args.cash_rate,
                                     resolve=leg_resolver(asset_class, tf),
                                     fill=args.fill,
-                                    bench_fee=fee if args.charge_bench else None)
+                                    bench_fee=fee if args.charge_bench else None,
+                                    flatten_eod=args.flatten_eod,
+                                    asset_class=asset_class)
                     if bk is None:
                         continue
                     books[rule] = (bk["strat"].to_numpy(), bk["bench"].to_numpy(),
@@ -1699,7 +1760,9 @@ def main() -> None:
                                   bench_fee=fee if args.charge_bench else None,
                                   stress_frac=args.stress_delisted,
                                   stress_intervals=sp_iv,
-                                  resolve=leg_resolver(asset_class, tf))
+                                  resolve=leg_resolver(asset_class, tf),
+                                  flatten_eod=args.flatten_eod,
+                                  asset_class=asset_class)
                 if book is None:
                     continue
                 # The stressed pair REPLACES the book's series rather than sitting beside

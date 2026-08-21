@@ -48,9 +48,15 @@ def family(label: str) -> str:
     worse than an absent one, because it fails after somebody has chosen it.
     """
     from strategies import registry
+    # OVERLAYS COME OFF FIRST. `ha:chart:ssl_hybrid@allow_short=0` is a published
+    # strategy wearing two prefixes; splitting on `SEP` alone yields `ha:chart:ssl_hybrid`,
+    # which is in no catalog, and the label reports UNKNOWN. That is not cosmetic — this
+    # function is what `catalog.py` offers from and what the API refuses registrations on,
+    # so an overlay label the desk can BUILD would have been refused at the door.
+    _, base = registry.strip_overlays(label)
     # `CATALOG` is the discovered set, keyed on the published name. The label may carry a
     # variant suffix (`ibs@buy=0.3`), and `SEP` is what separates the two.
-    name = label.split(registry.SEP, 1)[0]
+    name = base.split(registry.SEP, 1)[0]
     if name in registry.CATALOG:
         return PUBLISHED
     # A TA-Lib rule is `<INDICATOR>` or `<INDICATOR>_<period>`, so the indicator is the

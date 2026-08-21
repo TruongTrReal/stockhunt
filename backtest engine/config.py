@@ -710,8 +710,12 @@ def per_side_bps(fee: dict) -> float:
 # overnight drift would hand them buy-and-hold's return for free. At 4h/2h/1h/15m a
 # position across a session boundary is ordinary, and this matches `../top 20 stocks/`,
 # which flattened 5m only.
-FLATTEN_EOD_TIMEFRAMES = frozenset({"5m", "1m"})
+FLATTEN_EOD_TIMEFRAMES = frozenset({"5m", "3m", "2m", "1m"})
 
+# `interval: None` marks a timeframe the vendor does not serve: Twelve Data has no 2min
+# or 3min product, so those bars exist only by resampling the cached 1m — see
+# `resample_intraday.py`. `td_loader.fetch` refuses them outright rather than guessing,
+# exactly as it refuses `cme_futures`; `load` reads whatever the resampler materialised.
 TIMEFRAMES = {
     "1d":  {"interval": "1day",  "intraday": False},
     "4h":  {"interval": "4h",    "intraday": True},
@@ -719,6 +723,8 @@ TIMEFRAMES = {
     "1h":  {"interval": "1h",    "intraday": True},
     "15m": {"interval": "15min", "intraday": True},
     "5m":  {"interval": "5min",  "intraday": True},
+    "3m":  {"interval": None,    "intraday": True},
+    "2m":  {"interval": None,    "intraday": True},
     "1m":  {"interval": "1min",  "intraday": True},
 }
 
@@ -798,6 +804,14 @@ WINDOWS = {
     # the us_stocks 4h sheet starts from, so the two 4h sheets are not the same span.
     ("us_etfs", "1d"):  {"start": "1993-01-01", "window_days": 4000},
     ("us_etfs", "4h"):  {"start": "2020-02-10", "window_days": 2500},
+    # 1m and 5m added 2026-08-20 for the intraday Heikin-Ashi study. Their absence was
+    # not a decision — no intraday sheet had ever been run on this class, so the gap sat
+    # unnoticed until `fetch` raised a bare KeyError three hours into a batch. ETFs are
+    # US-listed equities on the same venues as `us_stocks`, so they inherit that class's
+    # vendor start dates and window sizes; the depth probe of 2026-08-03 measured the
+    # limit per INTERVAL, not per symbol.
+    ("us_etfs", "5m"):  {"start": "2020-01-09", "window_days": 64},
+    ("us_etfs", "1m"):  {"start": "2020-03-25", "window_days": 12},
 
     # Probed 2026-08-09: XAU/USD 1979-12-26, XAG/USD 1982-07-01, WTI/USD 1983-03-30,
     # XPT and XPD only 2012-09. Start from gold's own beginning — 46 years is the deepest
@@ -806,6 +820,14 @@ WINDOWS = {
     # a short daily settlement break, so a 4h window holds ~6 bars a weekday.
     ("commodities", "1d"): {"start": "1979-12-01", "window_days": 4000},
     ("commodities", "4h"): {"start": "2020-01-20", "window_days": 1000},
+    # Same addition, same reason. The start is LATER than the equity classes' because
+    # this class's intraday archive is thinner: the 2026-08-03 probe found only gold,
+    # silver and WTI carrying usable intraday at all, and WTI 1-minute beginning
+    # 2020-10. Ask for the whole class at 1m and the platinum/palladium requests come
+    # back empty rather than erroring, which is why `run_intraday_ha_5m.sh` names the
+    # three symbols explicitly instead of taking the class default.
+    ("commodities", "5m"): {"start": "2020-01-20", "window_days": 64},
+    ("commodities", "1m"): {"start": "2020-10-01", "window_days": 12},
 
     # 2010-06-06 is the first day of Databento's CME archive and there is nothing before
     # it at any price, so unlike every other row here this is a hard floor rather than a
@@ -1014,4 +1036,23 @@ def class_of(symbol: str) -> str:
 
 
 def window_spec(asset_class: str, timeframe: str) -> dict:
-    return WINDOWS[(asset_class, timeframe)]
+    """The vendor start date and page size for one (class, timeframe).
+
+    The error message is the whole reason this is not a bare subscript. `WINDOWS` is
+    sparse — it carries only the pairs somebody has needed — and a missing pair is a gap
+    in the table, never a statement that the vendor lacks the data. On 2026-08-21 that
+    distinction cost a batch: `us_etfs` and `commodities` had no intraday rows, so a 1m
+    fetch for both died on `KeyError: ('us_etfs', '1m')` and the shell's own summary line
+    still reported the batch DONE. Nothing was written and nothing said so.
+    """
+    try:
+        return WINDOWS[(asset_class, timeframe)]
+    except KeyError:
+        have = sorted(tf for cls, tf in WINDOWS if cls == asset_class)
+        raise KeyError(
+            f"config.WINDOWS has no entry for ({asset_class!r}, {timeframe!r}). "
+            f"That class currently carries {have}. This is a GAP IN THE TABLE, not a "
+            f"vendor limit — add a row with the interval's `earliest_timestamp` as "
+            f"`start` and a `window_days` that keeps one request under the 5000-bar "
+            f"response cap, then refetch."
+        ) from None

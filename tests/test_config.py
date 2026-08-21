@@ -101,7 +101,7 @@ def test_flattening_is_reserved_for_the_day_trading_horizons():
     rule removes most of the drift it is being scored on — a no-signal always-long rule
     scores IR -0.59 to -0.84 once flattened, which was the whole of the apparent
     'intraday is worse' effect."""
-    assert config.FLATTEN_EOD_TIMEFRAMES == frozenset({"5m", "1m"})
+    assert config.FLATTEN_EOD_TIMEFRAMES == frozenset({"5m", "3m", "2m", "1m"})
     for tf in ("4h", "2h", "1h", "15m", "1d"):
         assert tf not in config.FLATTEN_EOD_TIMEFRAMES
 
@@ -474,3 +474,37 @@ def test_the_universe_carries_no_foreign_namesakes():
     impostors = set(p.loc[~p["has_us_listing"].astype(bool), "symbol"].astype(str))
     assert impostors, "the probe found nothing, which means it did not run"
     assert not (set(config.US_STOCKS) & impostors)
+
+
+def test_window_spec_names_the_gap_it_found():
+    """A missing WINDOWS row must say it is a TABLE gap, not a vendor limit.
+
+    On 2026-08-21 a 1m fetch for `us_etfs` and `commodities` died on a bare
+    `KeyError: ('us_etfs', '1m')` three hours into a batch whose own summary line then
+    reported DONE. Nothing was written and nothing said so, and the wrong conclusion —
+    "the vendor has no intraday for ETFs" — was the easy one to draw. It had simply
+    never been asked for, so no row existed.
+    """
+    import pytest
+    with pytest.raises(KeyError) as e:
+        config.window_spec("cme_futures", "1m")
+    msg = str(e.value)
+    assert "GAP IN THE TABLE" in msg
+    assert "'1d'" in msg, "it must list what the class DOES carry"
+
+
+def test_every_fetchable_timeframe_has_a_window():
+    """A class the vendor serves must have a window for every interval it can be asked
+    for. `TIMEFRAMES` with `interval: None` are derived by resampling and are never
+    fetched, so they are exempt — everything else is a fetch waiting to fail."""
+    fetchable = [tf for tf, s in config.TIMEFRAMES.items() if s["interval"] is not None]
+    for cls, spec in config.CLASSES.items():
+        if spec.get("source", "twelvedata") != "twelvedata":
+            continue          # another vendor, another table
+        have = {tf for c, tf in config.WINDOWS if c == cls}
+        missing = [tf for tf in fetchable if tf not in have]
+        # Only assert for the timeframes this repo actually runs on the class; a class
+        # nobody fetches at 15m does not need a 15m row invented for it.
+        needed = [tf for tf in missing if tf in config.FLATTEN_EOD_TIMEFRAMES]
+        assert not needed, (
+            f"{cls} can be asked for {needed} but config.WINDOWS has no row for them")

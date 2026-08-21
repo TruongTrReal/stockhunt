@@ -234,6 +234,13 @@ def fetch(asset_class: str, timeframe: str,
             f"`python db_loader.py --class {asset_class}` instead.")
     win = window_spec(asset_class, timeframe)
     interval = TIMEFRAMES[timeframe]["interval"]
+    if interval is None:
+        # Same refusal shape as the vendor check above, for the same reason: Twelve Data
+        # serves no 2min/3min product, and asking anyway is how a wrong-but-plausible
+        # series ends up in the cache. These bars are derived, never fetched.
+        raise ValueError(
+            f"{timeframe} is not a vendor interval. Resample it from the cached 1m with "
+            f"`python resample_intraday.py --class {asset_class} --tf {timeframe}`.")
 
     wanted = list(symbols) if symbols else list(spec["symbols"])
     bench = spec.get("benchmark")

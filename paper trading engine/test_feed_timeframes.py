@@ -84,3 +84,32 @@ def test_equities_map_the_same_way():
     show up only on one asset class."""
     for tf in paper_config.MEMBER_TIMEFRAMES:
         assert td_nautilus.timeframe_of(_bar_type(tf, "QQQ.SANDBOX")) == tf
+
+
+def test_a_resampled_timeframe_is_present_but_not_feedable():
+    """PRESENT IS NOT FEEDABLE, and this is the regression that proved it.
+
+    `2m` and `3m` were added to the backtest engine's timeframe table on 2026-08-21 for
+    the intraday study. They are RESAMPLED from cached 1m bars and Twelve Data sells no
+    such product, so `td_live.INTERVALS` carries a row for each with a vendor interval of
+    `None`. A membership test — `key in INTERVALS` — then reports them feedable, and the
+    live client gets a bar type it can spell and can never subscribe to.
+
+    That is the fifteen-hour silent failure this module's docstring describes, reached by
+    a different route: the strategy attaches, reads `live`, and every order it sends is
+    refused for want of a price.
+    """
+    for tf in ("2m", "3m"):
+        assert tf in td_live.INTERVALS, f"{tf} should still be a known timeframe"
+        assert td_live.INTERVALS[tf][0] is None, f"{tf} must have no vendor interval"
+        step = int(tf.rstrip("m"))
+        with pytest.raises(ValueError):
+            td_nautilus.timeframe_of(
+                BarType.from_str(f"BTCUSD.BINANCE-{step}-MINUTE-LAST-EXTERNAL"))
+
+
+def test_every_book_timeframe_has_a_real_vendor_interval():
+    """The house's own books are no longer all 1d/4h. A book timeframe the client cannot
+    feed fails inside a Nautilus task at subscribe time — logged, and going nowhere."""
+    for tf in paper_config.BOOK_TIMEFRAMES:
+        assert td_live.INTERVALS.get(tf, (None,))[0] is not None, tf

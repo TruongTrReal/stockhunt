@@ -167,6 +167,19 @@ def main() -> int:
     labels += [f"volregime:{side}:0.5:{lab}"
                for lab in (args.rules or ["ibs", "faber_gtaa", "volmanaged"])
                for side in ("hi", "lo")]
+    # The Heikin-Ashi overlay's open is a forward recursion seeded at bar 0, so it is
+    # causal by construction — but "by construction" is exactly the claim this gate
+    # refuses to take on faith, for overlays as for rules. Wrap the eight Pine
+    # conversions it exists for, at their published cells.
+    pine = args.rules or [lab for name in
+                          ("bar_updn", "pivot_center", "range_filter",
+                           "range_filter_macd", "ema_cross_sniper", "bb_outside_in",
+                           "ssl_hybrid", "lorentzian_knn")
+                          for lab in (encode(name, CATALOG[name].grid[0],
+                                             CATALOG[name]),
+                                      f"{name}@allow_short=0")]
+    labels += [f"{wrap}{lab}" for lab in pine
+               for wrap in ("ha:", "chart:", "ha:chart:")]
 
     causal, edges = [], []
     for label in labels:

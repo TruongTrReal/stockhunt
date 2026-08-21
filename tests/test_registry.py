@@ -244,3 +244,49 @@ def test_a_regime_overlay_wraps_a_base_label(frame):
 def test_a_malformed_regime_overlay_is_none(frame, label):
     df, close, bpy = frame
     assert build(label, df, close, bpy, "AAPL") is None
+
+
+# ------------------------------------------------------- overlay-aware label parsing
+
+def test_strip_overlays_peels_prefixes_and_keeps_the_variant():
+    """`ha:chart:ibs@buy=0.3` is a published strategy wearing two prefixes.
+
+    Anything answering "what strategy is this label about" needs this. Splitting on SEP
+    alone yields `ha:chart:ibs`, which is in no catalog — which is exactly how
+    `live_signal.family` came to report UNKNOWN for every overlay label, and would have
+    made the paper desk refuse a registration it can in fact build.
+    """
+    from strategies.registry import strip_overlays
+    assert strip_overlays("ha:chart:ibs@buy=0.3") == ("ha:chart:", "ibs@buy=0.3")
+    assert strip_overlays("chart:ibs") == ("chart:", "ibs")
+    assert strip_overlays("ha:ibs") == ("ha:", "ibs")
+    assert strip_overlays("ibs") == ("", "ibs")
+    assert strip_overlays("SMA_200") == ("", "SMA_200")
+
+
+def test_strip_overlays_counts_parameter_fields():
+    """`hold:` carries one field and `volregime:` two. Stripping the bare word would
+    leave `30:ibs` behind and report it as an unknown rule."""
+    from strategies.registry import strip_overlays
+    assert strip_overlays("hold:30:ibs") == ("hold:30:", "ibs")
+    assert strip_overlays("volregime:hi:0.5:ibs") == ("volregime:hi:0.5:", "ibs")
+    assert strip_overlays("hold:30:chart:ibs") == ("hold:30:chart:", "ibs")
+
+
+def test_strip_overlays_hands_back_a_malformed_label_untouched():
+    """A prefix with its fields missing is not an overlay; returning it whole lets the
+    caller report an unknown label rather than a confidently wrong base."""
+    from strategies.registry import strip_overlays
+    assert strip_overlays("hold:oops") == ("", "hold:oops")
+    assert strip_overlays("volregime:hi") == ("", "volregime:hi")
+
+
+def test_every_registered_overlay_prefix_is_strippable():
+    """A new overlay added to `build` but not to OVERLAY_PREFIXES would be invisible to
+    every label parser in the repo. This fails the moment those two drift apart."""
+    from strategies.registry import OVERLAY_PREFIXES, strip_overlays
+    for name, sep, fields in OVERLAY_PREFIXES:
+        label = name + sep + sep.join(["1"] * fields) + (sep if fields else "") + "ibs"
+        prefix, base = strip_overlays(label)
+        assert base == "ibs", f"{name}: {label} -> {base!r}"
+        assert prefix.startswith(name)

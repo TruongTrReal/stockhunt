@@ -58,7 +58,7 @@ to `logs/*.log`.
 ## Architecture
 
 ```
-config.py        universes, 7 timeframes, per-class cost grids, gates, sys.path
+config.py        universes, 9 timeframes, per-class cost grids, gates, sys.path
    |             US_STOCKS is the POINT-IN-TIME TOP 100 (the 751-name S&P universe is
    |             kept as SP500_UNIVERSE, the 20 mega-caps as MEGA20)
    |             US_ETFS is ETF_TOP10 and CRYPTO is CRYPTO_TOP20 (the 65- and 34-name
@@ -75,13 +75,17 @@ universe_screen.py   the ETF and crypto equivalent: which of the 65 funds and 34
 factors.py       Fama-French daily + momentum + short-term reversal, Newey-West OLS
    |
 ../strategies/   talib_signals.py (231 rules) | registry.py (31 published strategies)
-   |             overlays/regime.py: trailing-vol conditioning over any base rule
+   |             overlays/: regime (trailing vol), heikin (`ha:` synthetic candles,
+   |             SIGNAL only), chart (`chart:` Pine bar-count windows)
 td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs|commodities>/<tf>/*.parquet
    |             applies BACKTEST_START and the quarantine, once, for the whole repo
    |             span_for(class): the head cut. us_stocks -> membership_span (top-100
    |             record), us_etfs -> etf_entry_span (the liquidity screen), others none
    |             `load` reads EVERY class, whatever the vendor. `fetch` refuses any class
-   |             whose spec names another `source`
+   |             whose spec names another `source`, and any timeframe the vendor has no
+   |             product for (`interval: None`)
+resample_intraday.py  2m and 3m bars, aggregated from the cached 1m. DERIVED, never
+   |             fetched: Twelve Data sells no 2min/3min interval
 db_loader.py     Databento GLBX.MDP3 -> ../data/futures/1d/*.parquet. THE SECOND VENDOR,
    |             and the only one. Continuous contracts, Sunday stubs merged into the
    |             session they open, ratio back-adjusted across rolls, every request
@@ -107,6 +111,31 @@ validate.py      Nautilus on survivors: whole shares, commission, slippage
 build_payload.py results -> report/report_payload.json
 build_report.py  template.html + report.js + payload -> report/index.html
 ```
+
+## The 2m and 3m sheets are built here, not bought
+
+Twelve Data serves 1min, 5min, 15min, 1h, 2h, 4h and 1day, and nothing between them. So
+`TIMEFRAMES` carries `2m` and `3m` with `interval: None`, `td_loader.fetch` refuses them
+by name, and `resample_intraday.py` aggregates them out of the cached 1m. `load` never
+knows the difference — same directory layout, same parquet, same single door.
+
+Three properties of that aggregation are load-bearing, and each is pinned in
+`tests/test_resample_intraday.py`:
+
+* **windows anchor at midnight and are labelled by their OPEN**, matching the vendor's
+  own 1m convention. 09:30 is 570 minutes past midnight and divides by both 2 and 3, so
+  every US session's first 2m/3m bar starts exactly at the open;
+* **empty windows are dropped, never filled**, so no synthetic bar bridges a weekend or
+  an overnight gap. `vector.bars_per_year` measures, so a session's ragged last window
+  costs nothing;
+* **`sum(min_count=1)` keeps NaN volume NaN.** Crypto's 1m cache carries no volume at
+  all, and a plain `.sum()` would launder that into a turnover of zero — which reads to
+  every volume-gated rule as a real, quiet market rather than as missing data.
+
+`FLATTEN_EOD_TIMEFRAMES` covers `1m`, `2m`, `3m` and `5m`: at those horizons a rule that
+holds overnight is collecting the drift that is 65-95% of US equity return, which is not
+what a day-trading rule is claiming to do. It does not apply to crypto, which has no
+session to flatten into.
 
 ## Three modules are load-bearing beyond what they look like
 

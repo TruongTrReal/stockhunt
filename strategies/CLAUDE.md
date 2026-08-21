@@ -12,14 +12,25 @@ dependency on the rest of the repo — numpy, pandas and talib only.
 talib_signals.py     the 231-variant TA-Lib rule table. name -> position series
                      ONE dispatcher, not 231 files: the "rules" are TA-Lib's own
                      function list enumerated at runtime, so there is no per-rule code
-published/           ONE FILE PER PUBLISHED STRATEGY (31). Each declares position(),
+published/           ONE FILE PER PUBLISHED STRATEGY (174). Each declares position(),
                      GRID, RULE, SOURCE, FAMILY, ANCHOR, CLASSES, NOTE
+                     130 of them are the `mc_*` batch: price FORECASTERS scraped
+                     from a public browser, one-cell grids, sharing _forecast.py
+_forecast.py         the mc_* batch's adapter: `expose` is the ONE definition of
+                     how a predicted price becomes a position (long above the
+                     close, flat at or below), plus the window primitives it needs
 registry.py          discovers published/ by import; owns the label grammar
 _indicators.py       shared primitives: _state_machine, _causal_median, _vol_scale, ...
 controls.py          BUYHOLD / ALWAYS_* / RANDOM_* — yardsticks, not strategies
 overlays/regime.py   trailing-vol conditioning that wraps any base label
+overlays/heikin.py   `ha:` — the base rule's SIGNAL sees Heikin-Ashi candles
+overlays/chart.py    `chart:` — day-denominated windows become Pine BAR COUNTS
 trials.py            the append-only trial ledger -> ../data/reference/trials.csv
 scaffold.py          creates a new published/ file and registers its trial
+CONVERSIONS.md       provenance for the rules that came from somebody else's CODE
+                     rather than from a paper -- and, per file, WHAT WAS DROPPED to
+                     fit the one-exposure-per-bar contract. Also the ones that were
+                     rejected, and why
 tests/               gates. `python strategies/tests/test_causality.py` exits nonzero
 catalog.py           back-compat shim re-exporting the old names. New code should
                      import from `strategies.registry`
@@ -102,6 +113,24 @@ folder and picks up whatever defines `position` and a non-empty `GRID`.
 Two strategies share an implementation with a sibling on purpose — `donchian_s2`,
 `rsi2_raw` and `supertrend_lf` import `position` from their primary rather than copying it,
 because they are the same mechanism published with different parameters.
+`range_filter_macd` does the same to `range_filter`: the pair only prices the MACD gate if
+the filter underneath them is bit-for-bit identical.
+
+## Converting somebody else's code
+
+A Pine `strategy()` or a freqtrade `IStrategy` does not fit through `fn(df, close, bpy)`
+unchanged, and the gap is where a conversion silently becomes a different rule. Four things
+have no expression in a one-exposure-per-bar series — intrabar stops, trade-level state
+read at tick resolution, mid-trade position sizing (DCA, pyramiding), and cross-asset
+inputs — and a fifth constraint is data: this repo holds daily and 4h bars, so a rule keyed
+to 1-minute futures has nothing to run on however sound its logic is.
+
+**Whatever you drop goes in the file's `NOTE` and in `CONVERSIONS.md`, by name.** So does
+anything you *reproduced* that looks like a bug: `lorentzian_knn`'s training label is
+backwards and `ssl_hybrid`'s short leg tests the wrong Keltner band, and both are kept,
+because a fixed version of a published rule is not a replication of it. `CONVERSIONS.md`
+also records the sources that were rejected outright — a plausible rewrite of a bot puts a
+number on the leaderboard under a name that did not earn it.
 
 ## `talib_signals.py` is a copy, and must never diverge
 
@@ -148,6 +177,36 @@ class Strategy:
 Labels serialise as `name@param=value` (`SEP = "@"`). Two other separator conventions exist
 elsewhere and are not interchangeable: `variants.py` uses `|`, `combo_wf.py` uses `~` for
 legs and `|` for the operator.
+
+## The overlays, and the one they exist to keep honest
+
+Three prefixes wrap any base label — `volregime:hi:0.5:`, `ha:` and `chart:` — and they
+compose in any order. Each is one substitution and nothing else, which is what makes a
+wrapped cell a comparable trial rather than a different experiment:
+
+| label | what changes | what does NOT |
+|---|---|---|
+| `ha:X` | X's signal is computed on Heikin-Ashi candles | the prices the money settles on |
+| `chart:X` | X's day-windows become bar counts (`bpy` forced to 252) | anything already denominated in bars |
+| `volregime:hi:q:X` | X is gated off outside the vol regime | X itself |
+
+**`ha:` is the one with a trap under it, and the trap is the fill, not the transform.**
+A Heikin-Ashi close is `(O+H+L+C)/4` — an average of four prices, which is not a price
+anybody can transact at. TradingView's broker emulator will nonetheless fill at it
+unless told otherwise, and that single default is enough to make almost any HA strategy
+profitable on a chart: the synthetic close is smoothed toward the middle of the bar, so
+buying at it is buying below where you could have. This overlay therefore changes the
+*signal only*, and the exposure it returns settles on real closes through the same
+`riskmatch_wf.apply_fill` path as every other rule. **A published HA number from a chart
+platform is not comparable to one from this repo, and the difference is not small.**
+
+`chart:` exists because this repo and Pine mean different things by the same parameter.
+`ema_cross_sniper` here is "an 8-DAY against a 21-DAY EMA" on every sheet, which is the
+right convention for comparing a rule across timeframes; on a TradingView 1m chart the
+same script is an 8-BAR against a 21-BAR EMA. At 1m the day-form is a 3,900-bar window
+and TA-Lib rejects some of them outright, so on the intraday sheets `chart:` is not only
+the faithful reading of what the author ran, it is the only buildable one. Both are
+legitimate questions; they are different trials and the ledger carries them separately.
 
 ## The run harness is not here
 

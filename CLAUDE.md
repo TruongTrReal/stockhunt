@@ -43,12 +43,19 @@ tests/                      the unit suite. synthetic bars only -- no data/, no 
 data/                       every price bar, shared. stocks/ crypto/ etfs/ commodities/
    |                        futures/ CME continuous contracts, the one class that does
    |                        NOT come from Twelve Data
+   |                        2m/ and 3m/ are RESAMPLED from 1m by
+   |                        `backtest engine/resample_intraday.py` -- the vendor sells
+   |                        no such interval, so they are derived, never fetched
    |                        rates/ DTB3 T-bill path
    |                        reference/ sp500 membership, Fama-French factors, quarantine,
    |                        trials ledger, futures roll ledger
 strategies/                 talib_signals.py (231 rules, ONE dispatcher) +
-   |                        published/ ONE FILE PER STRATEGY (31), discovered by
+   |                        published/ ONE FILE PER STRATEGY (174), discovered by
    |                        registry.py. tests/test_causality.py gates them all
+   |                        overlays/ wrap any base label and compose: regime
+   |                        (trailing vol), heikin (`ha:`, synthetic candles for the
+   |                        SIGNAL ONLY -- fills stay on real prices), chart
+   |                        (`chart:`, Pine BAR-COUNT windows instead of day spans)
    |
 backtest engine/            the machinery: engines, signals, metrics, td_loader, parity
    |                        db_loader.py + futures_specs.py + futures_screen.py: the CME
@@ -379,12 +386,32 @@ and the reason for it, never the flattering end.** Closing that gap at book leve
 intraday bars for the whole universe — the cache holds only the old mega-20 — so for now
 it is a bound, not a number.
 
-### The trial ledger is empty, so DSR defaults are wrong
+### A Heikin-Ashi backtest has a fill trap, and it is not in the fill model
 
-`data/reference/trials.csv` has a header and no rows, so `portfolio_wf._deflate` counts
-only the rules named on the command line. A shortlist run therefore deflates a
+An HA close is `(O+H+L+C)/4` — an average of four prices, so it is not a price anybody
+could have transacted at. A chart platform's broker emulator will fill at it anyway
+unless told not to, and because the synthetic close is pulled toward the middle of the
+bar, that single default buys below where the market was. It is enough on its own to make
+most HA strategies look profitable, and it is invisible in any statistic computed after
+the fill.
+
+So `ha:` in this repo changes **the signal only**. The exposure it returns settles on
+real closes through the same `apply_fill` path as every other rule. The consequence is
+worth stating plainly: **a published HA result from TradingView and an HA result from
+this repo are not the same measurement**, and the gap is not a rounding difference.
+
+The same reasoning as the `--fill` section above, one level down — there the question is
+which real print you are filled at, here it is whether the print is real at all.
+
+### The trial ledger is only as complete as what was registered into it
+
+`portfolio_wf._deflate` counts the rules named on the command line **plus** whatever
+`data/reference/trials.csv` has registered for that sheet, and reports which in
+`n_trials_source`. The ledger is no longer empty — the conversion batch and the intraday
+Heikin-Ashi study both registered their cells before scoring — but it covers only the
+work that bothered, so a sheet whose trials were never registered still deflates a
 hand-picked winner against the handful of rules it was hand-picked into, which is not a
-haircut.
+haircut. **Read `n_trials_source` before trusting `dsr` on any sheet.**
 
 Deflation needs **two** facts about the search and a shortlist run can supply neither:
 how many candidates it looked at, and how far apart their Sharpes fell. Both come off
@@ -426,6 +453,7 @@ on synthetic bars structurally cannot.
 | `tools/golden.py capture` / `verify` | repo root | positions and scores unchanged across a refactor. See the speed section above |
 | `parity.py --n 3` | `backtest engine/` | three engines agree on the same rule |
 | `test_t_bar.py` | `walk-forward optimization/` | the significance bar's false-positive rate is actually 5% |
+| `test_alpha101.py` | `walk-forward optimization/` | the 101-alpha interpreter is causal, by TRUNCATION, and its cross-sectional and time-series axes are not swapped |
 | `test_store.py` | `paper trading engine/` | the desk resumes after a restart instead of resetting |
 | `test_runtime_attach.py` | `paper trading engine/` | a strategy can join a RUNNING Nautilus trader. The whole manager desk rests on it, and the failure it guards is SILENT — `add_strategy` returns rather than raising |
 | `test_member_desk.py` | `paper trading engine/` | an order in the ledger becomes a fill, a position and a record; and the three refusals come back with reasons |
@@ -473,6 +501,8 @@ python strat_wf.py --tf 1d 4h                     # stage 1e: the strategies/ ca
 python focus_wf.py --tf 1d                        # stage 1f: named-in-advance deep dive
 python riskmatch_wf.py --tf 1d 4h                 # stage 1g: THE STANDARD -> edge_standard.csv
 python gate_calibration.py                        # are the gates even provable here?
+python alpha101.py --ic                           # stage 1i: the 101 PUBLISHED alphas,
+./run_alpha101.sh                                 #   a fixed pre-registered set. BASH
 python combo_wf.py --tf 1d 4h                     # stage 2b: walk-forward pairs
 python portfolio_wf.py --tf 1d --pit              # stage 1h: score the BOOK, not the median
 python make_book_rules.py; ./run_book.sh          # ...stage 1h for the WHOLE leaderboard,

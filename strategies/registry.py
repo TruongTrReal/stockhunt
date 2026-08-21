@@ -39,7 +39,7 @@ import pandas as pd
 from strategies import published as _published_pkg
 from strategies.controls import (BASELINE, RANDOM_BLOCK, RANDOM_SEED,  # noqa: F401
                                  random_control)
-from strategies.overlays import combo, regime
+from strategies.overlays import chart, combo, heikin, hold, regime
 
 SEP = "@"                      # `rsi2_connors@buy=5,exit_ma=10`
 
@@ -123,6 +123,50 @@ def decode(label: str) -> tuple[str, dict]:
     return name, params
 
 
+# (prefix, separator, how many parameter fields sit between the prefix and the base).
+# `chart:` and `ha:` take none; `hold:30:X` takes one; `volregime:hi:0.5:X` takes two.
+OVERLAY_PREFIXES = (
+    (chart.CHART_PREFIX, chart.CHART_SEP, 0),
+    (heikin.HA_PREFIX, heikin.HA_SEP, 0),
+    (hold.HOLD_PREFIX, hold.HOLD_SEP, 1),
+    (regime.REGIME_PREFIX, regime.REGIME_SEP, 2),
+)
+
+
+def strip_overlays(label: str) -> tuple[str, str]:
+    """`ha:chart:ibs@buy=0.3` -> (`ha:chart:`, `ibs@buy=0.3`). The ONE definition.
+
+    Anything that has to answer "what strategy is this label really about" needs this:
+    the overlays are prefixes, so a bare `label.split(SEP)[0]` returns `ha:chart:ibs`,
+    which is in no catalog and reads as an unknown rule. That is not hypothetical — it
+    is exactly how `live_signal.family` came to report `unknown` for every overlay label,
+    which would have made the paper desk REFUSE a registration it can in fact build.
+
+    Parameterised overlays are handled by FIELD COUNT, not by a bare prefix test:
+    `hold:30:ibs` carries one field and `volregime:hi:0.5:ibs` two, so stripping only the
+    word would leave `30:ibs` behind and report it as an unknown rule — which is the same
+    class of bug this function exists to fix, one level down.
+    """
+    prefix = ""
+    rest = label
+    changed = True
+    while changed:
+        changed = False
+        for name, sep, fields in OVERLAY_PREFIXES:
+            head = name + sep
+            if not rest.startswith(head):
+                continue
+            tail = rest[len(head):]
+            for _ in range(fields):            # consume `<value><sep>` per field
+                value, found, tail = tail.partition(sep)
+                if not found:
+                    return prefix, rest        # malformed: hand it back untouched
+            prefix += rest[: len(rest) - len(tail)]
+            rest = tail
+            changed = True
+    return prefix, rest
+
+
 def cells(asset_class: str) -> list[str]:
     """Every (strategy, parameter) label runnable on this class, published cells first."""
     out = []
@@ -171,6 +215,19 @@ def build(label: str, df: pd.DataFrame, close: np.ndarray, bpy: float,
         return np.zeros(len(df), dtype="float64")
     if label.startswith("RANDOM_"):
         return random_control(len(df), int(label.split("_")[1]) / 100.0, symbol, draw)
+    if label.startswith(hold.HOLD_PREFIX + hold.HOLD_SEP):
+        # Outermost of the overlays, and it has to be: it decimates whatever the stack
+        # under it produced, so `hold:30:ha:X` reads "compute X on Heikin-Ashi candles,
+        # then trade the result monthly", which is the only order that means anything.
+        return hold.apply(label, df, close, bpy, symbol, _self)
+    if label.startswith(chart.CHART_PREFIX + chart.CHART_SEP):
+        # Same shape as the overlay branches below, for the same circularity reason.
+        return chart.apply(label, df, close, bpy, symbol, _self)
+    if label.startswith(heikin.HA_PREFIX + heikin.HA_SEP):
+        # Same shape as the regime branch below, for the same circularity reason. It
+        # sits first so `ha:volregime:...` reads outside-in: the whole stack of signal
+        # logic under it is computed on synthetic candles.
+        return heikin.apply(label, df, close, bpy, symbol, _self)
     if label.startswith(regime.REGIME_PREFIX + regime.REGIME_SEP):
         # `build` is handed to the overlay rather than imported by it: the overlay wraps
         # arbitrary labels, so importing this module from there would be circular. The

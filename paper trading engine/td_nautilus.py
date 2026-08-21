@@ -223,7 +223,13 @@ def timeframe_of(bar_type: BarType) -> str:
     spec = bar_type.spec
     unit = _TF_UNIT.get(spec.aggregation)
     key = f"{spec.step}{unit}" if unit else None
-    if key in td_live.INTERVALS:
+    # PRESENT IS NOT FEEDABLE. `INTERVALS` carries a row for every timeframe the repo
+    # knows, and since 2026-08-21 some of those rows have a vendor interval of `None`:
+    # `2m` and `3m` are RESAMPLED from cached 1m for the backtest and Twelve Data sells
+    # no such product. A membership test alone would hand the live client a key it can
+    # spell and cannot subscribe to, which is the exact fifteen-hour failure described
+    # above wearing a new hat. The vendor interval is the capability; test that.
+    if key in td_live.INTERVALS and td_live.INTERVALS[key][0] is not None:
         return key
     raise ValueError(f"unsupported bar spec for this forward test: {spec}")
 
@@ -236,13 +242,24 @@ def timeframe_of(bar_type: BarType) -> str:
 # order. This is the guard `paper_config.MEMBER_TIMEFRAMES` documents; it was previously
 # made against `BAR_SPEC`, which is derived from the BACKTEST engine's timeframe list and
 # therefore says nothing whatever about what the live vendor client can subscribe to.
-_unfeedable = [tf for tf in paper_config.MEMBER_TIMEFRAMES if tf not in td_live.INTERVALS]
+_unfeedable = [tf for tf in paper_config.MEMBER_TIMEFRAMES
+               if td_live.INTERVALS.get(tf, (None,))[0] is None]
 if _unfeedable:
     raise SystemExit(
         f"{', '.join(_unfeedable)} is offered in paper_config.MEMBER_TIMEFRAMES but "
         f"td_live.INTERVALS cannot feed it. A timeframe a manager can register at and "
         f"the desk cannot subscribe to is a strategy that reads `live` and can never "
         f"trade.")
+
+# The house's own books are no longer all 1d/4h, so they need the same check. A book
+# timeframe the client cannot feed fails inside a Nautilus task at subscribe time, which
+# is logged and goes nowhere — the same silence, on the desk's own capital.
+_unfeedable_books = [tf for tf in paper_config.BOOK_TIMEFRAMES
+                     if td_live.INTERVALS.get(tf, (None,))[0] is None]
+if _unfeedable_books:
+    raise SystemExit(
+        f"{', '.join(_unfeedable_books)} is in paper_config.BOOK_TIMEFRAMES but "
+        f"td_live.INTERVALS cannot feed it.")
 
 
 def _interval_delta(timeframe: str) -> timedelta:

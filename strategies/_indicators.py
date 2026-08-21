@@ -38,6 +38,51 @@ def _state_machine(entry: np.ndarray, exit_: np.ndarray) -> np.ndarray:
     return out
 
 
+def _flip(long_entry: np.ndarray, short_entry: np.ndarray) -> np.ndarray:
+    """+1 on `long_entry`, -1 on `short_entry`, hold otherwise. Starts flat.
+
+    The reversal counterpart of `_state_machine`, and the shape most TradingView
+    strategies actually have: `strategy.entry(long)` on one condition and
+    `strategy.entry(short)` on the other, with no flat state in between once the first
+    signal has fired. Pine reverses the position on the opposing entry rather than
+    closing to cash, so a converted rule that goes flat instead is a *different* rule —
+    it is out of the market for the whole of every downtrend.
+
+    Long wins a same-bar tie, matching `_state_machine`.
+    """
+    s = np.full(len(long_entry), np.nan)
+    s[short_entry] = -1.0
+    s[long_entry] = 1.0
+    return pd.Series(s).ffill().fillna(0.0).to_numpy()
+
+
+def _cross_over(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Pine's `ta.crossover`: a is above b now and was at or below it on the last bar."""
+    # NaN compares false in both directions, so a warmup bar can neither open nor close
+    # a cross — which is the behaviour Pine's `na` handling gives.
+    out = np.zeros(len(a), dtype=bool)
+    out[1:] = (a[1:] > b[1:]) & (a[:-1] <= b[:-1])
+    return out
+
+
+def _cross_under(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Pine's `ta.crossunder`."""
+    return _cross_over(b, a)
+
+
+def _hma(x: np.ndarray, n: int) -> np.ndarray:
+    """Hull moving average — `WMA(2*WMA(n/2) - WMA(n), round(sqrt(n)))`.
+
+    Pine truncates the `n/2` it passes as a length, so `_hma(x, 25)` uses WMA(12), not
+    WMA(12.5) rounded up. Reproduced rather than corrected: the published settings of
+    the strategies that use this were fitted against Pine's arithmetic.
+    """
+    x = np.ascontiguousarray(x, dtype="float64")
+    half, root = max(1, int(n / 2)), max(1, int(round(np.sqrt(n))))
+    inner = 2.0 * talib.WMA(x, half) - talib.WMA(x, n)
+    return talib.WMA(np.ascontiguousarray(inner), root)
+
+
 def _pct_rank(x: np.ndarray, window: int) -> np.ndarray:
     """Rolling percentile rank of the last value within its trailing window, 0-100.
 

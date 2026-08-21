@@ -224,7 +224,24 @@ BOOK_CAPITAL = 100_000.0
 # Timeframes a book may run at. Daily led, and 4h followed once the daily books had been
 # watched — the desk runs one accounting model now, so there is no longer a second shape
 # on the board for a second horizon to be confused with.
-BOOK_TIMEFRAMES = ["1d", "4h"]
+#
+# `5m` added 2026-08-21 for the manager's forward test of the converted TradingView
+# strategies. Three things were checked before widening this, and all three are the
+# reason the list is short rather than a formality:
+#
+# * **The feed can subscribe to it.** `td_live.INTERVALS["5m"]` is a real vendor interval,
+#   not a spelling — the distinction that cost this desk fifteen hours when six member
+#   timeframes were offered and two were feedable. See the note on MEMBER_TIMEFRAMES.
+# * **The credit regime carries it.** `td_nautilus` runs one poll per subscription aligned
+#   to the bar close, so a 5m book over 23 US stocks is 23 requests every five minutes
+#   (~4.6/min) and books sharing a (symbol, timeframe) share the subscription. That sits
+#   far inside the key's budget; `1m` still does not and stays out.
+# * **The rules reproduce at the default window.** Every strategy promoted at 5m was
+#   checked against its full-series position over a rolling `DEFAULT_WINDOW_BARS` buffer
+#   and matched on 100% of sampled bars. `lorentzian_knn` did NOT (67-83%) — its
+#   neighbour set is anchored at bar 0, so it slides with the buffer — and is therefore
+#   not promotable here whatever a leaderboard says about it.
+BOOK_TIMEFRAMES = ["1d", "4h", "5m"]
 
 
 def live_top100(on=None) -> list[str]:

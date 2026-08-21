@@ -26,7 +26,12 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-for _p in (REPO_ROOT, REPO_ROOT / "backtest engine"):
+# `walk-forward optimization/` is here for the same reason and costs nothing until a
+# test imports from it: adding a directory to `sys.path` imports nothing. The folders are
+# designed to sit on the path together — that is what the distinct bootstrap names
+# (`config` / `wfo_paths` / `paper_config` / `dash_config`) exist to make safe.
+for _p in (REPO_ROOT, REPO_ROOT / "backtest engine",
+           REPO_ROOT / "walk-forward optimization"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
