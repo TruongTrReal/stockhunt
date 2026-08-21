@@ -1,7 +1,7 @@
 fold,rule,is_excess_cagr
-2020-08-29,trend_factor@min_votes=3,0.9456891652948085
-2021-08-29,"macd_cross@fast_days=20.0,slow_days=50.0",0.8457553634685051
-2022-08-29,"turn_of_month@after=5,before=3",0.9151415022367193
-2023-08-29,sell_in_may,0.4755958311646935
-2024-08-29,"ichimoku@kijun_days=13.0,senkou_days=26.0,tenkan_days=5.0",0.2030575595446773
-2025-08-29,"ichimoku@kijun_days=13.0,senkou_days=26.0,tenkan_days=5.0",0.19256969211195174
+2020-08-29,renko_delta,0.6692771164865061
+2021-08-29,ema_cross_sniper@allow_short=0,0.8631450610438578
+2022-08-29,ema_cross_sniper@allow_short=0,0.6602572342214839
+2023-08-29,ema_cross_sniper@allow_short=0,0.3587367164913329
+2024-08-29,ema_cross_sniper@allow_short=0,0.08781992053222198
+2025-08-29,RANDOM_75,0.1394370651840564

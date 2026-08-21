@@ -1644,7 +1644,12 @@ function paperDetail(id) {
  * this repo's plumbing, not about whether the thing is worth trading. What does change from
  * tab to tab is the price series, the fee schedule and the benchmark, so asset class and
  * timeframe are the only two filters. */
-let bf = { cls: "stocks", tf: "1d" };
+/* Three filters, and `board` is the outermost: it decides which two lists the other
+ * two are drawn from. The house catalogue has sheets at 1d and 4h; the converted
+ * strategies were written for minute charts and were scored at 1m/2m/3m/5m as well, so
+ * the timeframe strip cannot be one literal pair shared by both. */
+let bf = { board: "house", tf: "1d", cls: "stocks" };
+const BOARDS = [["house", "Research catalogue"], ["conv", "Converted strategies"]];
 const sheetOf = (cls, tf) => D.backtest[cls].sheets.find(s => s.timeframe === tf);
 /* Keyed by the GROUP key from `dash_config.GROUPS`, which is not the class name for three
  * of the four. `CLASS_ARG` maps back, and it is not decoration: it is what the two empty
@@ -1663,16 +1668,50 @@ const btTimeframes = () => (D.timeframes && D.timeframes.length ? D.timeframes
   : ["1d", "4h"]);
 const btTfPills = () => btTimeframes().map(t => [t, t]);
 
+/* The two boards' heroes say different things because they are answering different
+ * questions. The house one is "does anything in our own catalogue work"; the conversions
+ * one is "does the set somebody handed us work". Same machinery, same benchmark, same
+ * ranking key — different population, and the lede has to say which one is on screen or
+ * the numbers underneath are unattributable. */
+const BOARD_HERO = {
+  house: `<h1>Backtest results</h1>
+    <p class="lede">Every strategy run independently on each asset, walk-forward:
+    parameters re-picked on each in-sample window and applied to the next. Scored as
+    information ratio against buy-and-hold on the same asset — zero means matching it,
+    positive means beating it. Single rules and pairs of rules are ranked in one list; only
+    the asset class separates them, because only the asset class changes the prices, the
+    costs and the benchmark.</p>`,
+  conv: `<h1>Converted strategies</h1>
+    <p class="lede">Thirteen strategies supplied from outside this repo — eight TradingView
+    Pine scripts, four freqtrade strategies and one pair of notebooks — put through the
+    same machinery as everything else and ranked on the same key. Every cell was
+    pre-registered before it was scored. They keep their own board because they were tested
+    on timeframes the catalogue has no sheets for, down to one-minute bars, and because
+    they carry three facets no house rule does: a short side that reverses rather than
+    selling to cash, a Heikin-Ashi signal variant, and an overnight-flat variant.</p>`,
+};
+
+const boardTfPills = () => bf.board === "conv" ? convTfPills() : btTfPills();
+const boardClassPills = () => bf.board === "conv" ? convClassPills() : universePills();
+
+/* A board switch changes what the other two strips can offer, so a selection that the new
+ * board has no sheet for is corrected here rather than left to render an empty state that
+ * the reader did not ask for. */
+function normaliseBoard() {
+  const cls = boardClassPills().map(p => p[0]);
+  if (cls.length && !cls.includes(bf.cls)) bf.cls = cls[0];
+  const tfs = boardTfPills().map(p => p[0]);
+  if (tfs.length && !tfs.includes(bf.tf)) bf.tf = tfs[0];
+}
+
 function backtestMaster() {
-  if (!D.backtest[bf.cls]) bf.cls = Object.keys(D.backtest)[0];
+  if (!D.backtest[bf.cls] && bf.board !== "conv") bf.cls = Object.keys(D.backtest)[0];
+  if (bf.board === "conv" && !Object.keys((D.conversions || {}).groups || {}).length)
+    bf.board = "house";
+  normaliseBoard();
   app.innerHTML = `
   <div class="hero">
-    <h1>Backtest results</h1>
-    <p class="lede">Every strategy run independently on each asset, walk-forward: parameters
-    re-picked on each in-sample window and applied to the next. Scored as information ratio
-    against buy-and-hold on the same asset — zero means matching it, positive means beating it.
-    Single rules and pairs of rules are ranked in one list; only the asset class separates
-    them, because only the asset class changes the prices, the costs and the benchmark.</p>
+    ${BOARD_HERO[bf.board] || BOARD_HERO.house}
   </div>
 
   <div id="bt-head"></div>
@@ -1683,10 +1722,12 @@ function backtestMaster() {
       it. They stay outside both painted regions so the buttons survive a repaint — and so
       a sheet that does not exist still leaves you something to click. */""}
   <div class="filters wide">
+    <span class="f-group"><span class="f-label">Leaderboard</span>
+      ${pills(BOARDS, bf.board, "data-bboard")}</span>
     <span class="f-group"><span class="f-label">Asset class</span>
-      ${pills(universePills(), bf.cls, "data-bcls")}</span>
+      ${pills(boardClassPills(), bf.cls, "data-bcls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${pills(btTfPills(), bf.tf, "data-btf")}</span></div>
+      ${pills(boardTfPills(), bf.tf, "data-btf")}</span></div>
 
   <div id="bt-body"></div>`;
 
@@ -1695,6 +1736,15 @@ function backtestMaster() {
     b.onclick = () => { bf.cls = b.dataset.bcls; setActive("data-bcls", bf.cls); paintBacktest(); });
   document.querySelectorAll("[data-btf]").forEach(b =>
     b.onclick = () => { bf.tf = b.dataset.btf; setActive("data-btf", bf.tf); paintBacktest(); });
+  // Switching board rebuilds the whole master: the other two strips are drawn from lists
+  // this choice selects, so repainting only the body would leave 4h and 2m offered side by
+  // side with nothing behind one of them.
+  document.querySelectorAll("[data-bboard]").forEach(b =>
+    b.onclick = () => {
+      bf.board = b.dataset.bboard;
+      lbSort = convSort = null;      // a sort is a statement about one board's columns
+      backtestMaster();
+    });
 }
 
 /* A pair is two rules joined by an operator (`or`, `and`, `vote`, `gate`) and carries that
@@ -2186,6 +2236,9 @@ const lbCols = () => {
  * the filters can sit against the table they change; both are rewritten together on every
  * click, and neither owns the buttons. */
 function paintBacktest() {
+  // The board switch is the first thing this asks, because the two boards share the page
+  // and the two painted regions and nothing else.
+  if (bf.board === "conv") return paintConversions();
   const head = document.getElementById("bt-head");
   const host = document.getElementById("bt-body");
   const grp = D.backtest[bf.cls], sh = sheetOf(bf.cls, bf.tf);
@@ -2346,6 +2399,455 @@ function paintBacktest() {
   });
 }
 
+/* ========================= THE CONVERTED-STRATEGY BOARD =========================
+ * The second leaderboard on this page. Thirteen third-party rules — eight TradingView
+ * Pine scripts, four freqtrade strategies and one pair of notebooks — run through the same
+ * `portfolio_wf.py` stage, read through the same `_book_record`, ranked on the same key:
+ * the standard's own count, ties on the book's risk-matched excess CAGR.
+ *
+ * It is a separate board rather than extra rows on the house one because it has a
+ * different timeframe axis (1d down to 1m, where the research catalogue runs 1d and 4h),
+ * three facets no house rule carries, and its own pre-registered trial family. The reasons
+ * are set out in `payload.conversion_sheets`; the consequence here is that only the
+ * filter strip and the column list differ, and everything that decides what a number MEANS
+ * is shared code.
+ *
+ * There is no detail page. `run_book.sh` publishes `book_curves_*.json` for the house
+ * sheets only, so these rules have no equity series on disk — and a row that navigates to
+ * a stub is worse than a row that says it does not navigate. The note under the table says
+ * so rather than leaving a dead click to be discovered. */
+
+const CONV = () => D.conversions || { groups: {}, timeframes: [], roster: [], totals: {} };
+const convGroup = () => CONV().groups[bf.cls];
+const convSheetOf = (cls, tf) => {
+  const g = CONV().groups[cls];
+  return g ? g.sheets.find(s => s.timeframe === tf) : null;
+};
+const convTfPills = () => (CONV().timeframes || ["1d"]).map(t => [t, t]);
+const convClassPills = () => Object.keys(CONV().groups)
+  .map(k => [k, CLASS_LABEL[k] || k]);
+
+/* The three facets, as chips beside the name.
+ *
+ * They are chips and never part of the name because each of them is the SAME strategy
+ * measured a different way, and the reader's first question on this board is how one rule
+ * did — not how four labels that share a stem did. `reverses` is the load-bearing one: as
+ * published, eight of the thirteen flip long-to-short instead of selling to cash, and on
+ * this repo's benchmark that single property dominates everything else the rule does. */
+const convChips = r => [
+  r.short ? `<span class="chip warn" title="As published: a short signal REVERSES the position rather than selling to cash. The benchmark's drift is then paid twice over every downtrend the rule is wrong about.">reverses</span>` : "",
+  r.short_off ? `<span class="chip mut" title="The same signal with the short half removed: it sells to cash instead of flipping. Its reversing twin is on this table too.">short off</span>` : "",
+  r.ha ? `<span class="chip mut" title="The signal is computed on Heikin-Ashi candles; the money still settles on real closes. A chart platform fills at the synthetic close, which is an average of four prices nobody could transact at — that difference alone accounts for most published HA results.">Heikin-Ashi</span>` : "",
+  r.eod === "flat" ? `<span class="chip mut" title="Positions are closed at the session bell instead of being carried overnight.">flat at the close</span>` : "",
+].filter(Boolean).join(" ");
+
+/* Twelve columns, all of them the BOOK, all of them shared renderers with the house
+ * leaderboard. Fewer than the sixteen next door because four of those are per-asset
+ * columns off `edge_standard.csv`, which never scored this family outside CME futures —
+ * and a column that is an em-dash on every row of every sheet is not a column. */
+const CONV_COLS = [
+  { h: "Strategy", l: true, lead: true,
+    cell: r => `<td class="l">${esc(r.base)} ${convChips(r)}</td>`,
+    doc: `The rule, and what was done to it. Chips carry the three facets this family has
+      and the house catalogue does not.
+      <br><br><b>reverses</b> / <b>short off</b> — the eight rules that came from Pine have
+      a short side, because <code>strategy.entry(short)</code> flips the position rather
+      than closing it to cash; both versions of each are on this table. Across 256 matched
+      pairs on these sheets, switching the short side off improved the result <b>253</b>
+      times, by a median of <b>16.3</b> percentage points a year, so quoting the reversing
+      cell alone measures the short leg and not the signal. <b>A row with neither chip has
+      no short side at all</b> — the five freqtrade and notebook rules sell to cash and
+      never had one, so there is nothing to switch off and nothing to compare against.
+      <br><br><b>Heikin-Ashi</b> — the signal runs on synthetic candles while the money
+      settles on real closes. An HA close is <code>(O+H+L+C)/4</code>, an average nobody
+      trades at; chart platforms fill at it by default, which is enough on its own to make
+      most HA strategies look profitable. A published HA result and one from this board are
+      not the same measurement.
+      <br><br><b>flat at the close</b> — the intraday variant that does not carry a
+      position overnight. Both variants are ranked together so the comparison is on the
+      page rather than in somebody's head.`,
+    sv: r => r.base, text: true },
+  { h: "Long %", cell: r =>
+      `<td class="${bookExposure(r) != null && bookExposure(r) > 0.9 ? "loss" : ""}">${
+        pctOr(bookExposure(r))}</td>`,
+    bh: () => `<td class="flat">100%</td>`,
+    doc: `Share of bars the book holds a position. <b>Read it before any money column.</b>
+      Anything above 90% is flagged: at that point the rule is approximately buy-and-hold
+      and scores near the benchmark for that reason rather than through skill.
+      <br><br>It matters more on this board than on the house one. Seven of the thirteen
+      hold a position more than 90% of the time as published, four of them above 98%, and
+      those seven are the rows at the bottom of the daily sheets. A rule that is always
+      invested cannot add anything by timing — it can only be wrong about direction.`,
+    sv: r => bookExposure(r), bsv: () => 1 },
+  { h: "Sharpe", lead: true,
+    cell: r => vsCell(r.book && r.book.sharpe, r.book && r.book.sharpe_bench, fmtSharpe,
+      (a, b) => a > b, "the same universe held passively, over the same bars"),
+    bh: (b, sh) => `<td class="flat">${fmtNum(
+      sh.book_bench && sh.book_bench.sharpe, 3)}</td>`,
+    doc: `The book's return per unit of volatility, coloured against the same universe held
+      passively over the same bars — hover a cell for that value. Raw Sharpe largely
+      rewards time in the market, so a level means little without the benchmark beside it.
+      <br><br><b>Measured at the optimistic fill</b>, like every figure on this page: the
+      signal is computed from a bar's own close and filled at that close. The fill-timing
+      checks below the table price the honest end of the range.`,
+    sv: r => r.book && r.book.sharpe,
+    bsv: (b, sh) => sh.book_bench && sh.book_bench.sharpe },
+  { h: "Max DD", cell: (r, sh) => bookDdCell(r, sh && sh.book_bench && sh.book_bench.dd),
+    bh: (b, sh) => `<td class="flat">${sh.book_bench && sh.book_bench.dd != null
+      ? fmtNum(sh.book_bench.dd, 1) + "%" : "—"}</td>`,
+    doc: ({ sh }) => `The worst peak-to-trough fall of the book — one account holding every
+      name at once — against the same universe held passively${
+        sh.book_bench && sh.book_bench.dd != null
+          ? `, which fell <b>${fmtNum(sh.book_bench.dd, 1)}%</b> over these bars` : ""}.
+      Not the drawdown of a typical single name, which is roughly twice as deep: names
+      fall on different days, so a book of them falls far less than any of its parts.`,
+    sv: r => r.book && r.book.dd, bsv: (b, sh) => sh.book_bench && sh.book_bench.dd },
+  { h: "t", cell: r => bookNum(r, r.book && r.book.t, v => fmtSigned(v, 2)),
+    doc: ({ sh }) => `The t-statistic of the per-fold edge — the mean fold-to-fold
+      advantage over its own scatter, across ${sh.rows[0] && sh.rows[0].book
+        && sh.rows[0].book.n_folds ? `<b>${sh.rows[0].book.n_folds}</b>` : "this sheet's"}
+      walk-forward folds. Across <b>time</b> and never across assets: a book is every name
+      at once and cannot borrow significance from breadth.
+      <br><br><b>An em-dash means too few folds to compute it</b>, which is most of the
+      intraday sheets — they cover about six years, and a 3-year in-sample window with a
+      1-year step leaves four folds. That is a statement that the sheet cannot answer the
+      question, not that the answer was no. The money columns are unaffected: what the
+      account did is a measurement and needs no power.`,
+    sv: r => r.book && r.book.t },
+  { h: "vs random", cell: r => bookNum(r, r.book && r.book.vs_random, fmtIR),
+    doc: `Sharpe above an exposure-matched <b>coin flip</b> — a book that goes in and out
+      of the market at random, at this rule's own rate, backtested rather than modelled.
+      <br><br>It is the control that matters most on this board. On the ETF, commodity and
+      futures daily sheets a random rule beat the risk-matched benchmark by more than any
+      converted strategy did, so a small positive in the money columns is being earned by
+      <i>being out of the market some of the time</i> and not by the signal. A rule has to
+      clear the coin flip before its excess means anything.
+      <br><br><b>An em-dash means the run that wrote this sheet had no random books in its
+      panel.</b> <code>vs_random</code> is a second pass over the <code>RANDOM_*</code>
+      rows, interpolated at each rule's own exposure, so a run scoped to a rule list cannot
+      compute it and the cell is left blank rather than filled with a zero. The daily
+      crypto and ETF sheets are in that position; the minute sheets are not.`,
+    sv: r => r.book && r.book.vs_random },
+  { h: "Trades/asset", cell: r => tradesCell(r.book && {
+      trades: r.book.trades_per_asset }),
+    doc: `Positions opened on a typical name, out-of-sample. Not good or bad on its own —
+      it is what makes the profit factor beside it readable, and on the minute sheets it is
+      what makes the cost column readable too.`,
+    sv: r => r.book && r.book.trades_per_asset },
+  { h: "Profit factor", cell: r => pfCell(r.book, bookExposure(r)),
+    doc: `Gross winnings ÷ gross losses per closed trade; 1.00 is break-even. Scored
+      against 1.00 and not against the benchmark, which never closes a trade and so has
+      none. Greyed above 90% exposure, where the rule barely closes anything.`,
+    sv: r => r.book && r.book.profit_factor },
+  { h: "$10k / book", lead: true, cell: r => bookWealthCell(r.book),
+    bh: (b, sh) => `<td class="flat">${fmtMoney(sh.book_bench && sh.book_bench.wealth)}</td>`,
+    doc: ({ sh }) => {
+      const bb = sh.book_bench;
+      if (!bb) return `No book run covers this sheet.`;
+      return `What $10,000 became in <b>one account holding the whole universe</b> —
+        ${bb.n_names} names, equal-weighted, rebalanced every bar — over
+        <b>${fmtNum(bb.years, 1)} years</b> (${esc(bb.start)} to ${esc(bb.end)}). Holding
+        the same universe passively returned <b>${fmtMoney(bb.wealth)}</b>${bb.index_wealth
+          ? `, against ${fmtMoney(bb.index_wealth)} for ${esc(bb.index_symbol)} over the
+        same bars` : ""}.
+        <br><br><b>Coloured on raw money — did the account end with more than holding.</b>
+        The next column is coloured on the risk-matched comparison, and rows routinely have
+        one without the other: a rule invested half the time can clear holding per unit of
+        risk and still finish with far less money, because it was only ever exposed to half
+        the market. Read them together.`;
+    },
+    sv: r => r.book && r.book.wealth, bsv: (b, sh) => sh.book_bench && sh.book_bench.wealth },
+  { h: "book vs B&amp;H", lead: true,
+    cell: r => numCell(r.book, r.book && r.book.cm_excess_cagr != null
+      ? r.book.cm_excess_cagr * 100 : null, v => fmtPct(v, 2)),
+    bh: () => `<td class="flat">+0.00%</td>`,
+    doc: `<b>The tiebreak this table is ordered by</b>, inside each tier of the Standard
+      column. Annual return of the book above the same universe held passively, after the
+      passive side has been scaled <i>down</i> with cash to the rule's own volatility —
+      never levered up, so no margin and no borrow. A rule that beats holding only by
+      taking more risk scores +0.00% here, which is the honest answer.
+      <br><br>On the minute sheets this column is dominated by cost rather than by signal.
+      The median annual cost of running one of these rules is about 6% of the account at
+      5-minute bars and 29% at 1-minute bars on US stocks — and on 1-minute crypto, where
+      the fee is per trade and the rules trade every bar, it is <b>2,725%</b>. At that point
+      the account is a rounding error and the sign of the signal stops mattering.`,
+    sv: r => r.book && r.book.cm_excess_cagr, bsv: () => 0 },
+  { h: "fees", cell: r => bookNum(r, r.book && r.book.headroom, v => fmtNum(v, 1) + "x"),
+    doc: `Cost headroom: how many times the modelled commission and spread could rise
+      before the book stops beating the same basket held at its own volatility.
+      <b>0.0x means it already does not</b>, at the real cost.
+      <br><br>Exact arithmetic rather than seven re-runs — every cost term is linear in its
+      own rate, so the account at 5x the schedule is its zero-cost book minus five times
+      its measured drag. The <i>Trading venue</i> check under this table is the same
+      question asked with real exchange schedules instead of a multiplier, and it moves two
+      of the three crypto results from a win to a loss.`,
+    sv: r => r.book && r.book.headroom },
+  { h: "Standard", l: true, lead: true,
+    cell: r => `<td class="l">${edgeCount(r.book && r.book.standard)}</td>`,
+    doc: ({ sh }) => `<b>The column this table is ranked on.</b> How many of the <b>six
+      acceptance criteria</b> the row cleared — hover a cell for which ones, with each
+      target. All six or it is not an edge; nothing in this family has cleared them.
+      Computed on the book by <code>metrics.apply_edge_standard</code>, the same function
+      and the same thresholds the house board uses.
+      <br><br><b>Almost every sheet here says <i>underpowered</i>, and that means "cannot
+      tell", not "no".</b> The threshold was calibrated on 20 folds; the crypto daily sheet
+      has 6 and the minute sheets have about 4, because they cover six to nine years rather
+      than twenty-six. So a tier on this board carries less evidence than the same tier
+      next door, and the tiebreak — <b>book vs B&amp;H</b> — is doing most of the visible
+      ordering.
+      <br><br>Buy-and-hold clears none of the six and is drawn where that puts it. It is
+      not competing: the six are measured <i>against</i> it, so it cannot pass its own
+      test.`,
+    sv: r => r.book && r.book.standard && r.book.standard.passed },
+];
+
+let convSort = null;
+
+/* Same shape as `lbOrder`, on this board's columns. The benchmark is spliced in at the
+ * rank its own count earns, which under the Standard key is below every rule that cleared
+ * a criterion — and it carries the same `not ranked` chip, for the same reason: last place
+ * on a leaderboard reads as "worst", and on this repo the whole finding is the opposite. */
+function convOrder(sh, bench, sort) {
+  const rows = sh.rows.map(row => ({ row }));
+  if (!sort) {
+    const below = sh.rows.findIndex(r => r.book && r.book.standard
+      && r.book.standard.passed <= 0);
+    if (bench) rows.splice(below < 0 ? rows.length : below, 0, { bench: true });
+    return rows;
+  }
+  const c = CONV_COLS[sort.i];
+  if (bench) rows.push({ bench: true });
+  const val = e => {
+    const v = e.bench ? (c.bsv ? c.bsv(bench, sh) : null) : c.sv(e.row);
+    return v == null || (typeof v === "number" && !isFinite(v)) ? null : v;
+  };
+  return rows.map((e, i) => ({ e, i, v: val(e) }))
+    .sort((a, b) => (a.v == null) - (b.v == null)
+      || (a.v == null ? a.i - b.i
+        : (typeof a.v === "string" ? sort.dir * a.v.localeCompare(b.v)
+                                   : sort.dir * (a.v - b.v)) || a.i - b.i))
+    .map(x => x.e);
+}
+
+const convBenchRow = (bench, cols, sh) => {
+  if (bench == null) return "";
+  const cells = cols.map((c, i) => i === 0
+    ? `<td class="l">Buy &amp; hold <span class="chip mut">benchmark</span>
+       <span class="chip mut" title="The six criteria measure a rule AGAINST buy-and-hold, so the benchmark cannot clear them and has no count to be ranked by. Its position here is not a score.">not ranked</span></td>`
+    : c.bh ? c.bh(bench, sh) : `<td class="flat">—</td>`).join("");
+  return `<tr class="bench-row">${cells}</tr>`;
+};
+
+const convCols = () => {
+  if (!NARROW.matches) return CONV_COLS;
+  const [name, ...rest] = CONV_COLS;
+  return [name, ...rest.filter(c => c.lead), ...rest.filter(c => !c.lead)];
+};
+
+/* One sensitivity, as its own small table: the same rules re-run with one assumption
+ * changed. Deliberately NOT merged into the ranking — a rule at Coinbase fees and the same
+ * rule at Binance fees is one strategy with two prices, not two candidates, and putting
+ * both on the leaderboard would let a rule occupy two rows for having been priced twice. */
+const convCheckTable = c => `
+  <div class="conv-check">
+    <h3>${esc(c.title)}</h3>
+    <p class="mut">${esc(c.note)}</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="l">Strategy</th>${c.cols.map(h =>
+        `<th>${esc(h)}</th>`).join("")}</tr></thead>
+      <tbody>${c.rows.map(r => `<tr>
+        <td class="l">${esc(r.base)}${r.short
+          ? ` <span class="chip warn">reverses</span>` : ""}${r.short_off
+          ? ` <span class="chip mut">short off</span>` : ""}${r.ha
+          ? ` <span class="chip mut">Heikin-Ashi</span>` : ""}</td>
+        ${r.cells.map(v => v == null || v.excess == null
+          ? `<td class="flat">—</td>`
+          : `<td class="${sign(v.excess)}" title="${esc(
+              v.t == null ? "no t on this run" : `t = ${fmtSigned(v.t, 2)}`)}">${
+              fmtPct(v.excess * 100, 2)}${v.t == null ? ""
+                : ` <span class="mut">t ${fmtSigned(v.t, 2)}</span>`}</td>`).join("")}
+      </tr>`).join("")}</tbody>
+    </table></div>
+  </div>`;
+
+/* What choosing a rule cost, which is the one thing a leaderboard structurally cannot show.
+ * Every row above is the view from the end. This is the same family re-scored so the rule
+ * is re-picked on each in-sample window and traded through the next — the only version of
+ * these results a person could have actually held. */
+const convSelectionPanel = s => {
+  if (!s) return "";
+  const picks = (s.picks || []).map(p => `<tr>
+      <td class="l">${esc(String(p.fold).slice(0, 7))}</td>
+      <td class="l">${esc(p.rule)}</td>
+      <td class="${sign(p.is_excess)}">${p.is_excess == null ? "—"
+        : fmtPct(p.is_excess * 100, 1)}</td></tr>`).join("");
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>What choosing cost</h2>
+      <span class="sec-note">${s.n_candidates} candidates · ${s.n_folds} folds ·
+        ${s.n_switches} switch${s.n_switches === 1 ? "" : "es"}</span></div>
+    <p class="mut">Every row on the leaderboard is the view from the end: it names the rule
+      that turned out best. This is the same family scored the only way a person could have
+      traded it — re-pick the leader on each three-year in-sample window, hold it through
+      the next year, repeat. The gap between the two is what hindsight was worth.</p>
+    <div class="strip">
+      <div class="stat"><span class="k">Best rule, chosen after the fact</span>
+        <span class="v gain">${fmtPct((s.best_fixed_excess || 0) * 100, 1)}</span>
+        <span class="s">${esc(s.best_fixed)} · per year at equal risk</span></div>
+      <div class="stat"><span class="k">Choosing it as you went</span>
+        <span class="v ${sign(s.is1_excess)}">${fmtPct((s.is1_excess || 0) * 100, 1)}</span>
+        <span class="s">t = ${fmtSigned(s.is1_t, 2)} — not significant</span></div>
+      <div class="stat"><span class="k">Cost of hindsight</span>
+        <span class="v loss">${fmtPct((s.selection_cost || 0) * 100, 1)}</span>
+        <span class="s">per year, and it is most of the result</span></div>
+      <div class="stat"><span class="k">Verdict</span>
+        <span class="v">${esc(s.verdict || "—")}</span>
+        <span class="s">${s.n_candidates} candidates over ${s.n_folds} folds cannot be
+          separated</span></div>
+    </div>
+    ${picks ? `<div class="tbl-wrap"><table>
+      <thead><tr><th class="l">Window ending</th><th class="l">Rule it picked</th>
+        <th>Its in-sample edge</th></tr></thead>
+      <tbody>${picks}</tbody></table></div>
+      <p class="mut">The edge the leader showed shrinks every window, and by the last one
+        the selection reaches for a random control — which is what a rule that fitted a
+        period rather than found an edge looks like from the inside.</p>` : ""}
+  </section>`;
+};
+
+const convRosterSection = () => {
+  const roster = CONV().roster || [];
+  if (!roster.length) return "";
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>The thirteen</h2>
+      <span class="sec-note">as supplied, 2026-08-18</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="l">Strategy</th><th class="l">Came from</th>
+        <th class="l">Short side</th><th class="l">What it does</th></tr></thead>
+      <tbody>${roster.map(r => `<tr>
+        <td class="l">${esc(r.name)}</td>
+        <td class="l mut">${esc(r.origin)}</td>
+        <td class="l mut">${r.reverses ? "reverses — scored both ways"
+          : "none — sells to cash"}</td>
+        <td class="l">${esc(r.blurb)}</td></tr>`).join("")}</tbody>
+    </table></div>
+    <p class="mut">Five more files arrived in the same archive and are deliberately not
+      here. Two are 1-minute ES and NQ scripts whose entry sizes are index points rather
+      than percentages and which need an intraday session clock and tick-filled trailing
+      stops. One is gated on a 12-minute closing price requested with look-ahead switched
+      on, so every trade in it is conditioned on a price that had not printed — removing
+      the leak yields a different strategy nobody has tested. Two are freqtrade bots with
+      no signal exit at all, whose every exit comes from a hundred-branch custom rule
+      reading tick-level trade state. A plausible rewrite of any of them would put a number
+      on this board under a name that did not earn it.</p>
+  </section>`;
+};
+
+function paintConversions() {
+  const head = document.getElementById("bt-head");
+  const host = document.getElementById("bt-body");
+  const c = CONV();
+  const g = convGroup(), sh = convSheetOf(bf.cls, bf.tf);
+  const t = c.totals || {};
+  const bb = sh && sh.book_bench;
+  /* Every tile is about THIS sheet, with the board-wide figure demoted to the sub-line.
+   * The other way round — five totals that never move as you click through twenty-one
+   * sheets — reads as a banner rather than as a header, and a header that does not respond
+   * to the filters above the table trains a reader to stop looking at it. */
+  head.innerHTML = `
+  <div class="strip">
+    <div class="stat"><span class="k">Strategies</span>
+      <span class="v">${t.strategies || 0}</span>
+      <span class="s">supplied as Pine, freqtrade and notebooks</span></div>
+    <div class="stat"><span class="k">Tests on this sheet</span>
+      <span class="v">${sh ? sh.n_rules : "—"}</span>
+      <span class="s">of ${t.cells || 0} across ${t.sheets || 0} sheets</span></div>
+    ${bb ? `<div class="stat"><span class="k">Universe</span>
+      <span class="v">${bb.n_names}</span>
+      <span class="s">names as one account · ${fmtNum(bb.years, 1)}y out-of-sample${
+        bb.start ? ` · ${esc(bb.start)} to ${esc(bb.end)}` : ""}</span></div>` : ""}
+    <div class="stat"><span class="k">Beat the benchmark</span>
+      <span class="v ${sh && sh.n_beat ? "gain" : ""}">${sh ? sh.n_beat : "—"}</span>
+      <span class="s">risk-matched · ${t.beat || 0} of ${t.cells || 0} board-wide, ${
+        t.strong || 0} of those convincingly</span></div>
+    ${bb ? `<div class="stat"><span class="k">$10k held</span>
+      <span class="v">${fmtMoney(bb.wealth)}</span>
+      <span class="s">the bar every row is measured against${bb.index_wealth
+        ? ` · ${esc(bb.index_symbol)} ${fmtMoney(bb.index_wealth)}` : ""}</span></div>` : ""}
+    <div class="stat"><span class="k">Cleared the standard</span>
+      <span class="v loss">0</span>
+      <span class="s">all six criteria, on any sheet</span></div>
+  </div>`;
+
+  if (!sh) {
+    host.innerHTML = `<div class="note">No converted-strategy sheet for
+      <b>${esc(CLASS_LABEL[bf.cls] || bf.cls)}</b> at ${esc(bf.tf)}.${
+      bf.cls === "futures" ? ` The futures class is <b>daily only</b> — the vendor's
+      hourly CME archive collapses whole sessions before 2013, so there are no intraday
+      bars to run these on.` : ""}</div>${convRosterSection()}`;
+    return;
+  }
+
+  const bench = sh.book_bench, cols = convCols();
+  host.innerHTML = `
+  <section class="sec">
+    <div class="sec-head"><h2>Converted strategies</h2>
+      <span class="sec-note" id="lb-note"></span></div>
+    <div id="lb-doc" class="coldoc" hidden></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr>${cols.map(c2 =>
+        `<th${c2.l ? ' class="l"' : ""}${c2.doc || c2.sv
+          ? ` data-doc="${CONV_COLS.indexOf(c2)}"` : ""}>${c2.h}</th>`).join("")}</tr></thead>
+      <tbody id="lb-body"></tbody>
+    </table></div>
+  </section>
+
+  ${(sh.checks || []).length ? `
+  <section class="sec">
+    <div class="sec-head"><h2>Does it survive the assumption?</h2>
+      <span class="sec-note">same rules, one thing changed</span></div>
+    ${sh.checks.map(convCheckTable).join("")}
+  </section>` : ""}
+
+  ${convSelectionPanel(sh.selection)}
+
+  ${convRosterSection()}`;
+
+  const paintRows = () => {
+    const body = host.querySelector("#lb-body");
+    body.innerHTML = convOrder(sh, bench, convSort).map(e => e.bench
+      ? convBenchRow(bench, cols, sh)
+      : `<tr>${cols.map(c2 => c2.cell(e.row, sh)).join("")}</tr>`).join("");
+    host.querySelectorAll("th[data-doc]").forEach(th => {
+      const on = convSort && convSort.i === Number(th.dataset.doc);
+      th.classList.toggle("sort-desc", !!on && convSort.dir < 0);
+      th.classList.toggle("sort-asc", !!on && convSort.dir > 0);
+    });
+    const by = convSort ? CONV_COLS[convSort.i].h : null;
+    /* Same caption contract as the house board: name the basis rather than assume it, and
+     * say plainly when a click has re-ordered the rows the ranking already selected rather
+     * than fetched the best rows by that column. */
+    host.querySelector("#lb-note").innerHTML =
+      `${sh.rows.length === sh.n_rules ? `all ${sh.n_rules}` :
+        `top ${sh.rows.length} of ${sh.n_rules}`} cells · ${sh.n_beat} beat buy &amp; hold
+       at equal risk · ${by
+        ? `picked on Standard, then book vs B&amp;H, re-ordered by ${by} — <b>not</b> the
+           best ${sh.rows.length} by ${by}`
+        : "ranked on Standard, ties on book vs B&amp;H"} · ${
+        bench ? `${bench.n_names} names, ${fmtNum(bench.years, 1)}y` : ""} · no detail
+       page: the book curves published for this board's rules are the house sheets' only`;
+  };
+  paintRows();
+  bindGo(host);
+  bindColHeaders(host, { sh, grp: g, bench: bench && bench.wealth }, i => {
+    const first = CONV_COLS[i].text ? 1 : -1;
+    convSort = !convSort || convSort.i !== i ? { i, dir: first }
+      : convSort.dir === first ? { i, dir: -first } : null;
+    paintRows();
+  }, CONV_COLS);
+}
+
 /* A column explains itself when it is dwelt on, and sorts the ranking on click. Two
  * behaviours on one target, but they answer the two things a reader does with a header they
  * do not recognise — ask what it is, then ask who wins on it.
@@ -2360,11 +2862,11 @@ function paintBacktest() {
 const DOC_DWELL_MS = 3000;   // pointer: how long a header must be held under the cursor
 const DOC_HOLD_MS = 500;     // touch: how long a finger must stay down
 
-function bindColHeaders(host, ctx, onSort) {
+function bindColHeaders(host, ctx, onSort, cols = LB_COLS) {
   const panel = host.querySelector("#lb-doc");
   const sec = panel.closest(".sec");
   const show = th => {
-    const c = LB_COLS[Number(th.dataset.doc)];
+    const c = cols[Number(th.dataset.doc)];
     if (!c.doc) return;
     panel.innerHTML = `<div class="coldoc-h">${c.h}</div>
       <p>${typeof c.doc === "function" ? c.doc(ctx) : c.doc}</p>`;
@@ -3269,6 +3771,10 @@ function render() {
   if ((m = h.match(/^#\/paper\/sys\/([^/]+)\/([^/]+)\/(.+)$/)))
     paperSystem(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3]);
   else if ((m = h.match(/^#\/paper\/(.+)$/))) paperDetail(m[1]);
+  // Before the three-segment detail pattern would matter, and before the bare prefix:
+  // the converted board is a state of the backtest page, not a page of its own, so it sets
+  // the switch and falls through to the same master.
+  else if (h === "#/backtest/conversions") { bf.board = "conv"; backtestMaster(); }
   else if ((m = h.match(/^#\/backtest\/([^/]+)\/([^/]+)\/(.+)$/))) backtestDetail(m[1], m[2], m[3]);
   else if (h.startsWith("#/backtest")) backtestMaster();
   else paperMaster();

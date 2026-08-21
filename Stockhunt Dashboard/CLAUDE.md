@@ -50,6 +50,7 @@ everything else comes off local CSVs. A dead API key must not block a rebuild.
 | backtest leaderboards, per-asset | `../walk-forward optimization/results/wf_*` (singles) + `cwf_*` (pairs) |
 | **edge standard** (`#/edge`) | `../walk-forward optimization/results/edge_standard.csv` |
 | **book columns + the ranking** | `../walk-forward optimization/results/book_<class>_<tf>.csv` |
+| **converted-strategy board** (`conv`) | `../walk-forward optimization/results/convert_*.csv` + `portfolio.csv` — same stage, same columns |
 | equity curves | `../walk-forward optimization/results/book_curves_*.json` — **written by the same run as the book columns** |
 | research summary, gate power, prereg | same folder, `wf_meta`, `prereg_*` |
 | the old study-2 ETF sheet | `../top 20 stocks/results/` (frozen, read-only) — payload only, unrendered |
@@ -277,9 +278,69 @@ the paired-comparison argument on `vs B&H`. If one of them stops being true, the
 where it has to change. **A column added without a `doc` is the one column nobody can ask
 about.**
 
+## Two boards on the backtest page (2026-08-21)
+
+`#/backtest` carries **two leaderboards**, switched by the first filter (`bf.board`):
+
+| board | population | timeframes | source |
+|---|---|---|---|
+| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES`, 1d and 4h | `wf_summary_*` + `book_<cls>_<tf>.csv` |
+| `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_*.csv` and `portfolio.csv` |
+
+Everything that decides what a number MEANS is shared. Both sheets came out of
+`portfolio_wf.py`, both are read through **`payload._book_record`** — extracted from
+`_book_index` for exactly this reason — and both rank on the same key: the standard's own
+count, ties on the book's risk-matched excess CAGR. A field that moves in `_book_record`
+moves on both boards at once, which is the property worth having; two definitions of "a
+book row" on a page whose whole argument is that there is one measurement would be the
+same defect this dashboard already removed once.
+
+**Why it is a second board and not extra rows on the first.** Three reasons, all about
+measurement:
+
+* **A different timeframe axis.** The catalogue has sheets at 1d and 4h; these rules were
+  written for minute charts and were scored at 1m/2m/3m/5m too. One filter strip cannot
+  offer both without offering `4h` and `2m` side by side with nothing behind one of them.
+* **Three facets no house rule carries** — a short side that REVERSES rather than selling
+  to cash, a Heikin-Ashi signal variant, and an overnight-flat variant. As columns on the
+  house board they would be empty on every row; as chips on this one they are the first
+  thing a reader needs, because the reversing facet alone costs a median 16.3 pp/yr across
+  256 matched pairs on these sheets.
+* **Their own pre-registered trial family** — 1,247 cells in `data/reference/trials.csv`.
+  Deflation is against the search that produced a row, so mixing the two populations would
+  deflate each against the other's search.
+
+Four things to preserve:
+
+- **`payload.conversion_sheets` globs `convert_ha_<cls>_<tf>[_flat][_knn].csv`.** A sheet
+  that finishes overnight joins the board at the next build with no edit. The **daily**
+  sheets are an explicit map (`_CONV_1D`) because several files carry the same labels and
+  merge order decides which wins — first file, and the first file is always the run that
+  scored the whole family rather than a follow-up over a subset.
+- **A re-run under one changed assumption is a CHECK, not a candidate.** Fees, fill timing
+  and the wider universe render as their own tables under the ranking (`_CONV_CHECKS`).
+  Merging them would let one strategy occupy three rows for having been priced three times,
+  and on the crypto sheet two of the three rules cross from win to loss on the venue alone
+  — which is a sensitivity, not a ranking.
+- **`convert_crypto_wf.csv` is the *What choosing cost* panel and belongs to the crypto
+  daily sheet**, not to the board. It is the one thing a leaderboard structurally cannot
+  show: every row above it is the view from the end. Do not promote it to a board-level
+  banner and do not drop it — the gap between the best fixed rule and the selection is most
+  of that sheet's headline.
+- **There is no detail page, and `#lb-note` says so.** `run_book.sh` writes
+  `book_curves_*.json` for the house sheets only, so these labels have no equity series on
+  disk. A row that navigates to a stub is worse than a row that says it does not navigate.
+  If curves are ever produced for them, the rows want `data-go` and `copy_curves` wants the
+  labels — both, in one change.
+
+`bindColHeaders(host, ctx, onSort, cols = LB_COLS)` takes the column list so the hover-doc
+and click-to-sort behaviour is one implementation across both boards. **A column added
+without a `doc` is the one column nobody can ask about** — that rule holds on `CONV_COLS`
+too.
+
 ## One leaderboard per asset class
 
-The backtest page splits on **asset class and timeframe, and on nothing else**. Single rules
+The **house** board splits on **asset class and timeframe, and on nothing else**. Single rules
 and pairs are ranked in one table: a pair is a strategy in exactly the sense a single rule is
 — same folds, same benchmark, same gates — and splitting the page by which sweep emitted a
 row asked the reader to care about this repo's plumbing. `us_etfs` is the third tab, a real

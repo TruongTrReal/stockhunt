@@ -21,6 +21,7 @@ What is real here and what is not:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -621,6 +622,95 @@ def _expectancy(r) -> float | None:
         return None
 
 
+def _book_record(r) -> dict:
+    """One row of a `portfolio_wf` book sheet, as the leaderboard reads it.
+
+    Lifted out of `_book_index` so that the converted-strategy board can read the SAME
+    record from `convert_*.csv`. Those sheets are `portfolio_wf.py` output too -- same
+    stage, same columns, same conventions -- and the alternative was a second, drifting
+    definition of what a book row is on a page whose whole point is that there is one
+    measurement. If a field moves here it moves on both boards at once, which is the
+    property worth having.
+    """
+    return {
+        "wealth": num(getattr(r, "wealth", None), 0),
+        "cagr": num(getattr(r, "cagr", None), 4),
+        # Carried per row, like `edge.bench_wealth`, so the money cell can colour
+        # itself against the book's OWN baseline without the sheet being threaded
+        # into every cell renderer. It is the same figure on every row.
+        "bench_wealth": num(getattr(r, "bench_wealth", None), 0),
+        # The cash-matched pair is the one to rank on: the benchmark is scaled
+        # DOWN with T-bills to the rule's own volatility, never levered up, so a
+        # rule that simply held less of a rising market cannot win on exposure.
+        "cm_excess_cagr": num(getattr(r, "cashmatch_excess_cagr", None), 4),
+        "cm_bench_cagr": num(getattr(r, "cashmatch_bench_cagr", None), 4),
+        "cm_ratio": num(getattr(r, "cashmatch_ratio", None), 2),
+        "sharpe": num(getattr(r, "sharpe", None)),
+        # The PER-FOLD pair is what the leaderboard shows and what the Standard
+        # judges — `config.EDGE_STANDARD` defines both criteria that way. The
+        # pooled difference and the block bootstrap ride along for the tooltip:
+        # they are looser, and putting either under the header `t` beside a
+        # verdict computed from the other is the two-statistics-one-name bug this
+        # whole change exists to remove.
+        "dsharpe": num(getattr(r, "fold_dsharpe", None)),
+        "t": num(getattr(r, "fold_t", None), 2),
+        "n_folds": int(getattr(r, "n_folds_scored", 0) or 0),
+        "dsharpe_pooled": num(getattr(r, "dsharpe", None)),
+        "boot_t": num(getattr(r, "boot_t", None), 2),
+        "dsr": num(getattr(r, "dsr", None), 3),
+        "dsr_pass": bool(getattr(r, "dsr_pass", False)),
+        "vol": num(getattr(r, "vol", None), 3),
+        "dd": num((getattr(r, "dd", None) or 0) * 100.0, 1),
+        "exposure": num(getattr(r, "exposure", None), 3),
+        "alpha_t": num(getattr(r, "alpha_vs_bh_t", None), 2),
+        # The trade block, pooled across the book's names. These replace the
+        # `edge_standard` versions on the leaderboard, which were the MEDIAN
+        # ASSET's — a different portfolio from the one every other column now
+        # describes. `trades_per_asset` is derived here rather than in the page so
+        # the divisor is the book's own name count and not the sheet's universe.
+        "sharpe_bench": num(getattr(r, "bench_sharpe", None)),
+        "win_rate": num(getattr(r, "win_rate", None), 4),
+        "profit_factor": num(getattr(r, "profit_factor", None), 2),
+        "n_trades": int(getattr(r, "n_trades", 0) or 0),
+        "trades_per_asset": _per_asset(getattr(r, "n_trades", None),
+                                       getattr(r, "n_names", None)),
+        "avg_win": num(getattr(r, "avg_win", None), 4),
+        "avg_loss": num(getattr(r, "avg_loss", None), 4),
+        "expectancy": _expectancy(r),
+        "n_names": int(getattr(r, "n_names", 0) or 0),
+        "years": num(getattr(r, "years", None), 1),
+        "roe_ann": num(getattr(r, "roe_ann", None), 4),
+        # The two signal-free controls, at book level. `vs_random` is a second
+        # pass in `portfolio_wf` over the RANDOM_* books in the same panel, so it
+        # is absent from any CSV written without them — a `--rules` shortlist.
+        "vs_random": num(getattr(r, "vs_random", None), 3),
+        "vs_constant": num(getattr(r, "vs_constant", None), 3),
+        # The verdict, computed on the book by `portfolio_wf._standard` through
+        # `metrics.apply_edge_standard` — the same six criteria and the same
+        # thresholds the per-asset stage uses, fed the account's own numbers.
+        # Shaped like the old `edge` record so `app.edgeCount` reads either.
+        "standard": _book_standard(r),
+        "headroom": num(getattr(r, "edge_headroom", None), 1),
+    }
+
+
+def _book_bench(r) -> dict:
+    """The sheet's buy-and-hold, off any scored row -- it does not depend on the rule."""
+    return {
+        "wealth": num(getattr(r, "bench_wealth", None), 0),
+        "cagr": num(getattr(r, "bench_cagr", None), 4),
+        "sharpe": num(getattr(r, "bench_sharpe", None)),
+        "vol": num(getattr(r, "bench_vol", None), 3),
+        "dd": num((getattr(r, "bench_dd", None) or 0) * 100.0, 1),
+        "years": num(getattr(r, "years", None), 1),
+        "n_names": int(getattr(r, "n_names", 0) or 0),
+        "start": text(getattr(r, "start", None)),
+        "end": text(getattr(r, "end", None)),
+        "index_wealth": num(getattr(r, "index_wealth", None), 0),
+        "index_symbol": text(getattr(r, "index_symbol", None)),
+    }
+
+
 def _book_index(cls: str, tf: str) -> tuple[dict, dict | None]:
     """`(rule -> book record, the sheet's book benchmark)` from `book_<cls>_<tf>.csv`.
 
@@ -650,80 +740,9 @@ def _book_index(cls: str, tf: str) -> tuple[dict, dict | None]:
     bench: dict | None = None
     if not df.empty:
         for r in df.itertuples():
-            out[str(r.rule)] = {
-                "wealth": num(getattr(r, "wealth", None), 0),
-                "cagr": num(getattr(r, "cagr", None), 4),
-                # Carried per row, like `edge.bench_wealth`, so the money cell can colour
-                # itself against the book's OWN baseline without the sheet being threaded
-                # into every cell renderer. It is the same figure on every row.
-                "bench_wealth": num(getattr(r, "bench_wealth", None), 0),
-                # The cash-matched pair is the one to rank on: the benchmark is scaled
-                # DOWN with T-bills to the rule's own volatility, never levered up, so a
-                # rule that simply held less of a rising market cannot win on exposure.
-                "cm_excess_cagr": num(getattr(r, "cashmatch_excess_cagr", None), 4),
-                "cm_bench_cagr": num(getattr(r, "cashmatch_bench_cagr", None), 4),
-                "cm_ratio": num(getattr(r, "cashmatch_ratio", None), 2),
-                "sharpe": num(getattr(r, "sharpe", None)),
-                # The PER-FOLD pair is what the leaderboard shows and what the Standard
-                # judges — `config.EDGE_STANDARD` defines both criteria that way. The
-                # pooled difference and the block bootstrap ride along for the tooltip:
-                # they are looser, and putting either under the header `t` beside a
-                # verdict computed from the other is the two-statistics-one-name bug this
-                # whole change exists to remove.
-                "dsharpe": num(getattr(r, "fold_dsharpe", None)),
-                "t": num(getattr(r, "fold_t", None), 2),
-                "n_folds": int(getattr(r, "n_folds_scored", 0) or 0),
-                "dsharpe_pooled": num(getattr(r, "dsharpe", None)),
-                "boot_t": num(getattr(r, "boot_t", None), 2),
-                "dsr": num(getattr(r, "dsr", None), 3),
-                "dsr_pass": bool(getattr(r, "dsr_pass", False)),
-                "vol": num(getattr(r, "vol", None), 3),
-                "dd": num((getattr(r, "dd", None) or 0) * 100.0, 1),
-                "exposure": num(getattr(r, "exposure", None), 3),
-                "alpha_t": num(getattr(r, "alpha_vs_bh_t", None), 2),
-                # The trade block, pooled across the book's names. These replace the
-                # `edge_standard` versions on the leaderboard, which were the MEDIAN
-                # ASSET's — a different portfolio from the one every other column now
-                # describes. `trades_per_asset` is derived here rather than in the page so
-                # the divisor is the book's own name count and not the sheet's universe.
-                "sharpe_bench": num(getattr(r, "bench_sharpe", None)),
-                "win_rate": num(getattr(r, "win_rate", None), 4),
-                "profit_factor": num(getattr(r, "profit_factor", None), 2),
-                "n_trades": int(getattr(r, "n_trades", 0) or 0),
-                "trades_per_asset": _per_asset(getattr(r, "n_trades", None),
-                                               getattr(r, "n_names", None)),
-                "avg_win": num(getattr(r, "avg_win", None), 4),
-                "avg_loss": num(getattr(r, "avg_loss", None), 4),
-                "expectancy": _expectancy(r),
-                "n_names": int(getattr(r, "n_names", 0) or 0),
-                "years": num(getattr(r, "years", None), 1),
-                "roe_ann": num(getattr(r, "roe_ann", None), 4),
-                # The two signal-free controls, at book level. `vs_random` is a second
-                # pass in `portfolio_wf` over the RANDOM_* books in the same panel, so it
-                # is absent from any CSV written without them — a `--rules` shortlist.
-                "vs_random": num(getattr(r, "vs_random", None), 3),
-                "vs_constant": num(getattr(r, "vs_constant", None), 3),
-                # The verdict, computed on the book by `portfolio_wf._standard` through
-                # `metrics.apply_edge_standard` — the same six criteria and the same
-                # thresholds the per-asset stage uses, fed the account's own numbers.
-                # Shaped like the old `edge` record so `app.edgeCount` reads either.
-                "standard": _book_standard(r),
-                "headroom": num(getattr(r, "edge_headroom", None), 1),
-            }
+            out[str(r.rule)] = _book_record(r)
             if bench is None:
-                bench = {
-                    "wealth": num(getattr(r, "bench_wealth", None), 0),
-                    "cagr": num(getattr(r, "bench_cagr", None), 4),
-                    "sharpe": num(getattr(r, "bench_sharpe", None)),
-                    "vol": num(getattr(r, "bench_vol", None), 3),
-                    "dd": num((getattr(r, "bench_dd", None) or 0) * 100.0, 1),
-                    "years": num(getattr(r, "years", None), 1),
-                    "n_names": int(getattr(r, "n_names", 0) or 0),
-                    "start": text(getattr(r, "start", None)),
-                    "end": text(getattr(r, "end", None)),
-                    "index_wealth": num(getattr(r, "index_wealth", None), 0),
-                    "index_symbol": text(getattr(r, "index_symbol", None)),
-                }
+                bench = _book_bench(r)
     _BOOK_CACHE[key] = (out, bench)
     return out, bench
 
@@ -1324,6 +1343,357 @@ def strategy_logic() -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------------------
+# The converted strategies -- the SECOND board on the backtest page
+#
+# Thirteen third-party rules (eight TradingView Pine scripts, four freqtrade strategies and
+# one pair of notebooks) arrived as `Strategies to convert.zip` on 2026-08-18 and were run
+# through the same machinery as everything else. They get their own board rather than rows
+# on the house one, for reasons about measurement rather than tidiness:
+#
+# * **They were tested on timeframes the house board has no sheets for.** The research
+#   catalogue runs 1d and 4h; these were written for minute charts, so they were scored at
+#   1m/2m/3m/5m as well. Two different timeframe axes cannot share one filter strip.
+# * **They carry facets no house rule has** -- a short side that REVERSES rather than
+#   selling to cash, a Heikin-Ashi signal variant, and an overnight-flat variant. Those
+#   would be three columns empty on every house row.
+# * **They were pre-registered as their own family** (1,247 cells in
+#   `data/reference/trials.csv`), so the trial count that deflates them is theirs. Mixing
+#   the two populations would deflate each against the other's search.
+#
+# Everything else is deliberately identical. The same `portfolio_wf.py` stage wrote these
+# sheets, `_book_record` reads them, and the ranking key is the house key -- the standard's
+# own count, ties on the book's risk-matched excess CAGR.
+# ---------------------------------------------------------------------------------------
+
+# Timeframe order for this board, coarsest first, so the sheet with the most history and
+# the fewest cost artefacts is the one a reader lands on.
+_CONV_TF_ORDER = ["1d", "5m", "3m", "2m", "1m"]
+
+# Provenance, from `strategies/CONVERSIONS.md`. Kept here rather than parsed out of that
+# file: it is prose with tables in it, and a regex over somebody's documentation is a
+# silent failure waiting for the day they reformat it.
+CONVERSIONS = [
+    ("bar_updn", "TradingView sample", "pine",
+     "A three-bar up/down pattern — TradingView's own BarUpDn demo."),
+    ("pivot_center", "Pine script", "pine",
+     "The centre line between two confirmed pivots, crossed one bar late."),
+    ("range_filter", "Pine — DonovanWall", "pine",
+     "A ratcheting trend line that only moves when price pushes far enough."),
+    ("range_filter_macd", "Pine script", "pine",
+     "The same range filter, with a slow MACD gate on entry."),
+    ("ema_cross_sniper", "Pine — TradersPost", "pine",
+     "An 8-over-21 exponential moving average cross."),
+    ("bb_outside_in", "Pine script", "pine",
+     "Price pierces a Bollinger band, then re-crosses the midline."),
+    ("ssl_hybrid", "Pine script", "pine",
+     "An SSL channel with a Keltner baseline and two QQE lines."),
+    ("lorentzian_knn", "Pine — jdehorty", "pine",
+     "A nearest-neighbour classifier over the shape of past bars."),
+    ("heikin_reversal", "freqtrade", "freqtrade",
+     "The first green synthetic candle after a bearish stretch."),
+    ("sma_fan_dip", "freqtrade", "freqtrade",
+     "A 5/10/25/60 moving-average fan break, bought at a discount."),
+    ("vwma_offset_dip", "freqtrade", "freqtrade",
+     "Percentage offsets under a volume-weighted average and two EMAs."),
+    ("ema_fan_align", "freqtrade", "freqtrade",
+     "A seven-deep EMA fan that is still widening."),
+    ("renko_delta", "two notebooks", "notebook",
+     "Percentage renko bricks, counted in runs."),
+]
+CONVERSION_NAMES = {c[0] for c in CONVERSIONS}
+# The eight that came from Pine, and therefore the eight that HAVE a short side.
+# `strategy.entry(short)` reverses the position rather than closing it to cash, so those
+# eight ship as long/short with an `allow_short=0` cell appended. The other five come from
+# freqtrade and notebooks, which sell to cash and have no short leg at all -- for them the
+# absence of `allow_short=0` on the label means nothing, and reading it as "reverses" put a
+# chip on five rows that do not and cannot.
+CONVERSION_REVERSING = {c[0] for c in CONVERSIONS if c[2] == "pine"}
+
+# The signal-free controls. They are NOT ranked rows here, exactly as on the house board:
+# `BUYHOLD` is spliced in as the benchmark line and the random books are what the
+# `vs random` column is measured against, so listing them as candidates would put the bar
+# into the ranking it defines. They stay in the CSVs.
+_CONV_BENCH = "BUYHOLD"
+_CONV_CONTROLS = ("BUYHOLD", "RANDOM_25", "RANDOM_50", "RANDOM_75", "RANDOM_90",
+                  "ALWAYS_FLAT", "ALWAYS_LONG")
+
+# The daily sheets, per (class, timeframe), in merge order. Order is load-bearing where two
+# files carry the same label: the first wins, and the first is always the sheet that ran
+# the whole family rather than a follow-up over a subset of it.
+_CONV_1D = {
+    ("us_stocks", "1d"): ["portfolio.csv", "convert_us_longflat.csv", "convert_us_lf2.csv"],
+    ("us_etfs", "1d"): ["convert_etf_lf.csv"],
+    ("crypto", "1d"): ["convert_crypto_longflat.csv", "convert_crypto_lf2.csv"],
+    ("commodities", "1d"): ["convert_commodities_book.csv"],
+    ("cme_futures", "1d"): ["convert_cme_futures_book.csv"],
+}
+
+# Re-runs of a sheet under one changed assumption. They are NOT merged into the ranking --
+# a rule at Coinbase fees and the same rule at Binance fees is one strategy with two prices,
+# not two candidates — so they render as their own small tables under the board, which is
+# where a sensitivity belongs.
+_CONV_CHECKS = [
+    (("crypto", "1d"), "Trading venue",
+     "The same rules re-priced on three real exchange fee schedules. Two of the three stop "
+     "beating the benchmark on the move alone, so which venue you would actually trade at "
+     "decides whether the result exists.",
+     [("Binance", "convert_crypto_fee_binance.csv"),
+      ("Coinbase", "convert_crypto_fee_coinbase.csv"),
+      ("Kraken", "convert_crypto_fee_kraken.csv")]),
+    (("crypto", "1d"), "Fill timing",
+     "As published, the signal is computed from a bar's own close and filled at that same "
+     "close — a price nobody had yet. These re-runs remove the assumption: fill at the "
+     "next open, and delay the whole thing by a bar.",
+     [("Next open", "convert_crypto_fill_open.csv"),
+      ("One bar later", "convert_crypto_fill_close_lag.csv")]),
+    (("crypto", "1d"), "Universe",
+     "The board holds the 20 pairs that pass the tradability screen. This is the same run "
+     "over all 34 the vendor serves: if a result exists only on the screened set, the "
+     "screen is what produced it.",
+     [("All 34 pairs", "convert_crypto_all34.csv")]),
+    (("us_stocks", "3m"), "Fill timing",
+     "The same rules at 3-minute bars, filled at the next open and delayed by a bar.",
+     [("Next open", "convert_ha_fill_open_us_stocks_3m.csv"),
+      ("One bar later", "convert_ha_fill_close_lag_us_stocks_3m.csv")]),
+]
+
+# `convert_ha_<class>_<tf>[_flat][_knn].csv`. Globbed rather than listed, so a sheet that
+# finishes overnight joins the board at the next build with no edit here.
+_CONV_HA_RE = re.compile(
+    r"^convert_ha_(?P<cls>[a-z_]+?)_(?P<tf>\d+m)(?P<tail>(?:_flat|_knn)*)\.csv$")
+
+
+def _conv_facets(rule: str) -> dict:
+    """Split a rule label into the strategy and the things done to it.
+
+    `ha:chart:ssl_hybrid@allow_short=0` is one strategy wearing three facets, not a fourth
+    strategy. A board that printed the raw label would rank the same rule against itself
+    four times under four names nobody can line up at a glance.
+    """
+    label = str(rule)
+    base, _, param = label.partition("@")
+    overlays = []
+    while ":" in base:
+        head, _, base = base.partition(":")
+        overlays.append(head)
+    can_short = base in CONVERSION_REVERSING
+    return {
+        "base": base,
+        # As published, the eight Pine rules REVERSE on a short signal rather than selling
+        # to cash. `allow_short=0` is the same signal with that half removed, and on this
+        # repo's benchmark that single property dominates everything else the rule does --
+        # so it is a chip on the row and is never folded into the name.
+        #
+        # `short_off` and `short` are NOT each other's negation, and collapsing them was a
+        # bug on the page: a freqtrade rule has no short leg to switch off, so an unmarked
+        # row would have meant two different things.
+        "short": can_short and "allow_short=0" not in param,
+        "short_off": can_short and "allow_short=0" in param,
+        # The signal on synthetic candles; the money still settles on real closes. That is
+        # the one thing separating this from an HA backtest run on a chart platform.
+        "ha": "ha" in overlays,
+        # Window lengths read as Pine BAR COUNTS rather than as calendar days.
+        "chart": "chart" in overlays,
+    }
+
+
+def _conv_rows(files: list[str], eod: str | None = None) -> tuple[dict, dict | None]:
+    """Merge one or more book sheets into `key -> row`, first file winning."""
+    rows: dict[str, dict] = {}
+    bench: dict | None = None
+    for name in files:
+        df = _read(BM / name)
+        if df.empty or "rule" not in df.columns:
+            continue
+        first = None
+        for r in df.itertuples():
+            if first is None:
+                first = r
+            label = str(r.rule)
+            if label in _CONV_CONTROLS:
+                if label == _CONV_BENCH and bench is None:
+                    bench = _book_bench(r)
+                continue
+            f = _conv_facets(label)
+            if f["base"] not in CONVERSION_NAMES:
+                continue
+            key = f"{label}|{eod or ''}"
+            if key not in rows:
+                rows[key] = {"rule": label, "source": name, "eod": eod,
+                             "book": _book_record(r), **f}
+        # Every scored row carries the sheet's benchmark, so a sheet whose controls were
+        # not re-run still has one. Leaving it null would blank the line the whole table is
+        # read against.
+        if bench is None and first is not None:
+            bench = _book_bench(first)
+    return rows, bench
+
+
+def _conv_rank(rows: list[dict]) -> list[dict]:
+    """The house key, applied to this board: the standard's count, then the money.
+
+    Six integer tiers order the table and the book's risk-matched excess CAGR orders inside
+    each tier -- `build_sheet`'s key, deliberately, so a reader moving between the two
+    boards is reading one ranking and not two.
+    """
+    def key(e):
+        st = e["book"].get("standard") or {}
+        passed = st.get("passed")
+        ex = e["book"].get("cm_excess_cagr")
+        return (-(passed if passed is not None else -1),
+                -(ex if ex is not None else float("-inf")))
+    return sorted(rows, key=key)
+
+
+def _conv_check_table(files: list[tuple[str, str]]) -> dict | None:
+    """A sensitivity as a table: one row per rule, one column per variant of the run."""
+    cols: list[str] = []
+    per: dict[str, dict] = {}
+    for label, name in files:
+        df = _read(BM / name)
+        if df.empty or "rule" not in df.columns:
+            continue
+        cols.append(label)
+        for r in df.itertuples():
+            rule = str(r.rule)
+            if rule in _CONV_CONTROLS:
+                continue
+            if _conv_facets(rule)["base"] not in CONVERSION_NAMES:
+                continue
+            per.setdefault(rule, {})[label] = {
+                "excess": num(getattr(r, "cashmatch_excess_cagr", None), 4),
+                "t": num(getattr(r, "boot_t", None), 2)}
+    if not cols or not per:
+        return None
+    rows = []
+    for rule, cells in per.items():
+        f = _conv_facets(rule)
+        rows.append({"rule": rule, "base": f["base"], "short": f["short"],
+                     "short_off": f["short_off"], "ha": f["ha"],
+                     "cells": [cells.get(c) for c in cols]})
+    # Ordered on the first variant, which is the one the prose above the table names first.
+    def first_excess(e):
+        c = e["cells"][0] if e["cells"] else None
+        return c["excess"] if c and c["excess"] is not None else float("-inf")
+    rows.sort(key=lambda e: -first_excess(e))
+    return {"cols": cols, "rows": rows}
+
+
+def _conv_selection() -> dict | None:
+    """What choosing a rule each year, on prior data only, was worth.
+
+    The one thing no leaderboard can show, because a leaderboard is by construction the
+    view from the end. `convert_crypto_wf.csv` is `portfolio_wf --walkforward`: re-pick the
+    best of the family on each in-sample window, trade it through the next, and score the
+    SELECTION rather than the winner.
+    """
+    df = _read(BM / "convert_crypto_wf.csv")
+    if df.empty:
+        return None
+    r = df.iloc[0]
+    picks = _read(BM / "pwf_picks_crypto_1d.csv")
+    return {
+        "is1_excess": num(r.get("is1_excess_cagr"), 4),
+        "is1_t": num(r.get("is1_boot_t"), 2),
+        "best_fixed": text(r.get("best_fixed_rule")),
+        "best_fixed_excess": num(r.get("best_fixed_excess_cagr"), 4),
+        "selection_cost": num(r.get("selection_cost"), 4),
+        "n_folds": int(r.get("n_folds") or 0),
+        "n_switches": int(r.get("n_switches") or 0),
+        "n_candidates": int(r.get("n_candidates") or 0),
+        "verdict": text(r.get("edge_verdict")),
+        "picks": [] if picks.empty else [
+            {"fold": text(p.fold), "rule": text(p.rule),
+             "is_excess": num(getattr(p, "is_excess_cagr", None), 4)}
+            for p in picks.itertuples()],
+    }
+
+
+def conversion_sheets() -> dict:
+    """The whole second board: a sheet per (class, timeframe), plus the checks."""
+    found: dict[tuple, list[dict]] = {}
+    benches: dict[tuple, dict] = {}
+    sources: dict[tuple, list[str]] = {}
+
+    def add(cls, tf, files, eod=None):
+        rows, bench = _conv_rows(files, eod)
+        if not rows:
+            return
+        found.setdefault((cls, tf), []).extend(rows.values())
+        sources.setdefault((cls, tf), []).extend(files)
+        if bench and (cls, tf) not in benches:
+            benches[(cls, tf)] = bench
+
+    for (cls, tf), files in _CONV_1D.items():
+        add(cls, tf, [f for f in files if (BM / f).exists()])
+
+    for path in sorted(BM.glob("convert_ha_*.csv")):
+        m = _CONV_HA_RE.match(path.name)
+        if not m:                    # the fill / grid / pilot re-runs, handled as checks
+            continue
+        add(m.group("cls"), m.group("tf"), [path.name],
+            eod="flat" if "_flat" in m.group("tail") else "hold")
+
+    checks: dict[tuple, list[dict]] = {}
+    for key, title, note, files in _CONV_CHECKS:
+        tbl = _conv_check_table([(l, n) for l, n in files if (BM / n).exists()])
+        if tbl:
+            checks.setdefault(key, []).append({"title": title, "note": note, **tbl})
+
+    sel = _conv_selection()
+    by_group: dict[str, dict] = {}
+    tfs: list[str] = []
+    total = beat = strong = 0
+    for gkey, cls, label, universe in GROUPS:
+        sheets = []
+        for tf in _CONV_TF_ORDER:
+            rows = found.get((cls, tf))
+            if not rows:
+                continue
+            ranked = _conv_rank(rows)
+            bench = benches.get((cls, tf))
+            head = ranked[0]["book"]
+            n_beat = sum(1 for e in ranked if (e["book"].get("cm_excess_cagr") or 0) > 0)
+            total += len(ranked)
+            beat += n_beat
+            strong += sum(1 for e in ranked
+                          if (e["book"].get("cm_excess_cagr") or 0) > 0
+                          and (e["book"].get("boot_t") or 0) > 2)
+            sheets.append({
+                "timeframe": tf, "cls": cls,
+                "rows": ranked[:TOP_N],
+                "n_rules": len(ranked),
+                "n_beat": n_beat,
+                "n_flat": sum(1 for e in ranked if e["eod"] == "flat"),
+                "book_bench": bench,
+                "years": head.get("years"),
+                "n_names": head.get("n_names"),
+                "ranked_on": "edge_passed",
+                "ranked_tiebreak": "book_cm_excess_cagr",
+                "sources": sorted(set(sources.get((cls, tf), []))),
+                "checks": checks.get((cls, tf), []),
+                # Only the crypto daily sheet has a selection run, and it belongs to that
+                # sheet rather than to the board: it prices choosing among THAT family.
+                "selection": sel if (cls, tf) == ("crypto", "1d") else None,
+            })
+        if sheets:
+            by_group[gkey] = {"label": label, "cls": cls, "sheets": sheets}
+            for s in sheets:
+                if s["timeframe"] not in tfs:
+                    tfs.append(s["timeframe"])
+    return {
+        "groups": by_group,
+        "timeframes": [t for t in _CONV_TF_ORDER if t in tfs],
+        "roster": [{"name": n, "origin": o, "family": fam, "blurb": b,
+                    "reverses": n in CONVERSION_REVERSING}
+                   for n, o, fam, b in CONVERSIONS],
+        "totals": {"cells": total, "beat": beat, "strong": strong,
+                   "strategies": len(CONVERSIONS),
+                   "sheets": sum(len(g["sheets"]) for g in by_group.values())},
+    }
+
+
 def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
     """The whole payload, for either emitter.
 
@@ -1393,6 +1763,10 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
                            "target": c["target"], "ask": c.get("note", "")}
                           for c in dash_config.bt_config.GATES],
         "backtest": backtest,
+        # The second board on the same page. Its own timeframe axis (1d down to
+        # 1m), its own trial family, and its own facets -- see `conversion_sheets`
+        # for why it is not rows on the first one.
+        "conversions": conversion_sheets(),
         "logic": strategy_logic(),
         "curves": curves_index,
         # The sections the single-file board used to carry alone.
@@ -1428,6 +1802,24 @@ def report(payload: dict) -> None:
                   f"{s['n_shown_pairs']} of them pairs  ·  corr(IR,long) "
                   f"{s['exposure_corr']}  ·  luck threshold +{s['noise_ceiling']}  ·  "
                   f"per-asset rows on best {len(best.get('per_asset', []))}")
+    # The second board gets the same treatment: a build that silently drops a sheet --
+    # a rename in `results/`, a run that has not finished -- is otherwise invisible until
+    # somebody notices a missing tab.
+    conv = payload.get("conversions") or {}
+    t = conv.get("totals") or {}
+    print(f"  conversions: {t.get('strategies', 0)} strategies, {t.get('sheets', 0)} sheets, "
+          f"{t.get('cells', 0)} cells, {t.get('beat', 0)} beat B&H, "
+          f"{t.get('strong', 0)} of those at t>2")
+    for key, g in (conv.get("groups") or {}).items():
+        for sh in g["sheets"]:
+            best = sh["rows"][0] if sh["rows"] else {}
+            bk = best.get("book") or {}
+            ex = bk.get("cm_excess_cagr")
+            st = (bk.get("standard") or {}).get("passed")
+            print(f"  {key:7s} {sh['timeframe']:3s} {sh['n_rules']:3d} cells  "
+                  f"{sh['n_beat']} beat  top {best.get('rule', '-'):<44} "
+                  f"{'-' if st is None else f'{st}/6'}  "
+                  f"vs B&H {'-' if ex is None else f'{ex * 100:+.2f}%/yr'}")
     s = payload["summary"]
     print(f"  paper strategies: {len(payload['strategies'])}")
     print(f"  summary sections: {len(s['sheets'])} sheets, {len(s['etf_sheets'])} ETF, "
