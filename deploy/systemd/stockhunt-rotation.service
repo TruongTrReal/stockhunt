@@ -1,0 +1,32 @@
+[Unit]
+Description=Monthly ETF rotation: decide the pick and post orders to the desk API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stockhunt
+Group=stockhunt
+WorkingDirectory=/opt/stockhunt/paper trading engine
+# It is a client of the public API, exactly as an outside manager's code would be. It
+# imports no Nautilus, opens no database, and holds no position — so a failure here can
+# delay a rebalance and can never corrupt the desk's record. That is why it is a separate
+# unit and not a thread inside stockhunt-desk.
+Environment=STOCKHUNT_API=https://srv1903626.hstgr.cloud
+EnvironmentFile=/opt/stockhunt/deploy/rotation.env
+ExecStart=/opt/stockhunt/.venv/bin/python -u rotation_manager.py
+# The manager decides for itself whether it is inside the decision window and exits 0 when
+# it is not, so the vast majority of firings are a no-op that prints one line. Do not put
+# the schedule logic in the timer: a timer that fires only at month end has to know which
+# day that is, and that is exactly the calculation whose failure mode the source of this
+# strategy shipped (it skipped 30% of months).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths="/opt/stockhunt/paper trading engine/logs"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

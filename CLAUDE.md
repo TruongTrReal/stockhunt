@@ -284,6 +284,29 @@ volume before this was caught. Two defences, and both are load-bearing:
 No bar-level test can find these, because the bars are not malformed — they are somebody
 else's. Re-probe after any fetch that adds symbols.
 
+### And a series can be the right instrument with the wrong numbers
+
+`EEM` is the known case, found 2026-08-21 while replicating an outside claim. Twelve Data
+serves it from **2008-01-02**; the fund listed 2003-04-14, so 1,188 sessions are simply
+absent. Worse, the bars it does serve for **2008** disagree with a second vendor by a mean
+of **166 bp per day** — while every year from 2009 to 2026 agrees to under 1 bp/day. A
+truncated series whose first year is also wrong is the signature to look for.
+
+`check_data.py` cannot find this and no bar-level test can. The bars are well formed, the
+OHLC relations hold, the instrument is the right one; only the *history* is short and only
+the *joint* is wrong. It is the same shape of defect as the foreign namesakes above and it
+needs the same kind of answer — **an external cross-check, not a stronger local test.**
+
+The cross-check is worth running whenever a study leans on one name. Comparing the two
+vendors across the fifteen ETFs a rotation study used, EEM's mean |daily return
+difference| was 9.02 bp and every other name landed between 0.01 and 0.54 bp, so the
+outlier identified itself. `walk-forward optimization/rotation.py --refresh-alt` is the
+worked example: it writes to `data/_alt_source/` — deliberately **not** the vendor cache,
+so nothing reads it by accident — and refuses to write a series that does not track the
+Twelve Data copy to under 1 bp/day on their overlap. One named vendor per asset class
+stays the rule; a second source is admissible only where it has been proved against the
+first, and only behind an explicit flag that the output labels.
+
 ### There are two vendors, and the futures class may only ask the second one
 
 Twelve Data carries **no CME contract at all**, and — exactly as above — it does not

@@ -14,6 +14,61 @@ only on the box. These files are the deployment; the VPS holds copies of them.
 | `stockhunt-desk` | `run_paper.py`, the live Nautilus desk that publishes `live.json` |
 | `stockhunt-refresh.timer` | rebuilds `data.js` + `paper_curves.json` at 00/06/12/18:05 |
 | `stockhunt-autodeploy.timer` | every 5 min: if `origin/master` moved, deploy the board+API |
+| `stockhunt-rotation.timer` | every 5 min, 19:00-21:55 UTC: the monthly ETF rotation |
+
+## The rotation manager is a client, not a fourth service
+
+`stockhunt-rotation` runs `paper trading engine/rotation_manager.py`, which posts orders to
+the public API exactly as an outside manager's code would. It imports no Nautilus, opens no
+database and holds no position, so **it can fail, hang or be restarted without the desk
+noticing** -- the worst case is a delayed rebalance, never a corrupted record. That is why
+it is its own oneshot unit rather than a thread inside `stockhunt-desk`.
+
+It fires ~36 times a day and does nothing on almost all of them. The window is wide because
+15:45 New York is 19:45 UTC in summer and 20:45 in winter, and the DST arithmetic belongs
+in the manager (where `test_rotation_manager.py` pins it) rather than in a timer. Repeat
+firings inside the window are deliberate and free: `client_order_id` is derived from the
+session date, so a retry after a network error returns the first order instead of opening a
+second position.
+
+**It needs credentials that only a human can create.** `/desk/agent.md` rule 3: registration
+is a deliberate act performed in the console, and API keys are minted only behind a browser
+login. So:
+
+```bash
+# 1. In the browser, at https://srv1903626.hstgr.cloud/console
+#      register a strategy:  class us_etfs, tf 1d, symbols QQQ IWM XLK TLT
+#      mint a key for it
+# 2. On the box, paste both in:
+cat > /opt/stockhunt/deploy/rotation.env <<'EOF'
+STOCKHUNT_API_KEY=sk_live_...
+STOCKHUNT_STRATEGY_ID=str_..._...
+EOF
+chmod 600 /opt/stockhunt/deploy/rotation.env
+chown stockhunt:stockhunt /opt/stockhunt/deploy/rotation.env
+
+# 3. Prove it before letting the timer touch anything
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python   "/opt/stockhunt/paper trading engine/rotation_manager.py" --status
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python   "/opt/stockhunt/paper trading engine/rotation_manager.py" --force --dry-run
+
+# 4. Only then
+systemctl enable --now stockhunt-rotation.timer
+systemctl list-timers stockhunt-rotation.timer
+```
+
+`rotation.env` is **not** in this repo and must never be. Until it exists the unit runs and
+exits 0 outside the decision window, so an unconfigured box is quiet rather than alarming;
+inside the window it exits nonzero and says what is missing.
+
+It needs one package the desk does not: `pandas_market_calendars`, for the exchange calendar
+that answers "is today the last trading day of the month". That question cannot be answered
+from a calendar date -- the strategy this replicates tested `date.day == monthrange(...)` and
+therefore skipped 30% of its months. Without the package the manager refuses to guess and
+skips, which is the safe failure but is still a failure:
+
+```bash
+/opt/stockhunt/.venv/bin/pip install pandas_market_calendars
+```
 
 ## The split, and why it exists
 

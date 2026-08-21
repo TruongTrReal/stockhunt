@@ -1,0 +1,30 @@
+[Unit]
+Description=Fire the rotation manager through every US equity closing window
+
+[Timer]
+# Every five minutes from 19:00 to 21:55 UTC. The decision instant is 15:45 New York,
+# which is 19:45 UTC in summer (EDT) and 20:45 UTC in winter (EST) — so this one window
+# straddles both without the timer needing to know which regime is in force. The manager
+# localises the bell itself through `paper_config.SESSION_CLOSE` and refuses every instant
+# outside its own fifteen-minute window, so a firing at the wrong hour costs one journal
+# line. Putting the DST arithmetic in the timer instead would put it somewhere with no
+# test around it.
+#
+# It fires REPEATEDLY inside the window on purpose. A single shot that met a network error
+# or a slow vendor would skip the month silently, and this strategy rebalances twelve times
+# a year — one missed decision is 8% of its trading. Repeats are free because
+# `client_order_id` is derived from the SESSION DATE: the second firing gets the first
+# order back with a 200 rather than opening a second position. `test_rotation_manager.py`
+# pins that.
+OnCalendar=*-*-* 19,20,21:00/5:00
+# The window is a specific quarter hour before a specific bell. A run missed across a
+# reboot cannot be usefully caught up an hour later — by then the auction is over and the
+# honest thing is to have not traded.
+Persistent=false
+# No RandomizedDelaySec, for the same reason. Every other timer here may drift a couple of
+# minutes harmlessly; this one is aimed at a fifteen-minute window and a random delay is
+# how it would land after it.
+AccuracySec=30
+
+[Install]
+WantedBy=timers.target
