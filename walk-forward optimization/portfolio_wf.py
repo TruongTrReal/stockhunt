@@ -1582,9 +1582,18 @@ def main() -> None:
                          "CAGR and score the stitched out-of-sample")
     ap.add_argument("--out", default="portfolio.csv")
     ap.add_argument("--curves", action="store_true",
-                    help="also write book_curves_<class>_<tf>.json — the equity series "
+                    help="also write <stem>_<class>_<tf>.json — the equity series "
                          "behind every scored row, which is what the dashboard draws. "
                          "One file per sheet regardless of how many --out holds")
+    # The stem is a flag because the file name is derived from (class, timeframe) ALONE,
+    # so two studies that score different rule sets on the same sheet write the same
+    # path. `run_book.sh` owns `book_curves_us_stocks_1d.json` -- the whole leaderboard's
+    # ~409 rules -- and a scoped run with `--curves` would have replaced it with its own
+    # handful and taken every house detail page's chart with it. The failure is silent:
+    # the file exists, it is valid JSON, and the rules it lost simply stop having charts.
+    ap.add_argument("--curves-out", default="book_curves", metavar="STEM",
+                    help="stem for the curve files; default `book_curves`. Use a "
+                         "different one for any run that is not the full sheet")
     args = ap.parse_args()
 
     fac = None
@@ -1852,7 +1861,7 @@ def main() -> None:
                     bad.append(f"{rule}.{key} curve={a} csv={b}")
                 elif a is not None and b_ok and abs(a - b) > 0.05:
                     bad.append(f"{rule}.{key} curve={a} csv={b:.4f}")
-        p = RESULTS_DIR / f"book_curves_{cls}_{tf}.json"
+        p = RESULTS_DIR / f"{args.curves_out}_{cls}_{tf}.json"
         p.write_text(json.dumps(payloads, separators=(",", ":")), encoding="utf-8")
         note = f"  MISMATCH vs csv: {len(bad)} ({'; '.join(bad[:3])})" if bad else ""
         print(f"wrote {p}  ({len(payloads)} rules, {p.stat().st_size / 1e6:.1f} MB)"

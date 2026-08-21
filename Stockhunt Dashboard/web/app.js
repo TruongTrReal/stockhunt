@@ -308,7 +308,7 @@ function equityChart(sets, labels, dates, h = 230) {
  * The blended series comes from `portfolio_wf`; it cannot be derived here, because the
  * weight multiplies each bar's RETURN before it compounds.
  */
-function equitySection(c, r, drawn, names) {
+function equitySection(c, r, drawn, names, tail) {
   const mm = c.matched || {};
   const byLabel = {};
   (mm.lines || []).forEach(l => { if (l.curve && l.curve.length) byLabel[l.label] = l; });
@@ -345,7 +345,8 @@ function equitySection(c, r, drawn, names) {
       which needs margin and is not tested anywhere here.` : ""}
     This is the <b>book</b>: the same series the <b>$10k / book</b> column is computed
     from. Idle capital earns nothing, on every line.${
-      r.per_asset && r.per_asset.length
+      tail != null ? tail
+      : r.per_asset && r.per_asset.length
       ? ` How the rule did name by name is the <em>Asset by asset</em> table below —
       single-name backtests, which will not add up to this.`
       /* A pair has no per-symbol rows to point at, so it gets the breadth figure it does
@@ -2582,23 +2583,15 @@ const CONV_COLS = [
       question asked with real exchange schedules instead of a multiplier, and it moves two
       of the three crypto results from a win to a loss.`,
     sv: r => r.book && r.book.headroom },
-  { h: "Standard", l: true, lead: true,
-    cell: r => `<td class="l">${edgeCount(r.book && r.book.standard)}</td>`,
-    doc: ({ sh }) => `<b>The column this table is ranked on.</b> How many of the <b>six
-      acceptance criteria</b> the row cleared — hover a cell for which ones, with each
-      target. All six or it is not an edge; nothing in this family has cleared them.
-      Computed on the book by <code>metrics.apply_edge_standard</code>, the same function
-      and the same thresholds the house board uses.
-      <br><br><b>Almost every sheet here says <i>underpowered</i>, and that means "cannot
-      tell", not "no".</b> The threshold was calibrated on 20 folds; the crypto daily sheet
-      has 6 and the minute sheets have about 4, because they cover six to nine years rather
-      than twenty-six. So a tier on this board carries less evidence than the same tier
-      next door, and the tiebreak — <b>book vs B&amp;H</b> — is doing most of the visible
-      ordering.
-      <br><br>Buy-and-hold clears none of the six and is drawn where that puts it. It is
-      not competing: the six are measured <i>against</i> it, so it cannot pass its own
-      test.`,
-    sv: r => r.book && r.book.standard && r.book.standard.passed },
+  /* The `Standard` column is deliberately absent, and its absence is why this board ranks
+   * on money instead. Dropped on request, and the request was right: almost every sheet
+   * here is UNDERPOWERED -- 6 folds on crypto daily and about 4 on the minute sheets,
+   * against the 20 the thresholds were calibrated on -- so the six-criteria count was
+   * mostly reporting how much history a class has, and it ordered a rule earning
+   * +30 pp/yr BELOW one earning +9 for clearing a gate neither had the evidence to claim.
+   * The verdict is still computed by `portfolio_wf._standard` and still on every row of
+   * the payload; it is simply not rendered and not sorted on. It remains the primary key
+   * on the house board next door, whose sheets are long enough for it to mean something. */
 ];
 
 let convSort = null;
@@ -2610,8 +2603,13 @@ let convSort = null;
 function convOrder(sh, bench, sort) {
   const rows = sh.rows.map(row => ({ row }));
   if (!sort) {
-    const below = sh.rows.findIndex(r => r.book && r.book.standard
-      && r.book.standard.passed <= 0);
+    /* Spliced in at the rank its own figure earns, and that figure has to be the column
+     * the table is sorted by. Buy-and-hold's risk-matched excess over itself is zero by
+     * construction, so it lands above every rule that lost to it and below every rule
+     * that beat it -- which is the line this whole board is about, drawn in the ranking
+     * rather than left for the reader to find. */
+    const below = sh.rows.findIndex(r => r.book && r.book.cm_excess_cagr != null
+      && r.book.cm_excess_cagr < 0);
     if (bench) rows.splice(below < 0 ? rows.length : below, 0, { bench: true });
     return rows;
   }
@@ -2632,8 +2630,7 @@ function convOrder(sh, bench, sort) {
 const convBenchRow = (bench, cols, sh) => {
   if (bench == null) return "";
   const cells = cols.map((c, i) => i === 0
-    ? `<td class="l">Buy &amp; hold <span class="chip mut">benchmark</span>
-       <span class="chip mut" title="The six criteria measure a rule AGAINST buy-and-hold, so the benchmark cannot clear them and has no count to be ranked by. Its position here is not a score.">not ranked</span></td>`
+    ? `<td class="l">Buy &amp; hold <span class="chip mut" title="The same universe held passively, scaled down with cash to each rule's own volatility. Everything above this line beat it at equal risk; everything below lost to it.">benchmark</span></td>`
     : c.bh ? c.bh(bench, sh) : `<td class="flat">—</td>`).join("");
   return `<tr class="bench-row">${cells}</tr>`;
 };
@@ -2775,9 +2772,10 @@ function paintConversions() {
       <span class="v">${fmtMoney(bb.wealth)}</span>
       <span class="s">the bar every row is measured against${bb.index_wealth
         ? ` · ${esc(bb.index_symbol)} ${fmtMoney(bb.index_wealth)}` : ""}</span></div>` : ""}
-    <div class="stat"><span class="k">Cleared the standard</span>
-      <span class="v loss">0</span>
-      <span class="s">all six criteria, on any sheet</span></div>
+    ${sh ? `<div class="stat"><span class="k">Charts</span>
+      <span class="v">${sh.rows.filter(r => r.curve).length}</span>
+      <span class="s">${sh.rows.filter(r => r.curve).length === sh.rows.length
+        ? "every row opens" : `of ${sh.rows.length} rows · the rest are being re-scored`}</span></div>` : ""}
   </div>`;
 
   if (!sh) {
@@ -2818,7 +2816,8 @@ function paintConversions() {
     const body = host.querySelector("#lb-body");
     body.innerHTML = convOrder(sh, bench, convSort).map(e => e.bench
       ? convBenchRow(bench, cols, sh)
-      : `<tr>${cols.map(c2 => c2.cell(e.row, sh)).join("")}</tr>`).join("");
+      : `<tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${slug(e.row.rule)}">${
+          cols.map(c2 => c2.cell(e.row, sh)).join("")}</tr>`).join("");
     host.querySelectorAll("th[data-doc]").forEach(th => {
       const on = convSort && convSort.i === Number(th.dataset.doc);
       th.classList.toggle("sort-desc", !!on && convSort.dir < 0);
@@ -2832,11 +2831,13 @@ function paintConversions() {
       `${sh.rows.length === sh.n_rules ? `all ${sh.n_rules}` :
         `top ${sh.rows.length} of ${sh.n_rules}`} cells · ${sh.n_beat} beat buy &amp; hold
        at equal risk · ${by
-        ? `picked on Standard, then book vs B&amp;H, re-ordered by ${by} — <b>not</b> the
-           best ${sh.rows.length} by ${by}`
-        : "ranked on Standard, ties on book vs B&amp;H"} · ${
-        bench ? `${bench.n_names} names, ${fmtNum(bench.years, 1)}y` : ""} · no detail
-       page: the book curves published for this board's rules are the house sheets' only`;
+        ? `picked on book vs B&amp;H, re-ordered by ${by} — <b>not</b> the best ${
+           sh.rows.length} by ${by}`
+        : "ranked on book vs B&amp;H, risk-matched"} · ${
+        bench ? `${bench.n_names} names, ${fmtNum(bench.years, 1)}y` : ""} · tap a row for
+       its detail${sh.rows.some(r => !r.curve)
+        ? ` · ${sh.rows.filter(r => !r.curve).length} of them have no chart yet`
+        : ""}`;
   };
   paintRows();
   bindGo(host);
@@ -2924,8 +2925,7 @@ function bindColHeaders(host, ctx, onSort, cols = LB_COLS) {
  * chart area with no explanation reads as "this rule has no data", which is a different
  * and wrong claim. */
 const curveCache = {};
-async function loadCurves(cls, tf) {
-  const key = `${cls}_${tf}`;
+async function loadCurves(key) {
   if (key in curveCache) return curveCache[key];
   const entry = D.curves && D.curves[key];
   if (!entry) return (curveCache[key] = null);
@@ -3473,7 +3473,7 @@ function backtestDetail(cls, tf, ruleSlug) {
 async function paintCurves(cls, tf, r) {
   const host = document.getElementById("curve-host");
   if (!host) return;
-  const data = await loadCurves(cls, tf);
+  const data = await loadCurves(`${cls}_${tf}`);
   if (document.getElementById("curve-host") !== host) return;   // navigated away
 
   if (!data || data.__error) {
@@ -3521,6 +3521,162 @@ async function paintCurves(cls, tf, r) {
   </section>
 
   ${metricsSection(c.metrics, eq.all, r)}`;
+}
+
+/* ---------------------------------------------------------------- one converted rule
+ *
+ * The house detail page carries an asset-by-asset table off `wf_per_asset_*`, and this
+ * one deliberately does not: `portfolio_wf.py` records the book and its curve, not
+ * per-symbol backtests, so there are no rows to draw and an empty table would imply the
+ * measurement exists.
+ *
+ * What it carries instead is the thing this family has and the house catalogue does not —
+ * **the same signal measured the other ways round**. Every rule here is one of two, four
+ * or eight cells that differ only in whether the short side reverses, whether the signal
+ * runs on synthetic candles, and whether the position is carried overnight. Those are the
+ * comparisons the whole conversion batch exists to make, and putting them on the page is
+ * what stops a reader quoting one cell as "the strategy". */
+
+const convGroupOf = cls => (D.conversions || { groups: {} }).groups[cls];
+const convRoster = name => ((D.conversions || {}).roster || [])
+  .find(x => x.name === name);
+
+/* The facets, in the order they are argued about, as a readable phrase rather than chips —
+ * on a detail page there is room to say it in words. */
+const convFacetWords = r => {
+  const parts = [];
+  if (r.short) parts.push("<b>reversing</b> on a short signal, as published");
+  else if (r.short_off) parts.push("with the <b>short side switched off</b>");
+  if (r.ha) parts.push("signal computed on <b>Heikin-Ashi</b> candles");
+  if (r.chart) parts.push("window lengths read as <b>Pine bar counts</b>");
+  if (r.eod === "flat") parts.push("<b>flat at the close</b>, never held overnight");
+  else if (r.eod === "hold") parts.push("positions <b>carried overnight</b>");
+  return parts;
+};
+
+/* Every other cell of the same base strategy on this sheet, so the facets can be compared
+ * instead of asserted. Ranked by the same key the board is. */
+const convSiblings = (sh, r) => sh.rows.filter(x => x.base === r.base && x.rule !== r.rule);
+
+const convSibRow = (sh, x) => `
+  <tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${slug(x.rule)}">
+    <td class="l">${convChips(x) || '<span class="mut">as published, long only</span>'}</td>
+    <td>${pctOr(bookExposure(x))}</td>
+    <td>${fmtNum(x.book.sharpe, 3)}</td>
+    <td class="${sign(x.book.cm_excess_cagr)}">${x.book.cm_excess_cagr == null ? "—"
+      : fmtPct(x.book.cm_excess_cagr * 100, 2)}</td>
+    <td>${fmtMoney(x.book.wealth)}</td></tr>`;
+
+function convDetail(cls, tf, ruleSlug) {
+  const g = convGroupOf(cls);
+  const sh = g && g.sheets.find(x => x.timeframe === tf);
+  const r = sh && sh.rows.find(x => slug(x.rule) === ruleSlug);
+  if (!r) return (location.hash = "#/backtest/conversions");
+  bf.board = "conv"; bf.cls = cls; bf.tf = tf;
+
+  const bk = r.book || {}, bb = sh.book_bench || {};
+  const meta = convRoster(r.base) || {};
+  const sibs = convSiblings(sh, r);
+  const facets = convFacetWords(r);
+
+  app.innerHTML = `
+  <a class="back" href="#/backtest/conversions">← converted strategies</a>
+  <div class="hero">
+    <div class="d-head"><span class="d-name">${esc(r.base)}</span>
+      ${convChips(r)}
+      <span class="chip mut">${esc(tf)}</span>
+      <span class="chip mut">${esc(CLASS_LABEL[cls] || cls)}</span></div>
+    <p class="lede">${meta.blurb ? esc(meta.blurb) + " " : ""}${meta.origin
+      ? `Converted from <b>${esc(meta.origin)}</b>. ` : ""}${facets.length
+      ? `Scored here ${facets.join(", ")}. ` : ""}Held as one account of
+      <b>${bb.n_names || bk.n_names}</b> names, equal-weighted and rebalanced every bar,
+      over <b>${fmtNum(bb.years || bk.years, 1)} years</b>${bb.start
+      ? ` (${esc(bb.start)} to ${esc(bb.end)})` : ""}.</p>
+  </div>
+
+  <div class="strip">
+    <div class="stat"><span class="k">$10k became</span>
+      <span class="v ${bk.wealth > bb.wealth ? "gain" : "loss"}">${fmtMoney(bk.wealth)}</span>
+      <span class="s">vs ${fmtMoney(bb.wealth)} holding the same names</span></div>
+    <div class="stat"><span class="k">vs buy &amp; hold</span>
+      <span class="v ${sign(bk.cm_excess_cagr)}">${bk.cm_excess_cagr == null ? "—"
+        : fmtPct(bk.cm_excess_cagr * 100, 2)}</span>
+      <span class="s">per year, at equal risk</span></div>
+    <div class="stat"><span class="k">Time in market</span>
+      <span class="v">${pctOr(bk.exposure)}</span>
+      <span class="s">read this before the money</span></div>
+    <div class="stat"><span class="k">Sharpe</span>
+      <span class="v ${bk.sharpe > bk.sharpe_bench ? "gain" : "loss"}">${
+        fmtNum(bk.sharpe, 3)}</span>
+      <span class="s">vs ${fmtNum(bk.sharpe_bench, 3)} held</span></div>
+    <div class="stat"><span class="k">Max drawdown</span>
+      <span class="v ${bk.dd > bb.dd ? "gain" : "loss"}">${fmtNum(bk.dd, 1)}%</span>
+      <span class="s">vs ${fmtNum(bb.dd, 1)}% held</span></div>
+    <div class="stat"><span class="k">Cost headroom</span>
+      <span class="v ${bk.headroom > 1 ? "" : "loss"}">${bk.headroom == null ? "—"
+        : fmtNum(bk.headroom, 1) + "x"}</span>
+      <span class="s">${bk.headroom ? "the fee schedule, before the edge dies"
+        : "it already loses at the real cost"}</span></div>
+  </div>
+
+  <section class="sec">
+    <div class="sec-head"><h2>Cumulative P&amp;L</h2>
+      <span class="sec-note">the book, against the same universe at equal risk</span></div>
+    <div id="curve-host"><p class="sec-note">Loading…</p></div>
+  </section>
+
+  ${sibs.length ? `
+  <section class="sec">
+    <div class="sec-head"><h2>The same signal, measured the other ways</h2>
+      <span class="sec-note">${sibs.length} other cell${sibs.length === 1 ? "" : "s"} of
+        <code>${esc(r.base)}</code> on this sheet</span></div>
+    <p class="mut">These differ from the row above in the facets only — same signal, same
+      bars, same fills, same benchmark. That is the comparison this batch exists to make,
+      and it is the reason no single cell can be quoted as &ldquo;the strategy&rdquo;.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="l">Measured</th><th>Long %</th><th>Sharpe</th>
+        <th>vs B&amp;H</th><th>$10k / book</th></tr></thead>
+      <tbody>${sibs.map(x => convSibRow(sh, x)).join("")}</tbody>
+    </table></div>
+  </section>` : ""}
+
+  <div id="conv-metrics"></div>`;
+
+  bindGo(app);
+  paintConvCurve(cls, tf, r);
+}
+
+/* Split from `convDetail` for the same reason `paintCurves` is split from
+ * `backtestDetail`: the numbers render immediately and the chart arrives when its sheet
+ * does, rather than the whole page waiting on a fetch. */
+async function paintConvCurve(cls, tf, r) {
+  const host = document.getElementById("curve-host");
+  if (!host) return;
+  const data = await loadCurves(`conv_${cls}_${tf}`);
+  if (document.getElementById("curve-host") !== host) return;   // navigated away
+
+  if (!data || data.__error || !data[r.rule]) {
+    /* Not a fault, and worth saying which of the two it is. The daily sheets have curves;
+     * the minute sheets are being re-scored, and that re-score is measured in hours
+     * because its cost is set by bar count -- the runs that produced those CSVs took 36
+     * hours between them. */
+    host.innerHTML = `<p class="sec-note">No equity series stored for this cell yet.
+      Curves are written by the same run that scores the sheet, so they arrive together:
+      <code>./run_convert_curves.sh ${esc(tf)}</code> in
+      <code>walk-forward optimization/</code>, then rebuild the dashboard.${
+      data && data.__error ? ` <span class="mut">(${esc(data.__error)})</span>` : ""}</p>`;
+    return;
+  }
+
+  const c = data[r.rule];
+  const idxs = curveIndexes(c);
+  const drawn = idxs.filter(i => i && i.curve && i.curve.length).slice(0, CHART_INDEXES);
+  const eq = equitySection(c, r, drawn, drawn.map(i => esc(i.symbol || "index")),
+    " There is no name-by-name table on this board: this stage records the book and its"
+    + " curve, not per-symbol backtests, so breadth is not something these sheets know.");
+  host.innerHTML = eq.html;
+  const mhost = document.getElementById("conv-metrics");
+  if (mhost) mhost.innerHTML = metricsSection(c.metrics, eq.all, r);
 }
 
 /* ---------- "there is a newer build than the one you are looking at" ----------
@@ -3775,6 +3931,10 @@ function render() {
   // the converted board is a state of the backtest page, not a page of its own, so it sets
   // the switch and falls through to the same master.
   else if (h === "#/backtest/conversions") { bf.board = "conv"; backtestMaster(); }
+  // Ahead of the generic three-segment detail pattern, which would otherwise match
+  // `conv/<cls>/<tf>` and hand `backtestDetail` a class that does not exist.
+  else if ((m = h.match(/^#\/backtest\/conv\/([^/]+)\/([^/]+)\/(.+)$/)))
+    convDetail(decodeURIComponent(m[1]), decodeURIComponent(m[2]), m[3]);
   else if ((m = h.match(/^#\/backtest\/([^/]+)\/([^/]+)\/(.+)$/))) backtestDetail(m[1], m[2], m[3]);
   else if (h.startsWith("#/backtest")) backtestMaster();
   else paperMaster();

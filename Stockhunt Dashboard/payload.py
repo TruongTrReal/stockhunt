@@ -1418,9 +1418,16 @@ _CONV_BENCH = "BUYHOLD"
 _CONV_CONTROLS = ("BUYHOLD", "RANDOM_25", "RANDOM_50", "RANDOM_75", "RANDOM_90",
                   "ALWAYS_FLAT", "ALWAYS_LONG")
 
-# The daily sheets, per (class, timeframe), in merge order. Order is load-bearing where two
-# files carry the same label: the first wins, and the first is always the sheet that ran
-# the whole family rather than a follow-up over a subset of it.
+# `run_convert_curves.sh` re-scores a whole (class, timeframe) in one run and writes both
+# the sheet and its curves, so where that file exists it is the ONE source for that cell.
+# It has to be: `--curves` writes one JSON per sheet, so three runs over the same cell
+# would each overwrite the other two's curves and the last one would win silently.
+_CONV_BOOK = "convert_book_{cls}_{tf}.csv"
+
+# The ad-hoc daily runs that came first, kept as the fallback for any cell
+# `run_convert_curves.sh` has not reached. Order is load-bearing where two files carry the
+# same label: the first wins, and the first is always the sheet that ran the whole family
+# rather than a follow-up over a subset of it.
 _CONV_1D = {
     ("us_stocks", "1d"): ["portfolio.csv", "convert_us_longflat.csv", "convert_us_lf2.csv"],
     ("us_etfs", "1d"): ["convert_etf_lf.csv"],
@@ -1531,18 +1538,24 @@ def _conv_rows(files: list[str], eod: str | None = None) -> tuple[dict, dict | N
 
 
 def _conv_rank(rows: list[dict]) -> list[dict]:
-    """The house key, applied to this board: the standard's count, then the money.
+    """Ranked on the book's risk-matched excess CAGR, and on nothing else.
 
-    Six integer tiers order the table and the book's risk-matched excess CAGR orders inside
-    each tier -- `build_sheet`'s key, deliberately, so a reader moving between the two
-    boards is reading one ranking and not two.
+    The house board ranks on the six-criteria count with this as the tiebreak. That key is
+    wrong for this family and was dropped on request: **almost every sheet here is
+    underpowered**, so the count is mostly reporting how much history a class has rather
+    than how good a rule is. The crypto daily sheet has 6 folds and the minute sheets have
+    about 4, against the 20 the thresholds were calibrated on -- so the tiers separated
+    rows on evidence none of them had, and buried a rule earning +30 pp/yr under one
+    earning +9 because the second happened to clear a gate the first missed.
+
+    What is left is the question the board is actually for: at equal risk, how much did
+    this rule make above holding the same universe. `edge_standard`'s verdict is still
+    computed and still on every row in the payload; it is simply not rendered and not
+    ranked on.
     """
     def key(e):
-        st = e["book"].get("standard") or {}
-        passed = st.get("passed")
         ex = e["book"].get("cm_excess_cagr")
-        return (-(passed if passed is not None else -1),
-                -(ex if ex is not None else float("-inf")))
+        return -(ex if ex is not None else float("-inf"))
     return sorted(rows, key=key)
 
 
@@ -1610,6 +1623,52 @@ def _conv_selection() -> dict | None:
     }
 
 
+_CONV_CURVE_CACHE: dict[tuple, set] = {}
+
+
+def _conv_curve_rules(cls: str, tf: str) -> set:
+    """Which rules `run_convert_curves.sh` has written an equity series for."""
+    key = (cls, tf)
+    if key not in _CONV_CURVE_CACHE:
+        p = BM / f"convert_curves_{cls}_{tf}.json"
+        try:
+            _CONV_CURVE_CACHE[key] = set(json.loads(p.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            _CONV_CURVE_CACHE[key] = set()
+    return _CONV_CURVE_CACHE[key]
+
+
+def copy_conv_curves(shown: dict, write: bool = True) -> dict:
+    """Publish the converted board's curve files, in their own `conv_` namespace.
+
+    Separate from `copy_curves` and separately keyed, because the file name over there is
+    derived from (group, timeframe) alone -- `stocks_1d` -- and this board scores a
+    different rule set on exactly those cells. One namespace would have meant the two
+    boards fighting over one file, which is the same collision `--curves-out` exists to
+    stop one level up.
+    """
+    out = WEB / "curves"
+    if write:
+        out.mkdir(exist_ok=True)
+    index = {}
+    for key, cls, _label, _u in GROUPS:
+        for tf in _CONV_TF_ORDER:
+            src = BM / f"convert_curves_{cls}_{tf}.json"
+            if not src.exists():
+                continue
+            k = f"conv_{key}_{tf}"
+            all_rules = json.loads(src.read_text(encoding="utf-8"))
+            keep = _reachable(all_rules, shown.get(k))
+            dst = out / f"{k}.json"
+            if write:
+                dst.write_text(json.dumps(keep, separators=(",", ":")), encoding="utf-8")
+            index[k] = {"file": f"curves/{k}.json",
+                        "bytes": dst.stat().st_size if write and dst.exists()
+                                 else len(json.dumps(keep)),
+                        "rules": list(keep), "n_scored": len(all_rules)}
+    return index
+
+
 def conversion_sheets() -> dict:
     """The whole second board: a sheet per (class, timeframe), plus the checks."""
     found: dict[tuple, list[dict]] = {}
@@ -1625,14 +1684,29 @@ def conversion_sheets() -> dict:
         if bench and (cls, tf) not in benches:
             benches[(cls, tf)] = bench
 
+    # Every cell the rebuilt run has reached, first: one file, one curve set, one run.
+    rebuilt = set()
+    for path in sorted(BM.glob("convert_book_*.csv")):
+        df = _read(path)
+        if df.empty or "class" not in df.columns:
+            continue
+        cls, tf = str(df["class"].iloc[0]), str(df["tf"].iloc[0])
+        add(cls, tf, [path.name])
+        rebuilt.add((cls, tf))
+
     for (cls, tf), files in _CONV_1D.items():
+        if (cls, tf) in rebuilt:
+            continue
         add(cls, tf, [f for f in files if (BM / f).exists()])
 
     for path in sorted(BM.glob("convert_ha_*.csv")):
         m = _CONV_HA_RE.match(path.name)
         if not m:                    # the fill / grid / pilot re-runs, handled as checks
             continue
-        add(m.group("cls"), m.group("tf"), [path.name],
+        cls, tf = m.group("cls"), m.group("tf")
+        if (cls, tf) in rebuilt:
+            continue
+        add(cls, tf, [path.name],
             eod="flat" if "_flat" in m.group("tail") else "hold")
 
     checks: dict[tuple, list[dict]] = {}
@@ -1654,6 +1728,13 @@ def conversion_sheets() -> dict:
             ranked = _conv_rank(rows)
             bench = benches.get((cls, tf))
             head = ranked[0]["book"]
+            # Which rows can draw a chart. Read off the curve file rather than assumed
+            # from the sheet: the two are written by one run, but a cell whose re-score
+            # has not happened yet has a sheet and no curves, and a row that navigates to
+            # an empty chart is worse than one that says there is nothing to draw.
+            have = _conv_curve_rules(cls, tf)
+            for e in ranked:
+                e["curve"] = e["rule"] in have
             n_beat = sum(1 for e in ranked if (e["book"].get("cm_excess_cagr") or 0) > 0)
             total += len(ranked)
             beat += n_beat
@@ -1669,8 +1750,8 @@ def conversion_sheets() -> dict:
                 "book_bench": bench,
                 "years": head.get("years"),
                 "n_names": head.get("n_names"),
-                "ranked_on": "edge_passed",
-                "ranked_tiebreak": "book_cm_excess_cagr",
+                "ranked_on": "book_cm_excess_cagr",
+                "ranked_tiebreak": None,
                 "sources": sorted(set(sources.get((cls, tf), []))),
                 "checks": checks.get((cls, tf), []),
                 # Only the crypto daily sheet has a selection run, and it belongs to that
@@ -1720,6 +1801,14 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
              for key, g in backtest.items() for s in g["sheets"]}
     curves_index = (copy_curves(shown) if copy_curve_files
                     else _curves_index_only(shown))
+    # The second board's curves, in their own `conv_` namespace and cut to the rows it
+    # ships, exactly like the first board's. Built here rather than inside
+    # `conversion_sheets` so both boards' publishing happens in one place and neither can
+    # quietly stop writing while the index still claims the files exist.
+    conversions = conversion_sheets()
+    conv_shown = {f"conv_{key}_{s['timeframe']}": {r["rule"] for r in s["rows"]}
+                  for key, g in conversions["groups"].items() for s in g["sheets"]}
+    curves_index.update(copy_conv_curves(conv_shown, write=copy_curve_files))
     payload = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "feed": paper["feed"], "venue": paper["venue"],
@@ -1766,7 +1855,7 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
         # The second board on the same page. Its own timeframe axis (1d down to
         # 1m), its own trial family, and its own facets -- see `conversion_sheets`
         # for why it is not rows on the first one.
-        "conversions": conversion_sheets(),
+        "conversions": conversions,
         "logic": strategy_logic(),
         "curves": curves_index,
         # The sections the single-file board used to carry alone.

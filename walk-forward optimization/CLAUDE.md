@@ -40,6 +40,12 @@ portfolio_wf.py  stage 1h: the BOOK, not the median of its parts. PIT membership
 make_book_rules.py   writes book_rules/<class>_<tf>.txt -- every rule on
    |             edge_standard.csv, baseline first -- plus book_rules/starts.csv, the
    |             --start each sheet needs. Regenerate both together
+run_convert_curves.sh  the converted strategies' sheets, re-scored WITH --curves so
+   |             the dashboard's second board has a detail page. Reads its rule list back
+   |             OUT of the sheets that already exist rather than restating it, and
+   |             collapses a cell that was scored by several runs into one -- `--curves`
+   |             writes one JSON per sheet, so three runs over `us_stocks 1d` would each
+   |             overwrite the other two's curves. -> convert_book_* + convert_curves_*
 run_book.sh      stage 1h for the WHOLE leaderboard: 8 sheets, ~400 rules each, on the
    |             out-of-sample span -> results/book_<class>_<tf>.csv AND, via --curves,
    |             results/book_curves_<class>_<tf>.json. Those are the leaderboard's book
@@ -100,6 +106,8 @@ python alpha101.py --positions       # build/cache the quantile books riskmatch 
 python test_alpha101.py              # the causality gate. ~40s, run it after any edit
 ./run_alpha101.sh                    # BASH. books then the six criteria, detached
 ./run_intraday_ha.sh                 # BASH. the 1m/2m/3m Heikin-Ashi study
+./run_convert_curves.sh 1d           # BASH. re-score the CONVERTED sheets WITH --curves
+./run_convert_curves.sh 5m 3m 2m 1m  #   ...the minute cells; hours, not minutes
 python gate_calibration.py           # no args
 python wf_vs_split.py                # no args
 python test_rotation.py              # the rotation gate. run it after any edit there
@@ -348,6 +356,14 @@ want to keep — the next scoped run overwrites it.
 
 `--n-trials` matters on a scoped run: the default counts the rules in *this* run, which is
 right for a full sweep and wrong for a shortlist drawn from a search that already happened.
+
+**`--curves` needs `--curves-out` on any run that is not the full sheet.** The curve file
+name is derived from (class, timeframe) ALONE, so two studies scoring different rule sets
+on the same cell write the same path. `run_book.sh` owns `book_curves_us_stocks_1d.json` —
+the whole leaderboard's ~409 rules — and a scoped `--curves` run would have replaced it
+with its own handful, taking every house detail page's chart with it. The failure is
+silent: the file exists, it is valid JSON, and the rules it lost simply stop having
+charts. The converted-strategy board writes `convert_curves_*` for this reason.
 
 ## The standard and the book measure different things, on different spans
 

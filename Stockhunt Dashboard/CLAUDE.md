@@ -285,15 +285,24 @@ about.**
 | board | population | timeframes | source |
 |---|---|---|---|
 | `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES`, 1d and 4h | `wf_summary_*` + `book_<cls>_<tf>.csv` |
-| `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_*.csv` and `portfolio.csv` |
+| `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_book_*` where it exists, else `convert_*.csv` + `portfolio.csv` |
 
 Everything that decides what a number MEANS is shared. Both sheets came out of
 `portfolio_wf.py`, both are read through **`payload._book_record`** — extracted from
-`_book_index` for exactly this reason — and both rank on the same key: the standard's own
-count, ties on the book's risk-matched excess CAGR. A field that moves in `_book_record`
-moves on both boards at once, which is the property worth having; two definitions of "a
-book row" on a page whose whole argument is that there is one measurement would be the
-same defect this dashboard already removed once.
+`_book_index` for exactly this reason. A field that moves in `_book_record` moves on both
+boards at once, which is the property worth having; two definitions of "a book row" on a
+page whose whole argument is that there is one measurement would be the same defect this
+dashboard already removed once.
+
+**The ranking key is the one deliberate divergence** (2026-08-21). The house board ranks
+on the six-criteria count with the money as the tiebreak; this one ranks on `book vs B&H`
+alone, and the `Standard` column is **not rendered at all**. The reason is power, not
+taste: almost every sheet here is underpowered — 6 folds on crypto daily and about 4 on
+the minute sheets, against the 20 the thresholds were calibrated on — so the tiers were
+separating rows on evidence none of them had, and the key put a rule earning **+30 pp/yr
+below one earning +9** for clearing a gate neither could support. `portfolio_wf._standard`
+still computes the verdict and it is still on every row of the payload; it is simply not
+drawn and not sorted on. Put it back only if these sheets ever get the folds to carry it.
 
 **Why it is a second board and not extra rows on the first.** Three reasons, all about
 measurement:
@@ -327,11 +336,33 @@ Four things to preserve:
   show: every row above it is the view from the end. Do not promote it to a board-level
   banner and do not drop it — the gap between the best fixed rule and the selection is most
   of that sheet's headline.
-- **There is no detail page, and `#lb-note` says so.** `run_book.sh` writes
-  `book_curves_*.json` for the house sheets only, so these labels have no equity series on
-  disk. A row that navigates to a stub is worse than a row that says it does not navigate.
-  If curves are ever produced for them, the rows want `data-go` and `copy_curves` wants the
-  labels — both, in one change.
+- **A row opens `#/backtest/conv/<class>/<tf>/<rule-slug>`** (`convDetail`), which reuses
+  the house detail page's `equitySection`, `metricsSection`, `curveIndexes` and
+  `equityChart` rather than drawing its own. Three properties of it:
+  * **The chart is the row here too.** `run_convert_curves.sh` re-scores a whole
+    (class, timeframe) with `--curves`, so the sheet and its equity series come out of one
+    `build_book` call and `portfolio_wf`'s MISMATCH check gates the pair. The rebuilt
+    `convert_book_<cls>_<tf>.csv` **supersedes** the ad-hoc sheets for that cell — it has
+    to, because `--curves` writes one JSON per sheet and the three runs that produced
+    `us_stocks 1d` would each have overwritten the other two's curves.
+  * **Its curves live in a `conv_` namespace** (`web/curves/conv_<group>_<tf>.json`, via
+    `payload.copy_conv_curves`). The house file name is derived from (group, timeframe)
+    alone and this board scores a different rule set on exactly those cells, so one
+    namespace would mean the two boards fighting over one file — the same collision
+    `--curves-out` exists to stop one level up.
+  * **It has no asset-by-asset table and says so**, rather than shipping an empty one:
+    this stage records the book and its curve, not per-symbol backtests. `equitySection`
+    takes an optional `tail` for exactly this, because without it the section inherits the
+    pair-shaped apology about leg diagnostics, which is not true of a converted rule.
+
+  What it carries instead is **the same signal measured the other ways** — every other
+  cell of the same base strategy on that sheet, differing only in the facets. That is the
+  comparison the whole batch exists to make, and what stops one cell being quoted as "the
+  strategy".
+- **`row.curve` says whether a chart exists**, read off the curve file rather than assumed
+  from the sheet. A cell whose re-score has not happened yet has a sheet and no curves, and
+  the detail page says which of the two it is. Cost is set by bar count: the five daily
+  sheets rebuild in ~7 minutes, and the sixteen minute sheets took 36 hours to produce.
 
 `bindColHeaders(host, ctx, onSort, cols = LB_COLS)` takes the column list so the hover-doc
 and click-to-sort behaviour is one implementation across both boards. **A column added
