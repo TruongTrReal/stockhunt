@@ -1,6 +1,6 @@
 [Unit]
-Description=Monthly ETF rotation: decide the pick and post orders to the desk API
-After=network-online.target
+Description=Monthly ETF rotation: decide the pick and queue orders on the desk ledger
+After=network-online.target stockhunt-desk.service
 Wants=network-online.target
 
 [Service]
@@ -8,12 +8,10 @@ Type=oneshot
 User=stockhunt
 Group=stockhunt
 WorkingDirectory=/opt/stockhunt/paper trading engine
-# It is a client of the public API, exactly as an outside manager's code would be. It
-# imports no Nautilus, opens no database, and holds no position — so a failure here can
-# delay a rebalance and can never corrupt the desk's record. That is why it is a separate
-# unit and not a thread inside stockhunt-desk.
-Environment=STOCKHUNT_API=https://srv1903626.hstgr.cloud
-EnvironmentFile=/opt/stockhunt/deploy/rotation.env
+# It writes to `state/desk.db` -- the same ledger the API writes to and `desk_control`
+# drains. No API key and no HTTP: the public API is the door for managers who are not on
+# this box, and this one is. It still imports no Nautilus and holds no position, so a
+# failure here can delay a rebalance and can never corrupt the desk's record.
 ExecStart=/opt/stockhunt/.venv/bin/python -u rotation_manager.py
 # The manager decides for itself whether it is inside the decision window and exits 0 when
 # it is not, so the vast majority of firings are a no-op that prints one line. Do not put
@@ -24,7 +22,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths="/opt/stockhunt/paper trading engine/logs"
+# The ledger, and nothing else. `logs/` is here because the vendor client writes there.
+ReadWritePaths="/opt/stockhunt/paper trading engine/state" "/opt/stockhunt/paper trading engine/logs"
 StandardOutput=journal
 StandardError=journal
 

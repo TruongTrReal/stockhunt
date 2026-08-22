@@ -31,6 +31,8 @@ looks like ordinary underperformance.
 """
 from __future__ import annotations
 
+import json
+import pathlib
 import sys
 
 import pandas as pd
@@ -148,36 +150,68 @@ def test_signal_is_the_shared_one() -> None:
 
 def test_idempotency_key() -> None:
     print("the order id is derived from the session, not from a clock")
-    a = RM.order_id("str_01_rot", "QQQ", "20260831")
-    b = RM.order_id("str_01_rot", "QQQ", "20260831")
-    check("same session -> same key", a == b, a)
-    check("different session -> different key",
-          a != RM.order_id("str_01_rot", "QQQ", "20260930"))
-    check("different symbol -> different key",
-          a != RM.order_id("str_01_rot", "IWM", "20260831"))
+    a = RM.order_id("QQQ", "20260831")
+    check("same session -> same key", a == RM.order_id("QQQ", "20260831"), a)
+    check("different session -> different key", a != RM.order_id("QQQ", "20260930"))
+    check("different symbol -> different key", a != RM.order_id("IWM", "20260831"))
     check("no digits from the current time appear in it",
-          not any(t in a for t in (pd.Timestamp.utcnow().strftime("%H%M"),)), a)
+          pd.Timestamp.utcnow().strftime("%H%M") not in a, a)
+
+
+def test_ledger_roundtrip() -> None:
+    """Register and order against a THROWAWAY database, never the desk's own.
+
+    This is the half the HTTP version could only fake. `deskdb` is the same module the
+    API writes through, so exercising it here proves the whole path a firing takes --
+    idempotent registration, ordered submission, retry collapsing -- rather than proving
+    that a mock was called.
+    """
+    print("the ledger accepts the registration and collapses a retry")
+    import tempfile
+    from stockhunt import deskdb
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "desk.db"
+    real = RM.DESK_DB
+    RM.DESK_DB = tmp
+    try:
+        RM.open_ledger()
+        a = RM.ensure_registered()
+        b = RM.ensure_registered()
+        check("registration is idempotent on (account, name)",
+              a["strategy_id"] == b["strategy_id"] == RM.STRATEGY_ID, a["strategy_id"])
+        check("it asks for exactly the basket", json.loads(a["symbols"]) == RM.BASKET
+              if isinstance(a["symbols"], str) else list(a["symbols"]) == RM.BASKET,
+              str(a["symbols"]))
+        check("and starts pending, for the desk to pick up",
+              a["state"] == "pending" and a["want"] == "live",
+              f"{a['state']}/{a['want']}")
+        first = RM.place("QQQ", "buy", 12.5, "20260831", dry=False)
+        again = RM.place("QQQ", "buy", 12.5, "20260831", dry=False)
+        check("the first order is created", first is True)
+        check("the retry is collapsed, not duplicated", again is False)
+        rows = deskdb.orders(RM.ACCOUNT, strategy_id=RM.STRATEGY_ID)
+        check("exactly one row in the ledger", len(rows) == 1, f"{len(rows)} rows")
+    finally:
+        deskdb.close()
+        RM.DESK_DB = real
 
 
 def test_sells_precede_the_buy() -> None:
     print("sells are queued before the buy that spends their proceeds")
     sent = []
 
-    def fake_call(method, path, key, body=None):
-        if method == "GET":
-            return 200, {"cash": 1000.0,
-                         "holdings": [{"symbol": "IWM", "qty": 10.0},
-                                      {"symbol": "XLK", "qty": 5.0}]}
-        sent.append((body["side"], body["symbol"], body["client_order_id"]))
-        return 202, {"state": "accepted"}
+    def fake_place(symbol, side, qty, session, dry):
+        sent.append((side, symbol, RM.order_id(symbol, session)))
+        return True
 
-    real = RM.call
-    RM.call = fake_call
+    real_place, real_view = RM.place, RM.desk_view
+    RM.place = fake_place
+    RM.desk_view = lambda: {"cash": 1000.0, "equity": 3500.0, "seen": True,
+                            "holdings": {"IWM": 10.0, "XLK": 5.0}}
     try:
-        RM.rebalance("k", "str_01_rot", "QQQ",
-                     {"QQQ": 400.0, "IWM": 200.0, "XLK": 100.0}, "20260831", dry=False)
+        RM.rebalance("QQQ", {"QQQ": 400.0, "IWM": 200.0, "XLK": 100.0},
+                     "20260831", dry=False)
     finally:
-        RM.call = real
+        RM.place, RM.desk_view = real_place, real_view
     sides = [s for s, _, _ in sent]
     check("something was sent", bool(sent), str(sent))
     check("every sell precedes every buy",
@@ -208,7 +242,8 @@ def test_window_refuses_outside() -> None:
 def main() -> int:
     for t in (test_calendar_matches_real_sessions, test_fold_matches_the_desk,
               test_signal_is_the_shared_one, test_idempotency_key,
-              test_sells_precede_the_buy, test_window_refuses_outside):
+              test_ledger_roundtrip, test_sells_precede_the_buy,
+              test_window_refuses_outside):
         t()
     print()
     if FAILURES:

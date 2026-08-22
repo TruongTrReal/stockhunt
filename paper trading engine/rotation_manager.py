@@ -30,7 +30,18 @@ had already happened, ranks on that, and sends market orders into the closing au
 `stockhunt.sessions` is the arithmetic and `book_strategy.py` already does the same thing
 for the house's IBS books.
 
-IDEMPOTENCY, WHICH IS THE ONLY WAY THIS CAN LOSE MONEY BY ACCIDENT
+IT WRITES TO THE LEDGER, NOT TO THE HTTP API
+
+`stockhunt.deskdb` is the order ledger, and BOTH the API and the desk open it. The API
+exists so an outside manager -- somebody with no account on this box -- can reach that
+ledger over the network; it is a door, not the room. This runs ON the box, as the desk's
+own operator, so it writes to the ledger directly: no key to mint, no browser login, no
+console step, no HTTP to fail. `register()` and `submit_order()` are the same two calls
+the API makes after it has finished authenticating somebody.
+
+That also makes provisioning idempotent and self-healing. `deskdb.register` keys on
+`(account, name)` and revives a retired row rather than creating a second, so this can
+call it on every single firing and the desk ends up with exactly one registration.
 
 `client_order_id` is derived from the strategy, the symbol and the SESSION DATE -- never
 from a clock, a counter or a random value. Run this twice in the same session, or retry
@@ -41,30 +52,27 @@ with a stable key, extra fires are free.
 
 Run::
 
-    python rotation_manager.py --dry-run        # decide and print, post nothing
-    python rotation_manager.py --status         # what the desk thinks we hold
+    python rotation_manager.py --dry-run        # decide and print, write nothing
+    python rotation_manager.py --status         # the registration and what it holds
     python rotation_manager.py                  # the real thing, gated on the window
     python rotation_manager.py --force          # decide now, whatever day it is
 
-`STOCKHUNT_API_KEY` and `STOCKHUNT_STRATEGY_ID` come from the environment, falling back to
-`.env.local` at the repo root. **The key is minted behind a browser login and the
-registration is made by a human in the console** -- this file never attempts either, per
-rule 3 of `/desk/agent.md`.
+No credentials. Run it from this directory as the user that owns the desk's state
+directory, which on the box is `stockhunt`.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
 import paper_config                                   # noqa: F401  (path bootstrap)
 import td_live
+from stockhunt import deskdb
 from stockhunt import rotation as sh_rotation
 from stockhunt.sessions import fold_sessions, session_of
 
@@ -78,66 +86,75 @@ LOOKBACK = sh_rotation.LOOKBACK
 # 78 bars a session x ~90 sessions. Vendor caps a single request well above this.
 SIGNAL_BARS = 5000
 
-API_BASE = os.environ.get("STOCKHUNT_API", "https://srv1903626.hstgr.cloud")
-TIMEOUT = 30
+# Account 00 is the house. `kind="member"` because the desk must trade this ON INSTRUCTION
+# -- a rotation picks one name out of a basket by comparing them, which no per-symbol rule
+# can express, so there is nothing for a `book` or `house_rule` to run. The desk supplies
+# the book, the fills and the record; this supplies the decision.
+ACCOUNT = "00"
+NAME = "rotation-etf-1d"
+STRATEGY_ID = f"str_{ACCOUNT}_{NAME}"
+CAPITAL = 100_000.0
+BENCHMARK = "SPY"
+
+DESK_DB = Path(paper_config.HERE if hasattr(paper_config, "HERE")
+               else Path(__file__).resolve().parent) / "state" / "desk.db"
+LIVE_JSON = Path(paper_config.PUBLISH_DIR) / "live.json" if getattr(
+    paper_config, "PUBLISH_DIR", "") else None
 
 
-# --------------------------------------------------------------------- credentials
+# ------------------------------------------------------------------- the ledger
 
 
-def _env_file() -> dict:
-    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        ".env.local")
-    out = {}
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                if "=" in line and not line.lstrip().startswith("#"):
-                    k, _, v = line.partition("=")
-                    out[k.strip()] = v.strip().strip('"').strip("'")
-    return out
+def open_ledger() -> None:
+    """Point `deskdb` at the desk's own database. Must precede every other call here."""
+    deskdb.use(DESK_DB)
 
 
-def credentials() -> tuple[str, str]:
-    env = _env_file()
-    key = os.environ.get("STOCKHUNT_API_KEY") or env.get("STOCKHUNT_API_KEY")
-    sid = os.environ.get("STOCKHUNT_STRATEGY_ID") or env.get("STOCKHUNT_STRATEGY_ID")
-    if not key or not sid:
-        raise SystemExit(
-            "STOCKHUNT_API_KEY and STOCKHUNT_STRATEGY_ID must be set (environment or "
-            ".env.local at the repo root).\n"
-            "Both come from the console: register the strategy at "
-            f"{API_BASE}/console and mint a key there. Neither can be created from a "
-            "script -- see rule 3 and rule 5 of /desk/agent.md.")
-    return key, sid
+def ensure_registered() -> dict:
+    """Make sure the desk has a live registration for this strategy, and return it.
 
-
-# ----------------------------------------------------------------------- the api
-
-
-def call(method: str, path: str, key: str, body: dict | None = None) -> tuple[int, dict]:
-    """One HTTP call. Returns `(status, payload)` and raises only on transport failure.
-
-    A non-2xx is returned rather than raised because the contract puts meaning in the
-    body: `409` carries the existing order, `422` carries the reason a registration does
-    not cover a symbol. Turning those into exceptions loses the half that explains itself.
+    Called on every firing rather than once at install time. `deskdb.register` keys on
+    `(account, name)`: an existing live row comes back untouched, and a row somebody
+    retired is REVIVED with the same `strategy_id`, so the record continues as one track
+    rather than restarting. There is therefore no provisioning step to forget, and no way
+    to end up with two books quietly splitting the capital.
     """
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        f"{API_BASE}{path}", data=data, method=method,
-        headers={"Authorization": f"Bearer {key}",
-                 "Content-Type": "application/json",
-                 "User-Agent": "stockhunt-rotation-manager/1"})
+    reg = deskdb.register(
+        ACCOUNT, NAME, ASSET_CLASS, BASKET, "1d", CAPITAL,
+        kind="member", benchmark=BENCHMARK, allow_short=False)
+    return reg
+
+
+def desk_view() -> dict:
+    """`{cash, equity, holdings{symbol: units}}` as the DESK believes them.
+
+    Read from the `live.json` the desk publishes, not remembered locally. A manager that
+    keeps its own idea of the book will eventually disagree with the desk about it --
+    after a rejected order, a restart or a partial fill -- and every order after that
+    compounds the error.
+
+    An empty view is a real answer, not a failure: before the desk has picked the
+    registration up there is nothing to hold, and `rebalance` sizes off `CAPITAL` in that
+    case rather than refusing to open the first position.
+    """
+    out = {"cash": None, "equity": None, "holdings": {}, "seen": False}
+    if LIVE_JSON is None or not LIVE_JSON.exists():
+        return out
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            raw = r.read().decode() or "{}"
-            return r.status, json.loads(raw)
-    except urllib.error.HTTPError as exc:
-        raw = exc.read().decode() or "{}"
-        try:
-            return exc.code, json.loads(raw)
-        except json.JSONDecodeError:
-            return exc.code, {"detail": raw[:400]}
+        doc = json.loads(LIVE_JSON.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return out
+    for s_ in doc.get("strategies") or []:
+        if s_.get("id", "").endswith(f":{NAME}") or s_.get("id") == STRATEGY_ID:
+            out["seen"] = True
+            out["cash"] = s_.get("cash")
+            out["equity"] = s_.get("equity")
+            for h in s_.get("holdings") or []:
+                u = float(h.get("units") or 0.0)
+                if abs(u) > 1e-9:
+                    out["holdings"][h["symbol"]] = u
+            break
+    return out
 
 
 # --------------------------------------------------------------------- the signal
@@ -250,74 +267,71 @@ def _next_session(local: pd.Timestamp):
 # --------------------------------------------------------------------- the orders
 
 
-def holdings(key: str, sid: str) -> dict[str, float]:
-    """What the desk believes this strategy holds, per symbol.
+def order_id(symbol: str, session: str) -> str:
+    """`rot-<symbol>-<session>`. Stable across every retry within a session.
 
-    Read back from the desk rather than remembered locally. A manager that keeps its own
-    idea of the book will eventually disagree with the desk about it -- after a rejected
-    order, a restart, or a partial fill -- and every subsequent order compounds the error.
+    Derived from the SESSION DATE and nothing else that moves. `deskdb.submit_order`
+    returns `created=False` for a repeat, so the timer firing five times inside the
+    decision window places one order, not five. This is the only defect in this file that
+    could cost money silently, which is why the gate pins it.
     """
-    status, body = call("GET", f"/v1/strategies/{sid}", key)
-    if status != 200:
-        raise SystemExit(f"GET /v1/strategies/{sid} -> {status}: "
-                         f"{body.get('detail') or body}")
-    out = {}
-    for h in (body.get("holdings") or []):
-        qty = float(h.get("qty") or h.get("units") or 0.0)
-        if abs(qty) > 1e-9:
-            out[h["symbol"]] = qty
-    return out
+    return f"rot-{symbol}-{session}"
 
 
-def order_id(sid: str, symbol: str, session: str) -> str:
-    """`rot-<strategy>-<symbol>-<session>`. Stable across every retry within a session."""
-    return f"rot-{sid}-{symbol}-{session}"
-
-
-def place(key: str, sid: str, symbol: str, side: str, qty: float,
-          session: str, dry: bool) -> dict:
-    body = {"strategy_id": sid, "client_order_id": order_id(sid, symbol, session),
-            "symbol": symbol, "side": side, "qty": round(float(qty), 6),
-            "type": "market", "tif": "day"}
+def place(symbol: str, side: str, qty: float, session: str, dry: bool) -> bool:
+    coid = order_id(symbol, session)
     if dry:
-        print(f"    DRY  {side:4s} {qty:>12.4f} {symbol}   "
-              f"client_order_id={body['client_order_id']}")
-        return {"state": "dry-run"}
-    status, out = call("POST", "/v1/orders", key, body)
-    tag = {200: "already sent", 202: "accepted"}.get(status, f"HTTP {status}")
-    print(f"    {tag:12s} {side:4s} {qty:>12.4f} {symbol}"
-          + (f"   reason={out.get('reason') or out.get('detail')}"
-             if status not in (200, 202) else ""))
-    return out
+        print(f"    DRY   {side:4s} {qty:>12.4f} {symbol}   client_order_id={coid}")
+        return True
+    _, created = deskdb.submit_order(
+        ACCOUNT, STRATEGY_ID, coid, action="new", symbol=symbol,
+        side=side, qty=float(qty), order_type="market", tif="day")
+    print(f"    {'queued' if created else 'already sent':13s} {side:4s} "
+          f"{qty:>12.4f} {symbol}   {coid}")
+    return created
 
 
-def rebalance(key: str, sid: str, winner: str, prices: dict[str, float],
-              session: str, dry: bool) -> None:
+def rebalance(winner: str, prices: dict, session: str, dry: bool) -> None:
     """Sell everything that is not the winner, then buy the winner with the proceeds.
 
-    Sells first and in one pass, because the desk drains strictly in `seq` order: a buy
-    queued ahead of the sell that funds it is refused for want of cash, and the month is
-    then spent in the wrong name. Ordering here is cheaper than reconciling there.
+    Sells go in first and in one pass, because `desk_control` drains strictly in `seq`
+    order: a buy queued ahead of the sell that funds it is refused for want of cash, and
+    the month is then spent in the wrong name. Ordering here is cheaper than reconciling
+    there.
     """
-    held = holdings(key, sid)
+    view = desk_view()
+    held = view["holdings"]
+    if held:
+        print(f"    desk holds: " + ", ".join(f"{k} {v:.4f}" for k, v in sorted(held.items())))
+    elif not view["seen"]:
+        print("    the desk has not published this strategy yet -- first run, sizing off "
+              f"${CAPITAL:,.0f}")
+
     for symbol, qty in sorted(held.items()):
         if symbol != winner and qty > 0:
-            place(key, sid, symbol, "sell", qty, session, dry)
-    if winner in held and held[winner] > 0:
-        print(f"    hold  {winner} -- already the pick, nothing to do")
+            place(symbol, "sell", qty, session, dry)
+
+    if held.get(winner, 0.0) > 0:
+        print(f"    hold  {winner} -- already the pick, nothing to buy")
         return
+
     px = prices.get(winner)
     if not px or px <= 0:
         print(f"    SKIP  no price for {winner}; not sizing an order blind")
         return
-    equity = sum(prices.get(s, 0.0) * q for s, q in held.items())
-    status, body = call("GET", f"/v1/strategies/{sid}", key)
-    cash = float((body or {}).get("cash") or 0.0) if status == 200 else 0.0
-    budget = (cash + equity) * 0.98        # the same 2% buffer the house books keep
+    # Equity, not cash: the sells above are queued but not filled, so the cash they will
+    # release is still sitting in the names being sold. Sizing off cash alone would buy a
+    # sliver on the first rotation of every month and leave the rest idle.
+    equity = view["equity"]
+    if equity is None:
+        equity = CAPITAL if not held else (
+            float(view["cash"] or 0.0)
+            + sum(prices.get(s_, 0.0) * q for s_, q in held.items()))
+    budget = float(equity) * 0.98        # the same 2% buffer the house books keep
     if budget <= 0:
         print("    SKIP  no equity reported yet; the desk may still be warming up")
         return
-    place(key, sid, winner, "buy", budget / px, session, dry)
+    place(winner, "buy", budget / px, session, dry)
 
 
 # ------------------------------------------------------------------------ cli
@@ -326,32 +340,43 @@ def rebalance(key: str, sid: str, winner: str, prices: dict[str, float],
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--dry-run", action="store_true", help="decide and print, post nothing")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="decide and print; register but queue no orders")
     ap.add_argument("--force", action="store_true",
                     help="skip the last-trading-day and window checks")
     ap.add_argument("--status", action="store_true",
-                    help="show the desk's view of this strategy and exit")
+                    help="show the registration and what the desk holds, then exit")
     args = ap.parse_args()
 
-    if args.status:
-        key, sid = credentials()
-        status, body = call("GET", f"/v1/strategies/{sid}", key)
-        print(json.dumps(body, indent=2)[:4000])
-        return 0 if status == 200 else 1
+    open_ledger()
 
-    # The window is checked BEFORE the credentials, and the order matters operationally.
-    # The timer fires ~36 times a day and all but a handful are outside the window; asking
-    # for credentials first would turn every one of those into a unit failure on a box
-    # where the key has not been pasted in yet, and a service that alerts constantly is a
-    # service nobody reads. Missing credentials are only a failure when they actually
-    # stopped a trade -- which is exactly when this returns nonzero.
+    if args.status:
+        reg = deskdb.registration(STRATEGY_ID, ACCOUNT)
+        print(json.dumps(reg, indent=2, default=str) if reg else
+              f"{STRATEGY_ID}: not registered yet (any run registers it)")
+        view = desk_view()
+        print(f"desk view: cash={view['cash']} equity={view['equity']} "
+              f"holdings={view['holdings'] or '{}'}"
+              + ("" if view["seen"] else "   (not published yet)"))
+        recent = deskdb.orders(ACCOUNT, strategy_id=STRATEGY_ID)[-8:]
+        for o in recent:
+            print(f"  seq {o['seq']:<5} {o['side'] or '':4s} {str(o['qty'] or ''):>14s} "
+                  f"{o['symbol'] or '':6s} {o['state']:9s} {o.get('reason') or ''}")
+        return 0
+
+    # The window is checked BEFORE anything is written. The timer fires ~36 times a day
+    # and all but a handful are outside it; a firing at 10am should cost one journal line
+    # and touch nothing.
     ok, why = is_decision_time()
     print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%SZ}] {why}")
     if not ok and not args.force:
         return 0
     if not ok:
         print("  --force: deciding anyway")
-    key, sid = credentials()
+
+    reg = ensure_registered()
+    print(f"  registration {reg['strategy_id']}: state={reg['state']} want={reg['want']}"
+          + (f"  desk says: {reg['reason']}" if reg.get("reason") else ""))
 
     winner, table = decide()
     print(table.to_string(index=False, float_format=lambda x: f"{x:10.4f}"))
@@ -364,7 +389,7 @@ def main() -> int:
     print(f"  pick: {winner}   session {session}")
 
     prices = td_live.fetch_prices(BASKET) or {}
-    rebalance(key, sid, winner, prices, session, args.dry_run)
+    rebalance(winner, prices, session, args.dry_run)
     return 0
 
 

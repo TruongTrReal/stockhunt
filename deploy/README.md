@@ -31,34 +31,25 @@ firings inside the window are deliberate and free: `client_order_id` is derived 
 session date, so a retry after a network error returns the first order instead of opening a
 second position.
 
-**It needs credentials that only a human can create.** `/desk/agent.md` rule 3: registration
-is a deliberate act performed in the console, and API keys are minted only behind a browser
-login. So:
+**No credentials, and no console step.** It writes to `paper trading engine/state/desk.db`
+directly -- the same ledger `api_orders` writes to and `desk_control` drains. The HTTP API
+exists so a manager who is *not* on this box can reach that ledger; this one is on it. The
+registration is created by the manager itself on its first firing and `deskdb.register` is
+idempotent on `(account, name)`, so there is no provisioning step to forget and no way to
+end up with two books splitting the capital.
 
 ```bash
-# 1. In the browser, at https://srv1903626.hstgr.cloud/console
-#      register a strategy:  class us_etfs, tf 1d, symbols QQQ IWM XLK TLT
-#      mint a key for it
-# 2. On the box, paste both in:
-cat > /opt/stockhunt/deploy/rotation.env <<'EOF'
-STOCKHUNT_API_KEY=sk_live_...
-STOCKHUNT_STRATEGY_ID=str_..._...
-EOF
-chmod 600 /opt/stockhunt/deploy/rotation.env
-chown stockhunt:stockhunt /opt/stockhunt/deploy/rotation.env
-
-# 3. Prove it before letting the timer touch anything
-sudo -u stockhunt /opt/stockhunt/.venv/bin/python   "/opt/stockhunt/paper trading engine/rotation_manager.py" --status
-sudo -u stockhunt /opt/stockhunt/.venv/bin/python   "/opt/stockhunt/paper trading engine/rotation_manager.py" --force --dry-run
-
-# 4. Only then
+cd "/opt/stockhunt/paper trading engine"
+# decide now and print the orders without queuing them
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python rotation_manager.py --force --dry-run
+# the registration, the desk's view of the book, and the last few orders
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python rotation_manager.py --status
 systemctl enable --now stockhunt-rotation.timer
-systemctl list-timers stockhunt-rotation.timer
 ```
 
-`rotation.env` is **not** in this repo and must never be. Until it exists the unit runs and
-exits 0 outside the decision window, so an unconfigured box is quiet rather than alarming;
-inside the window it exits nonzero and says what is missing.
+**Run it as `stockhunt`, never as root.** The unit does, and a stray root run leaves a
+root-owned `desk.db-wal` beside a `stockhunt`-owned database, which the desk then cannot
+write to. That failure is silent until the next order.
 
 It needs one package the desk does not: `pandas_market_calendars`, for the exchange calendar
 that answers "is today the last trading day of the month". That question cannot be answered
