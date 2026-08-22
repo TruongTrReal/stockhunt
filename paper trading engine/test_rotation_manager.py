@@ -254,6 +254,15 @@ def test_window_refuses_outside() -> None:
         got, reason = RM.is_decision_time(at(local))
         check(f"{why} ({local}) -> {'fire' if want else 'skip'}", got == want, reason)
 
+    # The very first position is taken on the first available session rather than at the
+    # next month end -- the backtest is invested from day one, and three weeks of cash the
+    # research never had would sit in the forward record permanently. It must still respect
+    # the window, or a bootstrap run at 10am trades on a signal built from half a session.
+    got, reason = RM.is_decision_time(at("2026-08-28 15:50"), bootstrap=True)
+    check("bootstrap fires on a non-month-end inside the window", got is True, reason)
+    got, reason = RM.is_decision_time(at("2026-08-28 10:00"), bootstrap=True)
+    check("bootstrap still refuses outside the window", got is False, reason)
+
 
 def main() -> int:
     for t in (test_calendar_matches_real_sessions, test_fold_matches_the_desk,

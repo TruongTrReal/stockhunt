@@ -211,7 +211,18 @@ def decide() -> tuple[str | None, pd.DataFrame]:
 # ------------------------------------------------------------------- the schedule
 
 
-def is_decision_time(now: datetime | None = None) -> tuple[bool, str]:
+def never_traded() -> bool:
+    """Has this strategy ever put an order on the ledger?
+
+    Asked of the LEDGER, not of the published holdings. Holdings are empty both before the
+    first trade and before the desk has marked anything, and those are different states;
+    the order log distinguishes them without depending on the desk having caught up.
+    """
+    return not deskdb.orders(ACCOUNT, strategy_id=STRATEGY_ID)
+
+
+def is_decision_time(now: datetime | None = None,
+                     bootstrap: bool = False) -> tuple[bool, str]:
     """Is now inside the decision window of the last trading day of the month?
 
     Two conditions, and the second is the one that needs care. "Last trading day" cannot
@@ -229,6 +240,15 @@ def is_decision_time(now: datetime | None = None) -> tuple[bool, str]:
     close_at = decide_at + pd.Timedelta(minutes=DECIDE_LEAD_MIN)
     if local > close_at:
         return False, f"after the bell ({local:%H:%M} > {close_at:%H:%M} {tz})"
+
+    # THE FIRST POSITION IS TAKEN ON THE FIRST AVAILABLE SESSION, not at the next month
+    # end. The backtest is 100% invested from its first rebalance onward, so a live book
+    # that sits in cash for three weeks waiting for 31 August is not running the strategy
+    # that was scored -- it is running the strategy plus a cash stub the research never
+    # had, and the forward record would carry that difference forever. `never_traded`
+    # makes this fire exactly once in the strategy's life.
+    if bootstrap:
+        return True, f"opening position, {local:%H:%M} {tz} (never traded before)"
 
     # A calendar month-end that is not a session is exactly the source's bug, so the test
     # is "is there another session in this month", not "is today the 31st".
@@ -394,7 +414,8 @@ def main() -> int:
     # The window is checked BEFORE anything is written. The timer fires ~36 times a day
     # and all but a handful are outside it; a firing at 10am should cost one journal line
     # and touch nothing.
-    ok, why = is_decision_time()
+    first = never_traded()
+    ok, why = is_decision_time(bootstrap=first)
     print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%SZ}] {why}")
     if not ok and not args.force:
         return 0
