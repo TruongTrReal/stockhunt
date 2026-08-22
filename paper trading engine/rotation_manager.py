@@ -234,6 +234,14 @@ def is_decision_time(now: datetime | None = None,
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     tz, hh, mm = bell()
     local = pd.Timestamp(now).tz_convert(tz)
+
+    # Is today a session AT ALL? Nothing above asks this, and without it the arithmetic
+    # is perfectly happy to compute a decision instant for a Saturday: 15:45 exists on
+    # every date. The month-end branch hides the bug most of the time -- the next session
+    # after a Saturday is usually still in the same month -- but a month ending on a
+    # weekend, or any bootstrap run, would trade on a day the exchange was shut.
+    if not _is_session(local):
+        return False, f"{local.date()} is not a trading session"
     _, decide_at = session_of(pd.Timestamp(now), tz, hh, mm, DECIDE_LEAD_MIN)
     if local < decide_at:
         return False, f"before the window ({local:%H:%M} < {decide_at:%H:%M} {tz})"
@@ -260,6 +268,22 @@ def is_decision_time(now: datetime | None = None,
     return True, f"last trading day, {local:%H:%M} {tz}, bell at {close_at:%H:%M}"
 
 
+def _sessions_between(a, b):
+    """NYSE session dates in `[a, b]`, or None if the calendar is unavailable."""
+    try:
+        import pandas_market_calendars as mcal
+        days = mcal.get_calendar("NYSE").valid_days(start_date=a, end_date=b)
+        return {pd.Timestamp(d).tz_localize(None).normalize().date() for d in days}
+    except Exception:
+        return None
+
+
+def _is_session(local: pd.Timestamp) -> bool:
+    """Is `local`'s own date a NYSE session? None from the calendar means no, not maybe."""
+    days = _sessions_between(local.date(), local.date())
+    return bool(days) and local.date() in days
+
+
 def _next_session(local: pd.Timestamp):
     """The next US equity session date after `local`, or None if it cannot be determined.
 
@@ -272,16 +296,9 @@ def _next_session(local: pd.Timestamp):
     None is a refusal to guess. The caller treats it as "not the last trading day" and
     skips, because trading a wrongly-inferred month end is worse than missing one.
     """
-    try:
-        import pandas_market_calendars as mcal
-        cal = mcal.get_calendar("NYSE")
-        days = cal.valid_days(start_date=(local + pd.Timedelta(days=1)).date(),
-                              end_date=(local + pd.Timedelta(days=12)).date())
-        if not len(days):
-            return None
-        return pd.Timestamp(days[0]).tz_localize(None).normalize().date()
-    except Exception:
-        return None
+    days = _sessions_between((local + pd.Timedelta(days=1)).date(),
+                             (local + pd.Timedelta(days=12)).date())
+    return min(days) if days else None
 
 
 # --------------------------------------------------------------------- the orders

@@ -249,7 +249,16 @@ def test_window_refuses_outside() -> None:
              ("2026-08-31 15:45", True, "the decision instant"),
              ("2026-08-31 15:59", True, "inside the window"),
              ("2026-08-31 16:30", False, "after the bell"),
-             ("2026-08-28 15:50", False, "a Friday that is not month end")]
+             ("2026-08-28 15:50", False, "a Friday that is not month end"),
+             # 2026-08-22 is a Saturday. Nothing in the window arithmetic notices a
+             # weekend on its own -- 15:45 exists on every date -- so without an explicit
+             # session check this fires on a day the exchange is shut.
+             ("2026-08-22 15:50", False, "a Saturday"),
+             ("2026-08-23 15:50", False, "a Sunday"),
+             # Thanksgiving 2025: a Thursday with no session. A weekday test alone
+             # would trade it, and 3 July is NOT the example to use here -- the NYSE
+             # runs a half session that day.
+             ("2025-11-27 15:50", False, "a weekday market holiday")]
     for local, want, why in cases:
         got, reason = RM.is_decision_time(at(local))
         check(f"{why} ({local}) -> {'fire' if want else 'skip'}", got == want, reason)
@@ -260,6 +269,8 @@ def test_window_refuses_outside() -> None:
     # the window, or a bootstrap run at 10am trades on a signal built from half a session.
     got, reason = RM.is_decision_time(at("2026-08-28 15:50"), bootstrap=True)
     check("bootstrap fires on a non-month-end inside the window", got is True, reason)
+    got, reason = RM.is_decision_time(at("2026-08-22 15:50"), bootstrap=True)
+    check("bootstrap does NOT fire on a Saturday", got is False, reason)
     got, reason = RM.is_decision_time(at("2026-08-28 10:00"), bootstrap=True)
     check("bootstrap still refuses outside the window", got is False, reason)
 
