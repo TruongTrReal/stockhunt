@@ -267,28 +267,55 @@ def _next_session(local: pd.Timestamp):
 # --------------------------------------------------------------------- the orders
 
 
-def order_id(symbol: str, session: str) -> str:
-    """`rot-<symbol>-<session>`. Stable across every retry within a session.
+# A rejection is retried at most this many times within one session. Bounded because an
+# unbounded retry against a desk that keeps refusing is a loop that fills the ledger with
+# identical dead orders, and the reason it refuses (no price yet, insufficient cash) is
+# usually not something another attempt fixes inside fifteen minutes.
+MAX_ATTEMPTS = 4
 
-    Derived from the SESSION DATE and nothing else that moves. `deskdb.submit_order`
-    returns `created=False` for a repeat, so the timer firing five times inside the
-    decision window places one order, not five. This is the only defect in this file that
-    could cost money silently, which is why the gate pins it.
+
+def order_id(symbol: str, session: str, attempt: int = 0) -> str:
+    """`rot-<symbol>-<session>[-r<n>]`. Stable across every retry within a session.
+
+    Derived from the SESSION DATE and nothing else that moves, so the timer firing five
+    times inside the decision window places one order rather than five. This is the only
+    defect in this file that could cost money silently, which is why the gate pins it.
+
+    `attempt` exists for exactly one case: an order the desk REJECTED. See `place`.
     """
-    return f"rot-{symbol}-{session}"
+    return f"rot-{symbol}-{session}" + (f"-r{attempt}" if attempt else "")
 
 
 def place(symbol: str, side: str, qty: float, session: str, dry: bool) -> bool:
-    coid = order_id(symbol, session)
-    if dry:
-        print(f"    DRY   {side:4s} {qty:>12.4f} {symbol}   client_order_id={coid}")
-        return True
-    _, created = deskdb.submit_order(
-        ACCOUNT, STRATEGY_ID, coid, action="new", symbol=symbol,
-        side=side, qty=float(qty), order_type="market", tif="day")
-    print(f"    {'queued' if created else 'already sent':13s} {side:4s} "
-          f"{qty:>12.4f} {symbol}   {coid}")
-    return created
+    """Queue one order, and treat a rejection as retryable while a fill is not.
+
+    The naive version of idempotency loses a month. `submit_order` returns the prior row
+    for a known `client_order_id` whatever state it is in -- so an order the desk refused
+    at 15:45 ("no price for QQQ yet") would be "already sent" at 15:50, 15:55 and 16:00,
+    and this strategy trades twelve times a year. One refusal, one month gone.
+
+    So a terminal REJECTION earns a fresh id under the same session; anything live or
+    filled blocks, which is the property that actually matters. `MAX_ATTEMPTS` bounds it,
+    because a desk that has refused four times is not going to be talked round.
+    """
+    for attempt in range(MAX_ATTEMPTS):
+        coid = order_id(symbol, session, attempt)
+        if dry:
+            print(f"    DRY   {side:4s} {qty:>12.4f} {symbol}   client_order_id={coid}")
+            return True
+        prior, created = deskdb.submit_order(
+            ACCOUNT, STRATEGY_ID, coid, action="new", symbol=symbol,
+            side=side, qty=float(qty), order_type="market", tif="day")
+        if created:
+            print(f"    queued        {side:4s} {qty:>12.4f} {symbol}   {coid}")
+            return True
+        if (prior or {}).get("state") != "rejected":
+            print(f"    already sent  {side:4s} {qty:>12.4f} {symbol}   {coid}  "
+                  f"state={(prior or {}).get('state')}")
+            return False
+        print(f"    rejected      {coid}: {(prior or {}).get('reason')} -- retrying")
+    print(f"    GIVING UP on {symbol} after {MAX_ATTEMPTS} rejections this session")
+    return False
 
 
 def rebalance(winner: str, prices: dict, session: str, dry: bool) -> None:

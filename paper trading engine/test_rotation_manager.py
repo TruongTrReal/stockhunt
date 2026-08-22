@@ -190,6 +190,22 @@ def test_ledger_roundtrip() -> None:
         check("the retry is collapsed, not duplicated", again is False)
         rows = deskdb.orders(RM.ACCOUNT, strategy_id=RM.STRATEGY_ID)
         check("exactly one row in the ledger", len(rows) == 1, f"{len(rows)} rows")
+
+        # A REJECTION must not block the session. Without this a single refusal at 15:45
+        # ("no price yet") costs the whole month, because every later firing in the window
+        # sees the same client_order_id and reports "already sent".
+        deskdb.mark_order(rows[0]["seq"], "rejected", reason="no price for QQQ yet")
+        after = RM.place("QQQ", "buy", 12.5, "20260831", dry=False)
+        rows2 = deskdb.orders(RM.ACCOUNT, strategy_id=RM.STRATEGY_ID)
+        check("a rejected order is retried under a fresh id", after is True,
+              f"{len(rows2)} rows now")
+        check("and the retry is a second row, not an overwrite", len(rows2) == 2,
+              f"{len(rows2)}")
+        # A FILLED order must still block, which is the property that protects the book.
+        deskdb.mark_order(rows2[-1]["seq"], "filled", filled_qty=12.5, avg_price=400.0)
+        blocked = RM.place("QQQ", "buy", 12.5, "20260831", dry=False)
+        check("a filled order still blocks", blocked is False,
+              f"{len(deskdb.orders(RM.ACCOUNT, strategy_id=RM.STRATEGY_ID))} rows")
     finally:
         deskdb.close()
         RM.DESK_DB = real
