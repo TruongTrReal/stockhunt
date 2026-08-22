@@ -2816,7 +2816,8 @@ function paintConversions() {
     const body = host.querySelector("#lb-body");
     body.innerHTML = convOrder(sh, bench, convSort).map(e => e.bench
       ? convBenchRow(bench, cols, sh)
-      : `<tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${slug(e.row.rule)}">${
+      : `<tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${
+          slug(e.row.key || e.row.rule)}">${
           cols.map(c2 => c2.cell(e.row, sh)).join("")}</tr>`).join("");
     host.querySelectorAll("th[data-doc]").forEach(th => {
       const on = convSort && convSort.i === Number(th.dataset.doc);
@@ -3556,10 +3557,11 @@ const convFacetWords = r => {
 
 /* Every other cell of the same base strategy on this sheet, so the facets can be compared
  * instead of asserted. Ranked by the same key the board is. */
-const convSiblings = (sh, r) => sh.rows.filter(x => x.base === r.base && x.rule !== r.rule);
+const convSiblings = (sh, r) => sh.rows.filter(
+  x => x.base === r.base && (x.key || x.rule) !== (r.key || r.rule));
 
 const convSibRow = (sh, x) => `
-  <tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${slug(x.rule)}">
+  <tr data-go="#/backtest/conv/${bf.cls}/${sh.timeframe}/${slug(x.key || x.rule)}">
     <td class="l">${convChips(x) || '<span class="mut">as published, long only</span>'}</td>
     <td>${pctOr(bookExposure(x))}</td>
     <td>${fmtNum(x.book.sharpe, 3)}</td>
@@ -3570,7 +3572,7 @@ const convSibRow = (sh, x) => `
 function convDetail(cls, tf, ruleSlug) {
   const g = convGroupOf(cls);
   const sh = g && g.sheets.find(x => x.timeframe === tf);
-  const r = sh && sh.rows.find(x => slug(x.rule) === ruleSlug);
+  const r = sh && sh.rows.find(x => slug(x.key || x.rule) === ruleSlug);
   if (!r) return (location.hash = "#/backtest/conversions");
   bf.board = "conv"; bf.cls = cls; bf.tf = tf;
 
@@ -3655,7 +3657,8 @@ async function paintConvCurve(cls, tf, r) {
   const data = await loadCurves(`conv_${cls}_${tf}`);
   if (document.getElementById("curve-host") !== host) return;   // navigated away
 
-  if (!data || data.__error || !data[r.rule]) {
+  const ck = r.key || r.rule;
+  if (!data || data.__error || !data[ck]) {
     /* Not a fault, and worth saying which of the two it is. The daily sheets have curves;
      * the minute sheets are being re-scored, and that re-score is measured in hours
      * because its cost is set by bar count -- the runs that produced those CSVs took 36
@@ -3668,7 +3671,7 @@ async function paintConvCurve(cls, tf, r) {
     return;
   }
 
-  const c = data[r.rule];
+  const c = data[ck];
   const idxs = curveIndexes(c);
   const drawn = idxs.filter(i => i && i.curve && i.curve.length).slice(0, CHART_INDEXES);
   const eq = equitySection(c, r, drawn, drawn.map(i => esc(i.symbol || "index")),

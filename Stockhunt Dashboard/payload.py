@@ -1525,9 +1525,14 @@ def _conv_rows(files: list[str], eod: str | None = None) -> tuple[dict, dict | N
             f = _conv_facets(label)
             if f["base"] not in CONVERSION_NAMES:
                 continue
-            key = f"{label}|{eod or ''}"
+            # The `_flat` sheets carry the SAME rule labels as their held-overnight
+            # twins -- the variant is a run flag (`--flatten-eod`), not a different
+            # label -- so the label alone is not an identity. Two rows sharing one
+            # would collide in the URL slug and in the curve lookup, and `.find()`
+            # would hand both detail pages the first of the pair.
+            key = f"{label}|flat" if eod == "flat" else label
             if key not in rows:
-                rows[key] = {"rule": label, "source": name, "eod": eod,
+                rows[key] = {"rule": label, "key": key, "source": name, "eod": eod,
                              "book": _book_record(r), **f}
         # Every scored row carries the sheet's benchmark, so a sheet whose controls were
         # not re-run still has one. Leaving it null would blank the line the whole table is
@@ -1626,15 +1631,30 @@ def _conv_selection() -> dict | None:
 _CONV_CURVE_CACHE: dict[tuple, set] = {}
 
 
+def _conv_curve_json(cls: str, tf: str) -> dict:
+    """Both overnight variants' curves, merged under the ROW's identity.
+
+    `--flatten-eod` re-runs the same labels, so its curves land in their own file under
+    their own stem and would otherwise collide key-for-key with the held-overnight ones.
+    Suffixing `|flat` here is what makes one published file per (group, timeframe) able to
+    carry both, and it is the same key `_conv_rows` puts on the row.
+    """
+    out: dict = {}
+    for stem, suffix in (("convert_curves", ""), ("convert_curves_flat", "|flat")):
+        p = BM / f"{stem}_{cls}_{tf}.json"
+        try:
+            for rule, payload_ in json.loads(p.read_text(encoding="utf-8")).items():
+                out[f"{rule}{suffix}"] = payload_
+        except (OSError, ValueError):
+            continue
+    return out
+
+
 def _conv_curve_rules(cls: str, tf: str) -> set:
-    """Which rules `run_convert_curves.sh` has written an equity series for."""
+    """Which rows `run_convert_curves.sh` has written an equity series for."""
     key = (cls, tf)
     if key not in _CONV_CURVE_CACHE:
-        p = BM / f"convert_curves_{cls}_{tf}.json"
-        try:
-            _CONV_CURVE_CACHE[key] = set(json.loads(p.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
-            _CONV_CURVE_CACHE[key] = set()
+        _CONV_CURVE_CACHE[key] = set(_conv_curve_json(cls, tf))
     return _CONV_CURVE_CACHE[key]
 
 
@@ -1653,11 +1673,10 @@ def copy_conv_curves(shown: dict, write: bool = True) -> dict:
     index = {}
     for key, cls, _label, _u in GROUPS:
         for tf in _CONV_TF_ORDER:
-            src = BM / f"convert_curves_{cls}_{tf}.json"
-            if not src.exists():
+            if not (BM / f"convert_curves_{cls}_{tf}.json").exists()                and not (BM / f"convert_curves_flat_{cls}_{tf}.json").exists():
                 continue
             k = f"conv_{key}_{tf}"
-            all_rules = json.loads(src.read_text(encoding="utf-8"))
+            all_rules = _conv_curve_json(cls, tf)
             keep = _reachable(all_rules, shown.get(k))
             dst = out / f"{k}.json"
             if write:
@@ -1704,10 +1723,15 @@ def conversion_sheets() -> dict:
         if not m:                    # the fill / grid / pilot re-runs, handled as checks
             continue
         cls, tf = m.group("cls"), m.group("tf")
-        if (cls, tf) in rebuilt:
+        flat = "_flat" in m.group("tail")
+        # A rebuilt cell supersedes the sheets it re-scored -- but ONLY the held-overnight
+        # ones. `--flatten-eod` is a separate run of the same labels and the rebuild does
+        # not carry it, so dropping these on the strength of the rebuild would quietly
+        # shrink the sheet by 28 cells. They keep their old rows and simply have no curve,
+        # which is a state the board already renders.
+        if (cls, tf) in rebuilt and not flat:
             continue
-        add(cls, tf, [path.name],
-            eod="flat" if "_flat" in m.group("tail") else "hold")
+        add(cls, tf, [path.name], eod="flat" if flat else "hold")
 
     checks: dict[tuple, list[dict]] = {}
     for key, title, note, files in _CONV_CHECKS:
@@ -1734,7 +1758,11 @@ def conversion_sheets() -> dict:
             # an empty chart is worse than one that says there is nothing to draw.
             have = _conv_curve_rules(cls, tf)
             for e in ranked:
-                e["curve"] = e["rule"] in have
+                # Keyed on the row's identity, so a flattened twin cannot inherit its
+                # held-overnight partner's chart. The rebuild carries the held variant
+                # only, so `|flat` rows are correctly chartless until a flattened pass
+                # is run.
+                e["curve"] = e["key"] in have
             n_beat = sum(1 for e in ranked if (e["book"].get("cm_excess_cagr") or 0) > 0)
             total += len(ranked)
             beat += n_beat
@@ -1806,7 +1834,8 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
     # `conversion_sheets` so both boards' publishing happens in one place and neither can
     # quietly stop writing while the index still claims the files exist.
     conversions = conversion_sheets()
-    conv_shown = {f"conv_{key}_{s['timeframe']}": {r["rule"] for r in s["rows"]}
+    conv_shown = {f"conv_{key}_{s['timeframe']}": {r.get("key") or r["rule"]
+                                                    for r in s["rows"]}
                   for key, g in conversions["groups"].items() for s in g["sheets"]}
     curves_index.update(copy_conv_curves(conv_shown, write=copy_curve_files))
     payload = {

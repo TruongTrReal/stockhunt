@@ -29,11 +29,20 @@ PY=../.venv/Scripts/python
 mkdir -p logs results
 TFS=${*:-1d}
 
-# `run_sheet <class> <tf>`: rebuild the sheet from whatever the board already reads.
+# THE `_flat` SHEETS ARE A SECOND RUN OF THE SAME LABELS, not a different rule set.
+# `run_intraday_ha.sh` produces them by re-running the identical `--rules` list under
+# `--flatten-eod`, so the variant lives in the FLAGS and in the CSV name, never in the
+# label. Collapsing a cell into one pass therefore drops every flattened cell silently --
+# 28 per intraday sheet -- while the sheet still looks complete. `run_sheet` takes the
+# variant so both passes run, each with its own `--out` and its own `--curves-out`.
+#
+# `run_sheet <class> <tf> <suffix> [extra portfolio_wf flags...]`
 run_sheet () {
-    local cls=$1 tf=$2
-    local out="convert_book_${cls}_${tf}.csv"
-    local log="logs/convert_curves_${cls}_${tf}.log"
+    local cls=$1 tf=$2 sfx=$3
+    shift 3
+    local out="convert_book_${cls}_${tf}${sfx}.csv"
+    local log="logs/convert_curves_${cls}_${tf}${sfx}.log"
+    local stem="convert_curves${sfx}"
 
     # The rule union for this (class, timeframe), read off the sheets themselves.
     local rules
@@ -85,17 +94,24 @@ sys.exit(1)"; then
         pit="--pit"
     fi
 
-    echo "=== ${cls}/${tf}: $(echo $rules | wc -w) rules ${pit:-（no pit)} ==="
-    $PY -u portfolio_wf.py --class "$cls" --tf "$tf" $pit \
-        --rules $rules --curves --curves-out convert_curves --out "$out" \
+    echo "=== ${cls}/${tf}${sfx}: $(echo $rules | wc -w) rules ${pit:-(no pit)} $* ==="
+    $PY -u portfolio_wf.py --class "$cls" --tf "$tf" $pit "$@" \
+        --rules $rules --curves --curves-out "$stem" --out "$out" \
         > "$log" 2>&1
-    echo "=== done ${cls}/${tf} rc=$? -> results/$out ==="
+    echo "=== done ${cls}/${tf}${sfx} rc=$? -> results/$out ==="
     tail -n 3 "$log"
 }
 
 for tf in $TFS; do
     for cls in us_stocks us_etfs crypto commodities cme_futures; do
-        run_sheet "$cls" "$tf"
+        run_sheet "$cls" "$tf" ""
+        # The flattened twin, but only where the study actually produced one: 1d has no
+        # overnight to flatten, and a cell the HA study never reached has no flat sheet
+        # to reproduce. Keying on the source file keeps this in step with that study
+        # rather than inventing cells nobody scored.
+        if [ -s "results/convert_ha_${cls}_${tf}_flat.csv" ]; then
+            run_sheet "$cls" "$tf" "_flat" --flatten-eod
+        fi
     done
 done
 echo "=== all done ==="

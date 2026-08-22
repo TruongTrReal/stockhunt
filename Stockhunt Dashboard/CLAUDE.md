@@ -359,6 +359,21 @@ Four things to preserve:
   cell of the same base strategy on that sheet, differing only in the facets. That is the
   comparison the whole batch exists to make, and what stops one cell being quoted as "the
   strategy".
+- **A row's identity is `row.key`, not its rule label** (2026-08-21). The `_flat` sheets
+  are `run_intraday_ha.sh` re-running the *identical* `--rules` list under
+  `--flatten-eod`, so the overnight variant lives in the flags and the file name and
+  **never in the label** — one label names two rows on every intraday sheet. `key` is
+  `rule` or `rule|flat`, and it is what the URL slug, the curve lookup and
+  `copy_conv_curves`' cut all use; keying any of them on `rule` sends both detail pages to
+  whichever row `.find()` reaches first. Curves for the two passes are written under
+  separate stems (`convert_curves_*`, `convert_curves_flat_*`) and merged under that key
+  by `_conv_curve_json`, which is what lets one published file per (group, timeframe)
+  carry both.
+
+  The same trap bit the rebuild itself: `run_convert_curves.sh` originally collapsed a
+  cell into one pass, which silently dropped **28 flattened cells per intraday sheet**
+  while the sheet still looked complete. It now runs both passes, and a rebuilt cell
+  supersedes only the held-overnight sheets it actually re-scored.
 - **`row.curve` says whether a chart exists**, read off the curve file rather than assumed
   from the sheet. A cell whose re-score has not happened yet has a sheet and no curves, and
   the detail page says which of the two it is. Cost is set by bar count: the five daily
