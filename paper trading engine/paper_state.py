@@ -178,6 +178,19 @@ def _record_gap_if_any(sid: str, symbol: str | None, timeframe: str | None) -> N
     store.record_gap(sid, from_ts, to_ts, bench_pct)
 
 
+def unregister(sid: str) -> None:
+    """Drop a strategy from the working set and republish without it.
+
+    The board renders this registry, so a book retired at runtime must leave it — until
+    this existed a retired strategy stayed on the paper page, frozen at its last numbers,
+    from the moment it was retired until the next desk restart cleared the registry as a
+    side effect. Only the projection is touched: its fills, curve and gaps stay in the
+    store, which is what "retired, record kept" means.
+    """
+    if _strategies.pop(sid, None) is not None:
+        flush(force=True)
+
+
 def update(sid: str, **fields) -> None:
     """Merge live fields into a registered strategy.
 

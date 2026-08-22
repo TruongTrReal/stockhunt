@@ -484,6 +484,11 @@ class DeskController(Controller):
         # forward test somebody can erase is not a record, and a manager who could remove
         # a losing run could remove the evidence of it.
         self._trader.remove_strategy(strategy.id)
+        # The published projection is not the record: a retired book must leave the board
+        # rather than sit on it frozen until the next restart happens to clear it.
+        sid = getattr(strategy, "_sid", None)
+        if sid:
+            paper_state.unregister(sid)
         self.log.info(f"retired {rid}; its record is kept")
 
     # ------------------------------------------------------------------ orders
