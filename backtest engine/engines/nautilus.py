@@ -38,7 +38,8 @@ SIZE_PRECISION = 6
 # Bar spacing is declared truthfully so any time-aware machinery inside the engine sees
 # the right grid. It does not affect the arithmetic — bars are processed in sequence.
 BAR_SPEC = {
-    "1m": "1-MINUTE", "5m": "5-MINUTE", "15m": "15-MINUTE",
+    "1m": "1-MINUTE", "2m": "2-MINUTE", "3m": "3-MINUTE", "5m": "5-MINUTE",
+    "15m": "15-MINUTE", "30m": "30-MINUTE",
     "1h": "1-HOUR", "2h": "2-HOUR", "4h": "4-HOUR", "1d": "1-DAY",
 }
 

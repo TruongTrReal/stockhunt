@@ -67,6 +67,22 @@ GROUPS = [("stocks", "us_stocks", "Top 100 US stocks, point-in-time", bt_config.
           # therefore permanently empty for this class, which is the empty state's job.
           ("futures", "cme_futures", "26 CME contracts, screened on turnover and "
            "correlation", bt_config.CME_FUTURES)]
-TIMEFRAMES = ["1d", "4h"]
+# The research axis, coarse to fine. This list is what `payload.build` asks for sheets on
+# AND what the page's timeframe select offers (`D.timeframes` -> `btTimeframes()`), so a
+# timeframe with no sheet yet still gets an option and renders the empty state naming the
+# exact `walkforward.py` command — that is deliberate: the gap is visible instead of
+# unreachable. `payload.robustness_index` iterates this same list, so the robustness
+# matrix grows a column per timeframe the moment its `book_*.csv` lands.
+#
+# **Four, not seven** (2026-08-22, narrowed the same day it was widened). The finer
+# sizes — 30m, 5m, 3m, 1m — are FETCHABLE and stay defined in `config.WINDOWS`; they are
+# simply not part of the research program for now, so the board does not advertise four
+# columns nobody is running. Widening this list is the only edit needed to bring one
+# back; nothing else is keyed to the length.
+#
+# 15m is the floor on purpose: below it the vendor's ~6 years of intraday history buys
+# ever more bars of ever less independent information, and the Standard's fold count —
+# not the bar count — is what the verdict needs.
+TIMEFRAMES = ["1d", "4h", "1h", "15m"]
 BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
 TOP_N = 30                       # leaderboard depth; the tail is all worse, not different

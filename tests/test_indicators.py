@@ -97,6 +97,110 @@ def test_streak_is_causal(series):
     assert_causal(ind._streak, series)
 
 
+# ------------------------------------------------------------------------- _flip
+
+def test_flip_holds_its_side_and_never_goes_flat_after_the_first_signal():
+    """The distinction that matters against `_state_machine`: a Pine `strategy.entry`
+    on the opposing side REVERSES, it does not close to cash. A converted rule that
+    goes flat instead is out of the market for the whole of every downtrend."""
+    long_ = np.array([False, True, False, False, False, False])
+    short = np.array([False, False, False, True, False, False])
+    np.testing.assert_array_equal(ind._flip(long_, short),
+                                  [0.0, 1.0, 1.0, -1.0, -1.0, -1.0])
+
+
+def test_flip_starts_flat_before_any_signal():
+    none = np.zeros(4, dtype=bool)
+    np.testing.assert_array_equal(ind._flip(none, none), np.zeros(4))
+
+
+def test_flip_gives_a_same_bar_tie_to_the_long_side():
+    """Same convention as `_state_machine`, so the two agree on what a tie means."""
+    both = np.array([False, True, False])
+    np.testing.assert_array_equal(ind._flip(both, both), [0.0, 1.0, 1.0])
+
+
+def test_flip_is_causal(series):
+    up = np.append(False, series[1:] > series[:-1])
+    down = np.append(False, series[1:] < series[:-1])
+    full = ind._flip(up, down)
+    short = ind._flip(up[:-TRUNCATE], down[:-TRUNCATE])
+    np.testing.assert_array_equal(full[:len(short)], short)
+
+
+# ------------------------------------------------------ _cross_over / _cross_under
+
+def test_a_cross_fires_only_on_the_bar_the_lines_swap():
+    a = np.array([1.0, 1.0, 3.0, 4.0, 4.0])
+    b = np.array([2.0, 2.0, 2.0, 2.0, 5.0])
+    np.testing.assert_array_equal(ind._cross_over(a, b),
+                                  [False, False, True, False, False])
+    np.testing.assert_array_equal(ind._cross_under(a, b),
+                                  [False, False, False, False, True])
+
+
+def test_touching_without_crossing_is_not_a_cross():
+    """Pine's `crossover` needs `a[1] <= b[1]` AND `a > b`, so equality on the previous
+    bar arms it and equality on this one does not fire it."""
+    a = np.array([1.0, 2.0, 2.0, 3.0])
+    b = np.array([2.0, 2.0, 2.0, 2.0])
+    np.testing.assert_array_equal(ind._cross_over(a, b),
+                                  [False, False, False, True])
+
+
+def test_the_first_bar_can_never_be_a_cross():
+    a = np.array([5.0, 5.0])
+    b = np.array([1.0, 1.0])
+    assert not ind._cross_over(a, b)[0]
+
+
+def test_a_nan_bar_neither_opens_nor_closes_a_cross():
+    """Warmup bars compare false in both directions, which is what Pine's `na` gives:
+    the bar AFTER the NaN cannot cross, because its predecessor was undefined, and the
+    first fully-defined pair can."""
+    a = np.array([np.nan, np.nan, 3.0, 1.0, 3.0])
+    b = np.array([2.0, 2.0, 2.0, 2.0, 2.0])
+    np.testing.assert_array_equal(ind._cross_over(a, b),
+                                  [False, False, False, False, True])
+
+
+def test_cross_is_causal(series):
+    other = np.roll(series, 3)
+    full = ind._cross_over(series, other)
+    short = ind._cross_over(series[:-TRUNCATE], other[:-TRUNCATE])
+    np.testing.assert_array_equal(full[:len(short)], short)
+
+
+# -------------------------------------------------------------------------- _hma
+
+def test_hma_lags_a_straight_line_far_less_than_an_sma_of_the_same_length():
+    """The point of a Hull average. On a ramp of slope s an SMA(16) sits 7.5s behind;
+    this construction sits 0.67s behind — not zero, because Pine's truncated half
+    length breaks the exact cancellation, which is the whole reason `_hma` reproduces
+    that truncation instead of tidying it."""
+    import talib
+    slope = 2.0
+    x = np.arange(200, dtype="float64") * slope + 10.0
+    hma_lag = (x[100:] - ind._hma(x, 16)[100:]) / slope
+    sma_lag = (x[100:] - talib.SMA(x, 16)[100:]) / slope
+    np.testing.assert_allclose(hma_lag, 2.0 / 3.0, atol=1e-9)
+    np.testing.assert_allclose(sma_lag, 7.5, atol=1e-9)
+
+
+def test_hma_uses_pines_truncated_half_length():
+    """Pine truncates the `n/2` it passes as a length, so an odd `n` is not symmetric.
+    Reproduced, because the published settings were fitted against that arithmetic."""
+    x = np.arange(200, dtype="float64") ** 1.5
+    import talib
+    expect = talib.WMA(np.ascontiguousarray(
+        2.0 * talib.WMA(x, 12) - talib.WMA(x, 25)), 5)
+    np.testing.assert_allclose(ind._hma(x, 25)[50:], expect[50:], rtol=1e-12)
+
+
+def test_hma_is_causal(series):
+    assert_causal(lambda x: ind._hma(x, 16), series)
+
+
 # ------------------------------------------------------------------- _pct_rank
 
 def test_pct_rank_ranks_the_newest_value_within_its_window():

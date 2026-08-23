@@ -89,7 +89,12 @@ TIMEFRAME_TLDR = {
     "2h": "Two-hour bars, same session-alignment caveat as 4h.",
     "1h": "Hourly bars. The only timeframe where the earlier top-20 study found anything "
           "above parity - two rules at zero cost, both gone by 1bp.",
+    "30m": "Thirty-minute bars. A vendor-native interval (added 2026-08-22), with the "
+           "same late-2019/2020 history floor as the other intraday grids.",
     "15m": "Fifteen-minute bars.",
+    "3m": "Three-minute bars, resampled from the cached 1m - the vendor sells no such "
+          "interval. End-of-day flattened for equities, like 1m and 5m.",
+    "2m": "Two-minute bars, resampled from the cached 1m, same conventions as 3m.",
     "5m": "Five-minute bars, end-of-day flattened for equities so the result is genuine "
           "day-trading and does not quietly collect the overnight drift buy-and-hold "
           "already earns. The benchmark is never flattened. Crypto trades 24/7 and is "

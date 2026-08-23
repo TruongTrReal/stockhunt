@@ -334,9 +334,12 @@ changes how a number on it must be read:
   vendor's CME archive. ~16 years against the equity sheet's ~26, and `metrics.se_ir`
   falls as 1/sqrt(years), so every gate on this class is about 1.3x harder to clear.
 
-And the class is **1d only**, which is a measured vendor defect rather than a choice: the
-hourly archive collapses whole sessions into single bars before 2013. See
-`backtest engine/CLAUDE.md`.
+The class was **1d only** until 2026-08-22, and the reason was a measured vendor defect:
+the archive folds whole sessions into a handful of bars on scattered days, and a folded
+day's volume ties out to the daily bar exactly, so only the bar count reveals it. It is
+not the era boundary the docs used to claim â€” `ohlcv-1m` and `ohlcv-1h` are both clean
+from **2016**, so `db_intraday.py` now ships futures **1h and 1m** for $0.00, screened per
+session against each root's own median day. See `backtest engine/CLAUDE.md`.
 
 ## How a strategy is compared to buy-and-hold
 

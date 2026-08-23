@@ -61,10 +61,25 @@ schema is the trustworthy one and it is the one used.
     ohlcv-1h bars in June, ES     2010: 138   2011: 230   2012: 146
                                   2013: 465   2015: 509   2020: 505   2022: 502
 
-That defect is why this class ships **1d only**. A 4h or 1h futures sheet needs the
-`trades` schema rebuilt into bars, which is complete but is metered at $28/GB before
-2026 -- roughly $100 per root per year, against $0 for everything here. It is a scoped
-follow-up, not an oversight.
+That defect is why **this loader** ships 1d only, and the sentence above needs one
+correction: "before 2013" is wrong in both directions. Re-measured 2026-08-22 across
+every year on five consecutive weekdays, the folding is scattered by DAY, not bounded by
+an era -- 2010-06-07 is complete (1,333 one-minute bars) while 2015-01-06 is not (114),
+and `ohlcv-1m` carries the identical defect, not just `ohlcv-1h`:
+
+    complete weekdays, ES, mid-June   2010-2012: 1 of 5     2013: 5/5   2014: 3/5
+                                      2015: 5/5             2016-2026: 5 of 5, every year
+
+The intraday timeframes therefore ARE reachable, and free -- see `db_intraday.py`, which
+screens each session against that root's own median rather than trusting a start date.
+The `trades`-schema rebuild costed below is only needed for the pre-2016 sample.
+
+**What makes a folded day dangerous is that it reconciles.** Its volume sums to EXACTLY
+the `ohlcv-1d` volume for the same session, so the missing minutes are not absent -- they
+are folded into the bars that remain. Every check in this repo passes on one: the OHLC
+relations hold, the volume ties out, there is no gap. Only the bar COUNT gives it away.
+Same family as the foreign-namesake tickers and EEM's truncated history: well formed,
+internally consistent, and quietly the wrong measurement.
 
 **Nothing is downloaded before its price is known.** Every request is costed against
 `metadata.get_cost` first and the run aborts if the total exceeds `--budget`, which
@@ -91,8 +106,11 @@ from futures_specs import GLBX_START, check_notional
 BASE_URL = "https://hist.databento.com/v0/"
 DATASET = "GLBX.MDP3"
 SOURCE_SCHEMA = "ohlcv-1d"
-# The one timeframe this class ships. See the docstring: the hourly archive is holed
-# before 2013, so anything cut from it would be silently wrong in the early sample.
+# The one timeframe THIS module ships. Intraday is not unreachable -- `db_intraday.py`
+# fetches 1h and 1m from 2016 with a per-session screen -- but it is a different path,
+# because the two things this module does either side of the download (merging Sunday's
+# stub into the session it opens, deriving the roll ratio from the second contract rank)
+# are daily concepts that would be wrong applied to minute bars.
 TIMEFRAME = "1d"
 # The CSV endpoint stops at 5,000 rows. It is a hard cap -- passing `limit=1000000`
 # changes nothing -- and it is announced inconsistently: a request that overruns it

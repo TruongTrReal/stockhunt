@@ -1,0 +1,5 @@
+class,timeframe,symbol,n_bars,high_lt_low,high_lt_open,high_lt_close,low_gt_open,low_gt_close,nonpositive_close,nonfinite,price_spike,total_faults,pct
+us_etfs,1h,TLT,11437,0,0,2,0,3,0,0,0,5,0.043717758153361895
+us_etfs,1h,XLF,11442,0,0,2,0,0,0,0,0,2,0.017479461632581718
+us_etfs,1h,XLV,11427,0,0,2,0,0,0,0,0,2,0.017502406580904874
+us_etfs,1h,XLE,11450,0,0,1,0,0,0,0,0,1,0.008733624454148471

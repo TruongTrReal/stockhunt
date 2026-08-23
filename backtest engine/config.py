@@ -721,6 +721,11 @@ TIMEFRAMES = {
     "4h":  {"interval": "4h",    "intraday": True},
     "2h":  {"interval": "2h",    "intraday": True},
     "1h":  {"interval": "1h",    "intraday": True},
+    # Added 2026-08-22 for the full-timeframe robustness program. `30min` IS a vendor
+    # product — the older comment above ("no 2min or 3min") is about the gaps around it,
+    # not about this interval. Probed the same day: AAPL 30min from 2019-09-16, SPY from
+    # 2020-02-10, BTC/USD from 2020-01-06, XAU/USD from 2020-01-24.
+    "30m": {"interval": "30min", "intraday": True},
     "15m": {"interval": "15min", "intraday": True},
     "5m":  {"interval": "5min",  "intraday": True},
     "3m":  {"interval": None,    "intraday": True},
@@ -790,6 +795,10 @@ WINDOWS = {
     ("us_stocks", "4h"):  {"start": "2019-06-21", "window_days": 2500},
     ("us_stocks", "2h"):  {"start": "2019-06-21", "window_days": 1250},
     ("us_stocks", "1h"):  {"start": "2019-01-08", "window_days": 700},
+    # 30m probed 2026-08-22: AAPL earliest_timestamp 2019-09-16 — the same depth as
+    # 15min, not 1h, so the two share a start. ~13 bars per US session keeps 380
+    # calendar days near ~3,400 bars, comfortably under the 5000-bar response cap.
+    ("us_stocks", "30m"): {"start": "2019-09-17", "window_days": 380},
     ("us_stocks", "15m"): {"start": "2019-09-17", "window_days": 190},
     ("us_stocks", "5m"):  {"start": "2020-01-09", "window_days": 64},
     ("us_stocks", "1m"):  {"start": "2020-03-25", "window_days": 12},
@@ -812,6 +821,16 @@ WINDOWS = {
     # limit per INTERVAL, not per symbol.
     ("us_etfs", "5m"):  {"start": "2020-01-09", "window_days": 64},
     ("us_etfs", "1m"):  {"start": "2020-03-25", "window_days": 12},
+    # 1h and 30m added 2026-08-22 for the full-timeframe robustness program. The ETF
+    # archive is NOT the equity archive at these intervals — SPY's earliest_timestamp is
+    # 2020-02-10 for both 1h and 30min, a year later than us_stocks' 2019-01-08 at 1h —
+    # the same one-class-later pattern the 4h row above already records. Probed, not
+    # inherited.
+    ("us_etfs", "1h"):  {"start": "2020-02-10", "window_days": 700},
+    ("us_etfs", "30m"): {"start": "2020-02-10", "window_days": 380},
+    # Probed 2026-08-22: SPY 15min also 2020-02-10 — the vendor's intraday floor for this
+    # class is one date across 1h, 30m and 15m, not a per-interval ladder.
+    ("us_etfs", "15m"): {"start": "2020-02-10", "window_days": 190},
 
     # Probed 2026-08-09: XAU/USD 1979-12-26, XAG/USD 1982-07-01, WTI/USD 1983-03-30,
     # XPT and XPD only 2012-09. Start from gold's own beginning — 46 years is the deepest
@@ -828,6 +847,16 @@ WINDOWS = {
     # three symbols explicitly instead of taking the class default.
     ("commodities", "5m"): {"start": "2020-01-20", "window_days": 64},
     ("commodities", "1m"): {"start": "2020-10-01", "window_days": 12},
+    # 1h and 30m probed 2026-08-22: XAU/USD serves both from 2020-01-24, WTI/USD only
+    # from 2020-10-05 — the same three-symbol thinness as the rows above, so fetch these
+    # with `--symbols XAU/USD XAG/USD WTI/USD` rather than the class default. ~46 bars
+    # per ~23h weekday at 30m; the window sizes keep one request under the 5000-bar cap.
+    ("commodities", "1h"):  {"start": "2020-01-20", "window_days": 280},
+    ("commodities", "30m"): {"start": "2020-01-20", "window_days": 140},
+    # Probed 2026-08-22 at 15min: XAG/USD 2020-01-22, XAU/USD 2020-01-24,
+    # WTI/USD 2020-10-05. The 2020-01-20 start covers the earliest of the three and the
+    # loader simply gets nothing before each symbol's own first bar.
+    ("commodities", "15m"): {"start": "2020-01-20", "window_days": 70},
 
     # 2010-06-06 is the first day of Databento's CME archive and there is nothing before
     # it at any price, so unlike every other row here this is a hard floor rather than a
@@ -847,6 +876,10 @@ WINDOWS = {
     ("crypto", "4h"):  {"start": "2020-01-07", "window_days": 580},
     ("crypto", "2h"):  {"start": "2020-01-07", "window_days": 290},
     ("crypto", "1h"):  {"start": "2020-01-07", "window_days": 145},
+    # Probed 2026-08-22: BTC/USD 30min earliest_timestamp 2020-01-06, the same era as
+    # 1h/2h/4h. 48 bars a day at 24/7, so 72 days is ~3,450 bars — half the 1h window,
+    # same headroom under the cap.
+    ("crypto", "30m"): {"start": "2020-01-07", "window_days": 72},
     ("crypto", "15m"): {"start": "2020-02-20", "window_days": 36},
     ("crypto", "5m"):  {"start": "2020-03-26", "window_days": 12},
     ("crypto", "1m"):  {"start": "2020-04-08", "window_days": 2},

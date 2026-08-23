@@ -114,9 +114,10 @@ build_report.py  template.html + report.js + payload -> report/index.html
 
 ## The 2m and 3m sheets are built here, not bought
 
-Twelve Data serves 1min, 5min, 15min, 1h, 2h, 4h and 1day, and nothing between them. So
-`TIMEFRAMES` carries `2m` and `3m` with `interval: None`, `td_loader.fetch` refuses them
-by name, and `resample_intraday.py` aggregates them out of the cached 1m. `load` never
+Twelve Data serves 1min, 5min, 15min, 30min, 1h, 2h, 4h and 1day, and nothing between
+them (30min confirmed by `earliest_timestamp` probe 2026-08-22 and now a `TIMEFRAMES`
+row). So `TIMEFRAMES` carries `2m` and `3m` with `interval: None`, `td_loader.fetch`
+refuses them by name, and `resample_intraday.py` aggregates them out of the cached 1m. `load` never
 knows the difference — same directory layout, same parquet, same single door.
 
 Three properties of that aggregation are load-bearing, and each is pinned in
@@ -210,13 +211,35 @@ once; adding a third caller means feeding it the same six inputs, never re-deriv
   would have resolved crude oil to a toothpaste company silently. It also says the true
   thing about the series: there is no instrument called "ES", only a rule for picking
   which contract to hold.
-- **The futures class is 1d only, and that is a vendor defect, not a choice.** Databento's
-  hourly archive for GLBX collapses whole sessions into one or two bars before 2013 —
-  2015-01-06 returns 2 hourly bars whose volume sums to the full day's 2,344,424, June
-  2011 returns 230 where ~500 exist. `ohlcv-1d` over the same days is complete and ties
-  out to the hourly sum exactly. Anything cut from hourly would be wrong over the first
-  third of the sample; a 4h sheet needs bars rebuilt from `trades`, which is complete and
-  is metered at ~$100 per root per year before 2026.
+- **The GLBX intraday archive folds sessions, and a folded day reconciles perfectly.**
+  Databento collapses whole sessions into a handful of bars on scattered days — 2015-01-06
+  returns 114 one-minute bars where ~1,380 exist — and **the folded day's volume sums to
+  EXACTLY the `ohlcv-1d` volume**. The minutes are not missing, they are folded into the
+  bars that survive, so OHLC relations hold, volume ties out, and nothing but the bar
+  COUNT can detect it. Treat it as the third member of the family with the foreign
+  namesakes and EEM: well formed, and quietly the wrong measurement.
+
+  Re-measured 2026-08-22 (five consecutive weekdays, mid-June, every year), the old
+  "before 2013" boundary is wrong in both directions — 2010-06-07 is complete, 2015-01-06
+  is not, and `ohlcv-1m` has the same defect as `ohlcv-1h`:
+
+      2010-2012: 1 of 5 complete    2013: 5/5    2014: 3/5    2016-2026: 5/5, every year
+
+  So **`db_loader` ships 1d, and `db_intraday.py` ships 1h and 1m from 2016** — free, and
+  screened per session against **that root's own median day**, never an absolute count:
+  one UTC day is 23 hourly bars on ES, 19 on the grains and **6** on live cattle, and an
+  absolute floor tuned to the equity index silently deleted LE.v.0 in its entirety while
+  reading as a clean run for the other fifteen roots. The pre-2016 sample still needs bars
+  rebuilt from `trades` (~$100 per root per year); everything from 2016 is $0.00.
+
+- **The intraday path is verified against the daily one, and the join is UTC calendar
+  day.** Aggregating `db_intraday`'s hourly bars by UTC day reproduces `data/futures/1d`
+  to **0.00 bp on open, high, low and close, volume ratio 1.0000**. Chicago-day grouping
+  misses close by 13 bp — and screening on that wrong boundary split sessions across two
+  buckets and threw away 16.8% of ZS.v.0. Roll adjustment reads the ratios the daily run
+  already wrote to `data/reference/futures_rolls.csv` rather than re-deriving them from a
+  second contract rank: half the requests, and one definition of the adjustment instead
+  of two that can drift.
 - **Run `check_data.py --fix` after any fetch, before sweeping.** A scoped
   `--class X --tf Y` merges into `quarantine.csv` rather than rewriting it; rows outside the
   scanned scope are preserved, rows inside are re-derived so a repaired symbol can leave.
