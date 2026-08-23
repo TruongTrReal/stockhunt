@@ -84,9 +84,33 @@ def register(label: str, scope: str, why: str = "", hypothesis: str = "",
 
 def register_many(labels, scope: str, why: str = "", hypothesis: str = "",
                   author: str = "") -> tuple[int, int]:
-    """Bulk registration. Returns (added, already_present)."""
-    added = sum(register(l, scope, why, hypothesis, author) for l in labels)
-    return added, len(list(labels)) - added
+    """Bulk registration. Returns (added, already_present).
+
+    One read and one write for the whole batch, not one of each per label. The obvious
+    implementation -- `sum(register(l, ...) for l in labels)` -- rewrites the entire
+    ledger once per label, so registering a 1,000-cell grid across nine scopes rewrote a
+    multi-megabyte file nine thousand times and took longer than the backtest it was
+    registering. Same semantics: still idempotent, still never overwrites an existing
+    registration date, and duplicates WITHIN the batch are collapsed too.
+    """
+    labels = list(labels)
+    rows = _read()
+    seen = {(r["label"], r["scope"]) for r in rows}
+    today = date.today().isoformat()
+    added = 0
+    for label in labels:
+        if (label, scope) in seen:
+            continue
+        seen.add((label, scope))
+        rows.append({
+            "label": label, "scope": scope, "registered_on": today,
+            "author": author, "why": why, "hypothesis": hypothesis,
+            "scored_on": "", "outcome": "",
+        })
+        added += 1
+    if added:
+        _write(rows)
+    return added, len(labels) - added
 
 
 def mark_scored(label: str, scope: str, outcome: str = "", on: str | None = None) -> bool:
@@ -97,6 +121,27 @@ def mark_scored(label: str, scope: str, outcome: str = "", on: str | None = None
             r["scored_on"] = on or date.today().isoformat()
             r["outcome"] = outcome
             hit = True
+    if hit:
+        _write(rows)
+    return hit
+
+
+def mark_scored_many(labels, scope: str, outcome: str = "",
+                     on: str | None = None) -> int:
+    """Bulk `mark_scored`. Returns how many rows were marked.
+
+    One read and one write for the batch, same reason as `register_many`: the per-label
+    form rewrites the whole ledger once per label, and this batch marks thousands.
+    """
+    labels = set(labels)
+    rows = _read()
+    when = on or date.today().isoformat()
+    hit = 0
+    for r in rows:
+        if r["scope"] == scope and r["label"] in labels:
+            r["scored_on"] = when
+            r["outcome"] = outcome
+            hit += 1
     if hit:
         _write(rows)
     return hit
