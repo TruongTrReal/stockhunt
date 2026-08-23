@@ -72,6 +72,8 @@ from stockhunt import stats
 import signals
 from strategies.catalog import BASELINE, CATALOG, CONTROLS, RANDOM_DRAWS, build
 
+import alpha101
+
 CAPITAL = 10_000.0
 
 # Set by `--n-trials`. None means "count the rules actually in this run", which is right
@@ -624,6 +626,14 @@ def resolve_position(name: str, df: pd.DataFrame, close: np.ndarray, bpy: float,
     """
     if name in CATALOG or name == BASELINE or name in CONTROLS:
         return build(name, df, close, bpy, symbol)
+    if alpha101.unlabel(name) is not None:
+        # A FOURTH population, and the only one whose position cannot be computed from
+        # this symbol's own frame: a formulaic alpha is a CROSS-SECTIONAL score, so the
+        # top-quintile book has to be built over the whole panel first. `alpha101.py
+        # --positions` does that once and caches it; this reads back one column.
+        # Returning None when the cache is cold is deliberate -- it drops the rule from
+        # the sheet rather than scoring it as a rule that never trades.
+        return alpha101.position_for(name, df.index, symbol, asset_class, timeframe)
     if PAIR_SEP in name and OP_SEP in name:
         legs, op = name.rsplit(OP_SEP, 1)
         a, _, b = legs.partition(PAIR_SEP)
