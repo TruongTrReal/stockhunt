@@ -50,6 +50,10 @@ run_book.sh      stage 1h for the WHOLE leaderboard: 8 sheets, ~400 rules each, 
    |             out-of-sample span -> results/book_<class>_<tf>.csv AND, via --curves,
    |             results/book_curves_<class>_<tf>.json. Those are the leaderboard's book
    |             columns and the dashboard's equity charts -- one computation, two shapes
+research_worker.py   drains the queue `paper api`'s /v1/research writes: causality
+   |             gate -> register the trial -> strat_wf -> riskmatch_wf -> merge_book ->
+   |             insert rows into results.db. The board is a query, so the rule is on it
+   |             at the next request and NOTHING is rebuilt. See below
 merge_book.py    ONE rule onto an existing book sheet, without re-scoring the rest. A
    |             rule's book depends on its own positions and the bars, so the rows
    |             already there are not stale; only the panel columns are. See below
@@ -99,6 +103,8 @@ python make_book_rules.py            # rule lists + the per-sheet --start
 ./run_book.sh                        # BASH. the whole leaderboard, book-level, ~50 min
 python merge_book.py --class us_stocks --tf 1d --rules my_rule    # ...or just add one
 python merge_book.py --class us_stocks --tf 1d --rules x --dry-run  # prove it reproduces
+python research_worker.py --watch    # drain rules submitted through /v1/research
+python research_worker.py --once     # exactly one job, for testing
 python combo_wf.py --tf 1d 4h --top-k 8
 python alpha101.py --audit           # what parses, what runs here, and why not
 python alpha101.py --ic              # stage 1i: the IC study + book-level fill bounds
@@ -323,6 +329,73 @@ can win a fold, and no stored column can re-derive that. Those two still cost a 
 
 Run them **from this directory** — bare-name imports. Long sweeps exceed the 10-minute
 harness timeout; launch detached with output to `logs/`.
+
+## Scoring a submitted rule (`research_worker.py`)
+
+`paper api/api_research.py` writes a job; this drains it. It is `desk_control` draining
+`deskdb.orders`, one pipeline over: neither process calls the other, and if the web layer
+is down the worker keeps scoring whatever was queued.
+
+```
+claim (BEGIN IMMEDIATE) -> causality gate -> register the trial
+                        -> strat_wf -> riskmatch_wf -> merge_book -> rows -> scored
+```
+
+Run it as `python research_worker.py --watch`, from this directory. Each stage is a
+**subprocess**, not an import: they are `__main__` scripts with their own path bootstraps,
+they spawn multiprocessing pools, and a stage that dies must not take the worker with it.
+
+Four things it is responsible for, and each of them is the reason a step exists:
+
+* **Nothing is scored before it is proved causal.** A code submission is written into
+  `strategies/published/` and `strategies/tests/test_causality.py --rules <name>` is run
+  against it; a nonzero exit rejects the job with the reason attached and the file is
+  removed again. Truncation, not review -- an agent submitting a rule that peeks at the
+  future would otherwise top this leaderboard instantly and look like the best result the
+  project has ever produced.
+* **Nothing is scored before it is registered as a trial.** An open leaderboard *is* a
+  search, so `strategies.trials.register` runs before the first stage. Two findings here
+  have been retracted; both would have been caught by an honest N.
+* **`--n-trials` is passed to the scoped `riskmatch_wf` run.** Left off, the multiplicity
+  correction counts the rules on the command line -- one -- so the rule is deflated
+  against a search of itself and every t bar on the row is understated. The honest count
+  comes off the sheet's own `edge_standard` rows.
+* **The book step is `merge_book.py`, not `portfolio_wf.py`.** A `--rules` shortlist has no
+  `RANDOM_*` controls in its panel, so `_vs_random` cannot compute criterion R and the row
+  arrives one gate short. Merging into a sheet that HAS the controls is what repairs it --
+  and the whole sheet is re-ingested afterwards, because a merge re-derives four panel
+  columns and the board ranks on one of them.
+
+**No stage's promote flag is used**, so `strat_wf` and `riskmatch_wf` write `*.partial` and
+the sheets of record are untouched. The store takes that partial's rows for THIS rule and
+nothing else. The consequence is a deliberate gap -- a submitted rule is on the board and
+in `book_<cls>_<tf>.csv` but not in `edge_standard.csv` -- and `tools/export_results.py`
+is where that gap is printed and, when you mean it, closed.
+
+**Known gap: no equity curve.** `portfolio_wf --curves` writes one JSON per sheet, so
+running it here would overwrite a whole sheet's curves with one rule's. A newly scored rule
+has a row and no chart until the next `./run_book.sh` and dashboard build.
+
+### Two restrictions that were removed to make this work
+
+Both were restrictions of a *function* rather than of the machinery, and both were
+invisible while every variant was scored by a full sweep.
+
+**`strat_wf.select_cells` refused a cell off the declared grid.** `ibs@buy=0.35` is not one
+of `ibs`'s four published cells, but `registry.decode` reads it, `registry.build` builds it
+and it round-trips through `encode`. It is admitted and appended now, checked by round trip
+rather than by regex so a label cannot be scored under one name and stored under another.
+**The grid IS the declared trial family**, so this is only honest if every off-grid cell is
+registered in `data/reference/trials.csv` before it is scored; `research_worker` does that,
+and anything reaching this path by hand must too.
+
+**`riskmatch_wf.resolve_position` did not recognise a cell at all.** Its first branch tested
+`name in CATALOG`, and a cell is not in `CATALOG` -- only its strategy is -- so a variant
+fell through to `signals.position_for`, which knows the 231 TA-Lib rules and nothing about
+`strategies/published/`, and came back `None`. The rule was silently dropped from the sheet:
+`edge_standard.csv` contained **zero** labels with an `@` in them. `catalog_cell()` closes
+it. Because no committed sheet has such a label, the new branch cannot reach anything the
+old one was already handling, and it changes no existing number.
 
 ## `wfo_paths.py` is load-bearing
 

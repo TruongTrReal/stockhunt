@@ -70,7 +70,8 @@ import walkforward as wfmod
 from stockhunt import stats
 
 import signals
-from strategies.catalog import BASELINE, CATALOG, CONTROLS, RANDOM_DRAWS, build
+from strategies.catalog import (BASELINE, CATALOG, CONTROLS, RANDOM_DRAWS, SEP, build,
+                                decode, encode)
 
 import alpha101
 
@@ -614,6 +615,44 @@ def leaderboard_universe(asset_class: str, timeframe: str) -> list[str]:
     return list(dict.fromkeys(names))
 
 
+def catalog_cell(name: str):
+    """The `Strategy` behind a parameter CELL (`ibs@buy=0.35`), or None if it is not one.
+
+    Added 2026-08-23, and it closes a gap rather than adding a feature. `edge_standard.csv`
+    contained **zero** labels with an `@` in them: the standard has only ever scored bare
+    strategy names, TA-Lib rules and pairs, because this function's first branch tested
+    `name in CATALOG` and a cell is not in `CATALOG` — only its strategy is. So a
+    parameter variant fell through to `signals.position_for`, which knows the 231 TA-Lib
+    rules and nothing about `strategies/published/`, and came back None. The rule was
+    silently dropped from the sheet.
+
+    That was invisible while every variant was scored by `strat_wf` alone. It stops being
+    invisible the moment somebody can submit one: `board_rank` DROPS a leaderboard row with
+    no `edge_standard` record — deliberately, because carrying one would print a stale
+    diagnostic beside a fresh verdict — so a submitted variant would be scored twice over
+    and still never appear on the board.
+
+    `strategies.catalog.build` has always accepted the full cell label; this is the test
+    that lets it be reached. Round-tripping through `decode`/`encode` is the check, so a
+    label that would be scored under one name and stored under another is refused rather
+    than silently renamed.
+
+    **This changes no existing number.** No label in any committed sheet contains an `@`,
+    so there is nothing for the new branch to reach that the old one was already handling.
+    `tools/golden.py verify` and `tools/test_board_equivalence.py verify` are the proof.
+    """
+    if SEP not in name:
+        return None
+    try:
+        base, params = decode(name)
+    except Exception:
+        return None
+    spec = CATALOG.get(base)
+    if spec is None or encode(base, params, spec) != name:
+        return None
+    return spec
+
+
 def resolve_position(name: str, df: pd.DataFrame, close: np.ndarray, bpy: float,
                      symbol: str, asset_class: str, timeframe: str) -> np.ndarray | None:
     """One name -> one position series, whichever of the three kinds of name it is.
@@ -624,7 +663,7 @@ def resolve_position(name: str, df: pd.DataFrame, close: np.ndarray, bpy: float,
     name rather than threading `leg_a`/`leg_b` through keeps this in step with whatever the
     sweep wrote, which is the same reason `leaderboard_universe` reads the CSVs.
     """
-    if name in CATALOG or name == BASELINE or name in CONTROLS:
+    if name in CATALOG or name == BASELINE or name in CONTROLS or catalog_cell(name):
         return build(name, df, close, bpy, symbol)
     if alpha101.unlabel(name) is not None:
         # A FOURTH population, and the only one whose position cannot be computed from
@@ -772,7 +811,11 @@ def _score_rule(name: str, ctx: dict) -> list:
 
     rows = []
     if True:
-        spec = CATALOG.get(name)
+        # A CELL inherits its strategy's class restriction, which is why this is not a
+        # bare `CATALOG.get(name)`: `preholiday@...` is as undefined on crypto as
+        # `preholiday` is, and scoring it anyway produces a flat position that reads on a
+        # leaderboard as a rule which simply does nothing.
+        spec = CATALOG.get(name) or catalog_cell(name)
         # Catalog entries can be undefined on a class (preholiday on crypto). Non-catalog
         # names have no such declaration and are filtered by `resolve_position` returning
         # None instead.

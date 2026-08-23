@@ -33,7 +33,12 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths="/opt/stockhunt/paper api/state" "/opt/stockhunt/paper api/logs" "/opt/stockhunt/paper trading engine/state"
+# The last path is the research store, and the API writes exactly one kind of row in
+# it: a scoring JOB from `/v1/research/trials`. It ranks out of the same file and
+# scores nothing itself -- `research_worker.py` drains the queue, on the same seam
+# `deskdb` draws between this process and the desk. Without write access the board
+# still renders and every submission answers 500.
+ReadWritePaths="/opt/stockhunt/paper api/state" "/opt/stockhunt/paper api/logs" "/opt/stockhunt/paper trading engine/state" "/opt/stockhunt/walk-forward optimization/results"
 StandardOutput=journal
 StandardError=journal
 

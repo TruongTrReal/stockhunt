@@ -4525,9 +4525,41 @@ NARROW.addEventListener("change", () => {
   window.scrollTo(0, y);
 });
 
-render();
-findDesk();          // adds "My desk" to the nav, but only where that page exists
-loadBookState();     // ...and the paper-trade switch, where the API is serving this page
-startLive();
-connectTicks();
-watchForNewBuild();
+/* The research board, live from the store rather than baked into `data.js`.
+ *
+ * `payload.py` reads 131 result files, joins and ranks them, and writes `data.js`; the
+ * page reads that constant. That made a leaderboard a snapshot — a rule scored an hour
+ * ago reached the page only when somebody re-ran the builder. `/v1/research/board` is the
+ * same ranking computed per request by the same module (`board_rank.build_sheet`), so
+ * this replaces one key and changes nothing else.
+ *
+ * Three properties worth keeping:
+ *
+ *  - `__SNAPSHOT__` skips it entirely. `dist/dashboard.html` is one file with no server
+ *    behind it, and a frozen board is what that artifact IS.
+ *  - A failure is silent and leaves the baked payload in place. The board is served from
+ *    two processes and only one of them has this endpoint: `serve.py` on loopback answers
+ *    it too, but an older deployment or an expired session must degrade to yesterday's
+ *    numbers rather than to an empty page.
+ *  - It runs BEFORE the first `render()`. Fetching afterwards would paint the baked board
+ *    and then rearrange it under the reader, which looks like a bug even when the second
+ *    ordering is the right one. */
+async function loadLiveBoard() {
+  if (window.__SNAPSHOT__) return;
+  try {
+    const r = await fetch("/v1/research/board",
+                          { cache: "no-store", credentials: "same-origin" });
+    if (!r.ok) return;
+    const board = await r.json();
+    if (board && Object.keys(board).length) D.backtest = board;
+  } catch (e) { /* offline, or a build with no API in front of it */ }
+}
+
+loadLiveBoard().finally(() => {
+  render();
+  findDesk();          // adds "My desk" to the nav, but only where that page exists
+  loadBookState();     // ...and the paper-trade switch, where the API is serving this page
+  startLive();
+  connectTicks();
+  watchForNewBuild();
+});

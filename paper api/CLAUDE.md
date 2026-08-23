@@ -37,6 +37,8 @@ api_orders.py   /v1/orders - the hot path. 202 means written down, never filled
 api_webhook.py  /v1/webhook/tradingview - the ONE route whose credential is in the BODY,
                 because a TradingView alert can send no header
 api_house.py    /v1/house - the catalog, and promoting a backtested rule to the desk
+api_research.py /v1/research - the leaderboard as a QUERY, and the queue that puts rows
+                on it. Reads `results.db`; owns no trading and no order path
 api_live.py     the per-account cut of live.json. ONE implementation of that cut
 api_board.py    the dashboard behind that session, plus /ws
 api_app.py      the ASGI app: CORS, lifespan, /healthz, the exception handler
@@ -54,6 +56,7 @@ test_strategies.py  keys, and the strategy control plane
 test_orders.py      idempotency, ordering, scoping, honest status codes
 test_webhook.py     the body-credential door: scope, rotation, derived idempotency
 test_house_and_board.py  promotion, and the per-account cut
+test_research.py    the board ranks what the store holds, and a submission is queued
 ```
 
 ## The manager desk
@@ -87,6 +90,14 @@ GET    /v1/orders                  ?strategy_id= &state= &since_seq= to poll
 GET    /v1/orders/{coid}
 
 POST   /v1/webhook/tradingview     an alert. NO header; the secret is in the body
+
+GET    /v1/research/leaderboard    one ranked sheet, computed NOW. ?cls= &tf=
+GET    /v1/research/board          every sheet, shaped like the dashboard's `backtest`
+GET    /v1/research/rule/{cls}/{tf}/{rule}   one rule, asset by asset
+GET    /v1/research/sheets         which (class, timeframe) have been scored
+POST   /v1/research/trials         score a label variant. 202 = queued, not ranked
+POST   /v1/research/strategies     submit a module. Gated on causality before scoring
+GET    /v1/research/jobs           yours;  /jobs/{id} for one
 
 GET    /v1/house/catalog           promotable rules. Any member may read it
 GET    /v1/house/strategies        what the house desk runs. Any member may read it
@@ -172,6 +183,50 @@ actually is: a strategy placeholder on an *indicator* alert.
 **TradingView will only call port 80 or 443, on a publicly trusted certificate.** That is
 its rule, not this desk's; `https://srv1903626.hstgr.cloud` already satisfies it and needs
 no change. There is no such thing as HTTPS on port 80.
+
+## The research board is a query, and submitting is the same seam as an order
+
+`/v1/research` is to the leaderboard what `/v1/strategies` is to the desk. That endpoint
+writes a row to `stockhunt.deskdb` and the desk acts on its next tick; this one writes a
+row to `stockhunt.resultsdb` and `walk-forward optimization/research_worker.py` scores it
+on its next drain. Neither process calls the other, and if this layer is down the worker
+keeps scoring what was queued.
+
+It exists because the board was a snapshot. `payload.py` read 131 result files, joined and
+ranked them and wrote `data.js`; the page read that constant, so a rule scored an hour ago
+reached it only when somebody re-ran the builder. **A CSV cannot take an insert** -- every
+stage rewrites its sheet whole -- so the fix was a store, not a faster builder.
+
+Four things here that are easy to get wrong:
+
+* **This module ranks nothing.** `board_rank.build_sheet` is the one implementation of that
+  join, shared with the dashboard builder and reached through `api_paths.use_dashboard()`
+  -- the same seam `api_board` uses for `web_files`. A second ranking would be a second
+  answer to "which rule is better" on a page whose whole argument is that there is one
+  measurement.
+* **It does not decide whether a label is real.** Importing `strategies.registry` to check
+  loads **TA-Lib**, and this process must start and test without a compiled TA-Lib or the
+  trading stack -- the property `api_paths` exists to protect. So the check here is the
+  label's SHAPE, and the authoritative one is the worker's, against the catalogue. Same
+  doctrine as the order path: these checks give a caller a fast useful error, the far
+  side's bind.
+* **Code submissions run unsandboxed, on the desk's box.** That is a decision, not an
+  oversight: this API is invitation-only and the allowlist is the trust boundary, exactly
+  as it is for a member's strategy placing orders. What is *not* taken on trust is
+  causality -- the worker runs `strategies/tests/test_causality.py` before it will score
+  anything, and a rule that peeks at the future is rejected rather than ranked first.
+* **A submission IS a trial registration.** An open leaderboard is a search, and a search
+  whose size is not counted is how the best of N worthless candidates gets published. The
+  worker writes to `data/reference/trials.csv` before the first stage runs.
+
+`MAX_TRIALS_PER_MINUTE` is two orders of magnitude below the order limit, and counted from
+the store rather than from an in-process window for the same reason `api_orders` does it:
+restarting this process must not hand a looping bot a fresh allowance. A job is a
+walk-forward run over a whole sheet.
+
+**A member sees only their own jobs, and a stranger's id answers 404 rather than 403** -- a
+403 confirms the id exists, which is the one bit an enumeration needs. The board itself is
+not cut per account: research is the same for everybody, unlike `live.json`.
 
 ## Retiring keeps everything; the one exception is a row that recorded nothing
 
@@ -377,6 +432,7 @@ python run_api.py                                    # 127.0.0.1:8080, board at 
 .\run.ps1 -Tunnel                                    # + a public URL. THE way to share
 .\run.ps1 -Stop
 ..\.venv\Scripts\python -m pytest test_auth.py test_board.py -q
+..\.venv\Scripts\python -m pytest test_research.py -q
 ```
 
 Run from **this** directory: `run_api.py` starts uvicorn on the import string

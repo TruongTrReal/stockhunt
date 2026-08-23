@@ -58,6 +58,17 @@ engine-bakeoff/_probe_store/
 *.db-wal
 *.db-shm
 
+# --- the results store ---
+# The opposite case to paper.db, and the difference is where the truth lives. This one is
+# BUILT from the tracked result CSVs by `tools/ingest_results.py` and is regenerable in ten
+# seconds, so committing it would put a binary rebuild of already-committed data into every
+# diff -- and a stale copy of it would be a second answer to a question the CSVs already
+# answer. The submitted-rule rows it holds that the sheets do not are reported by
+# `tools/export_results.py`, which is where that gap gets closed deliberately.
+walk-forward optimization/results/results.db
+**/results/research_book_*.csv
+**/results/*.before-export-*.csv
+
 # --- run logs ---
 **/logs/
 *.log

@@ -15,6 +15,7 @@ only on the box. These files are the deployment; the VPS holds copies of them.
 | `stockhunt-refresh.timer` | rebuilds `data.js` + `paper_curves.json` at 00/06/12/18:05 |
 | `stockhunt-autodeploy.timer` | every 5 min: if `origin/master` moved, deploy the board+API |
 | `stockhunt-rotation.timer` | every 5 min, 19:00-21:55 UTC: the monthly ETF rotation |
+| `stockhunt-research.timer` | every 2 min: score anything submitted through `/v1/research` |
 
 ## The rotation manager is a client, not a fourth service
 
@@ -60,6 +61,64 @@ skips, which is the safe failure but is still a failure:
 ```bash
 /opt/stockhunt/.venv/bin/pip install pandas_market_calendars
 ```
+
+## The research board needs `results.db`, and it is not in git
+
+The leaderboard is a **query** now, not a payload baked into `data.js`:
+`board_rank.build_sheet` reads `walk-forward optimization/results/results.db`, and both the
+API and the loopback server call it. The store is gitignored on purpose -- it is built from
+the tracked result CSVs by `tools/ingest_results.py` and is regenerable in ten seconds, so
+a committed copy would be a binary rebuild of already-committed data in every diff.
+
+**So a fresh clone has no store, and the failure is silent.** `/v1/research/board` answers
+503, `app.js` treats any non-200 as "no live board" and keeps the baked payload, and the
+page renders perfectly with whatever the last build froze. Nothing on screen says the board
+stopped being live. `refresh-board.sh` therefore ingests before it builds, and
+`stockhunt-refresh.service` carries the results directory in `ReadWritePaths=` -- without
+that, the ingest fails on a read-only filesystem and the outcome is identical to not
+running it at all.
+
+`stockhunt-api.service` writes there too, and only one kind of row: a scoring **job** from
+`POST /v1/research/trials`. It ranks out of the same file and scores nothing itself.
+
+```bash
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python /opt/stockhunt/tools/ingest_results.py
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python /opt/stockhunt/tools/test_board_equivalence.py verify
+```
+
+### `stockhunt-research` is the thing that scores a submission
+
+`research_worker.py` drains the queue the API writes: causality gate, register the trial,
+`strat_wf` -> `riskmatch_wf` -> `merge_book`, insert rows. The board is a query, so the
+rule is on it at the next request and nothing is rebuilt.
+
+**A timer, not a daemon.** `--watch` exists and is deliberately unused: the worker holds
+pandas, numpy and TA-Lib resident and fires rarely, and memory is already what caps how
+many cores a sweep may use on this box. Overlap is safe twice over -- systemd skips a
+trigger while the unit is still running, and `claim_job` takes its row under
+`BEGIN IMMEDIATE`, so two workers on one database cannot take the same job.
+
+Like `stockhunt-rotation`, it is a **client of a ledger, not part of the desk**. It can
+fail, hang or be killed; the worst case is a submission scored late, and nothing it touches
+is a position or a forward-test record.
+
+```bash
+systemctl enable --now stockhunt-research.timer
+journalctl -u stockhunt-research -n 50          # what it scored, and what it refused
+# one job, in the foreground, when something looks stuck
+cd "/opt/stockhunt/walk-forward optimization"
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python research_worker.py --once
+```
+
+**Run it as `stockhunt`, never as root** -- the same rule as the rotation manager, and the
+same silent failure if it is broken: a root-owned `results.db-wal` beside a
+`stockhunt`-owned database, which the API then cannot write a job into.
+
+It writes into `strategies/published/` when somebody submits a module, which has one
+consequence worth knowing: the position cache keys on a hash of `strategies/**`, so an
+accepted submission makes the next full `sweep.py` or `walkforward.py` run cold. That is
+over-invalidation, not staleness. A submission the causality gate refuses is removed again
+and costs nothing.
 
 ## The split, and why it exists
 
@@ -143,6 +202,26 @@ rewriting the file mid-execution is its own class of bug.
 cp /opt/stockhunt/deploy/*.sh /opt/stockhunt/     # the fix the warning asks for
 ```
 
+### The UNIT files are copies too, and nothing warns about those
+
+`autodeploy.sh` checks the `.sh` copies and says nothing about `/etc/systemd/system/`,
+because it never installs them. A pull that changes a unit therefore lands in the repo and
+changes nothing at all -- no warning, no failure, just the old unit still running.
+
+That is not academic: adding a path to `ReadWritePaths=` is exactly the kind of change
+that is invisible until the process tries the write. `stockhunt-api` gained
+`walk-forward optimization/results` so it can queue a scoring job; without the unit being
+reinstalled, the code deploys, the board renders, and every `POST /v1/research/trials`
+answers 500 on a read-only filesystem.
+
+```bash
+cp /opt/stockhunt/deploy/systemd/* /etc/systemd/system/
+systemctl daemon-reload
+systemctl restart stockhunt-api                  # picks up the new ReadWritePaths
+systemctl enable --now stockhunt-research.timer  # if it is not enabled yet
+systemctl list-timers 'stockhunt-*'              # confirm NEXT is not n/a
+```
+
 `redeploy.sh` — the manual, full, stop-everything path — does not rely on that: it stops
 the services and physically sets each database aside **with its `-wal`/`-shm` sidecars**,
 because a `.db` restored without its journal, or a journal left behind for a different
@@ -167,10 +246,17 @@ cd /opt/stockhunt && python3.12 -m venv .venv
     TA-Lib numpy pandas pyarrow requests websockets       # TA-Lib needs the C library:
     # wget https://github.com/TA-Lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_amd64.deb
 useradd -r -s /usr/sbin/nologin -d /opt/stockhunt stockhunt
+# Gitignored, so absent on a fresh clone -- and a ReadWritePaths= entry pointing at a
+# missing path makes systemd refuse to start the unit rather than skip the entry.
+mkdir -p "/opt/stockhunt/walk-forward optimization/logs" /opt/stockhunt/.cache          "/opt/stockhunt/paper trading engine/logs" "/opt/stockhunt/paper api/logs"
+chown -R stockhunt:stockhunt /opt/stockhunt
 cp deploy/*.sh /opt/stockhunt/ && cp deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now stockhunt-api stockhunt-desk \
-    stockhunt-refresh.timer stockhunt-autodeploy.timer
+    stockhunt-refresh.timer stockhunt-autodeploy.timer stockhunt-research.timer
 /opt/stockhunt/autodeploy.sh --init
+# The board is a query and its store is not in git. Build it before the first
+# page load, or the board silently serves whatever `data.js` was baked with.
+sudo -u stockhunt .venv/bin/python tools/ingest_results.py
 ```
 
 `.env.local` is **not** in git and never will be. Copy it over SSH; the API needs

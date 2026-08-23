@@ -11,6 +11,10 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths="/opt/stockhunt/Stockhunt Dashboard/web" "/opt/stockhunt/Stockhunt Dashboard/dist" "/opt/stockhunt/paper trading engine/logs"
+# `walk-forward optimization/results` is here because `refresh-board.sh` now builds
+# `results.db` there before the payload. Without it the ingest fails on a read-only
+# filesystem under ProtectSystem=strict -- which is the same silent outcome as not
+# running it at all, since the board falls back to the baked payload either way.
+ReadWritePaths="/opt/stockhunt/Stockhunt Dashboard/web" "/opt/stockhunt/Stockhunt Dashboard/dist" "/opt/stockhunt/paper trading engine/logs" "/opt/stockhunt/walk-forward optimization/results"
 StandardOutput=journal
 StandardError=journal

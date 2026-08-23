@@ -34,10 +34,18 @@ stockhunt/                  THE SHARED CORE. a real package (no space in the nam
    |                        deskdb.py    THE ORDER LEDGER between `paper api/` and the
    |                                     desk. Both open it; stdlib only, so importing
    |                                     it cannot drag the trading stack into the API
+   |                        resultsdb.py THE RESULTS STORE the leaderboard is QUERIED
+   |                                     out of. Same seam, one pipeline over: the API
+   |                                     writes a scoring job, `research_worker` scores
+   |                                     it and inserts rows. Also stdlib only
    |                        pyproject.toml at the repo root packages THIS and nothing
    |                        else -- the pipeline folders have spaces and are scripts
 tools/                      golden.py    hash positions before/after a refactor
    |                        test_stats_equivalence.py
+   |                        ingest_results.py   the result CSVs -> results.db. Re-runnable
+   |                        export_results.py   ...and back, for the one gap it leaves
+   |                        test_board_equivalence.py  the live board and the baked board
+   |                                            are the same document. Gate on it
 tests/                      the unit suite. synthetic bars only -- no data/, no vendor,
    |                        no result CSV. conftest.py does the path bootstrap once
 data/                       every price bar, shared. stocks/ crypto/ etfs/ commodities/
@@ -93,6 +101,9 @@ paper api/                  the invitation-only HTTP layer in front of that desk
    |                        owns no trading and never will: it writes requests, the
    |                        desk acts on them
 Stockhunt Dashboard/        the monitor. one builder, two outputs (served SPA + one file)
+   |                        board_rank.py: THE LEADERBOARD -- the join across five
+   |                        measurements and the ranking, over `results.db`. Shared by
+   |                        the builder and by `paper api`, so there is one ranking
 
 engine-bakeoff/             reference vs nautilus vs manifoldbt; yfinance vs Twelve Data
 test research/              LOCKED - study 1, S&P-wide daily
@@ -337,7 +348,7 @@ changes how a number on it must be read:
 The class was **1d only** until 2026-08-22, and the reason was a measured vendor defect:
 the archive folds whole sessions into a handful of bars on scattered days, and a folded
 day's volume ties out to the daily bar exactly, so only the bar count reveals it. It is
-not the era boundary the docs used to claim â€” `ohlcv-1m` and `ohlcv-1h` are both clean
+not the era boundary the docs used to claim — `ohlcv-1m` and `ohlcv-1h` are both clean
 from **2016**, so `db_intraday.py` now ships futures **1h and 1m** for $0.00, screened per
 session against each root's own median day. See `backtest engine/CLAUDE.md`.
 
@@ -548,6 +559,13 @@ python build_dashboard.py --serve --dist      # both artifacts
 cd "../paper api"
 python admin_users.py allow you@example.com --admin   # there is no sign-up: this is it
 .\run.ps1 -Tunnel                             # the board + API behind a login, public URL
+
+# the board is a QUERY now, not a snapshot. these keep the store in step:
+cd ..
+python tools\ingest_results.py                # the sheets -> results.db, after any stage
+python tools\test_board_equivalence.py verify # ...and prove the board did not move
+cd "walk-forward optimization"
+python research_worker.py --watch             # drain submitted rules onto the board
 ```
 
 **Long jobs get killed at 10 minutes** by the harness timeout, so launch them detached with
@@ -574,6 +592,53 @@ walk-forward folder is the worked example.
 **Check progress by process ancestry, not by `Get-Process python`.** This box runs other
 projects, and a sibling repo's sweep at 100% CPU reads exactly like your own job making
 progress. Filter on `parent_pid`, or you will conclude a dead stage is healthy.
+
+## The board is a query, and the store is what makes it one
+
+Every number on the research leaderboard is still computed by a stage and written to a
+CSV. That works for a study and fails for a board, because **a CSV cannot take an
+insert** -- every stage rewrites its sheet whole, which is exactly why a scoped
+`strat_wf.py --rules` run has to land as `*.partial.csv`. So a new strategy could not
+appear on the board; somebody had to re-run a stage and then re-run the builder.
+
+Two halves, separated. **Scoring** a rule is slow (~32s for one strategy on us_stocks 1d)
+and is a job. **Ranking** one is a join and a sort, and is a query.
+
+```
+stages -> results/*.csv -> tools/ingest_results.py -> results.db -> board_rank.build_sheet
+                                                          ^                 |
+                            research_worker.py  ----------+                 v
+                            (drains jobs from /v1/research)      the page, per request
+```
+
+Four things about it are load-bearing:
+
+* **The stages are not modified.** They write the same CSVs; ingest reads them. That is
+  what makes the switch checkable at all -- the same numbers reach the page by a second
+  route, and `tools/test_board_equivalence.py` asserts the two routes produce an
+  **identical document**, compared as JSON text so a lost negative zero cannot hide in
+  it. Run `capture` before touching this machinery and `verify` after, exactly as with
+  `tools/golden.py`.
+* **`board_rank.py` is the one ranking.** The dashboard builder and `paper api` both call
+  it. It imports pandas and `stockhunt.resultsdb` and nothing else from this repo -- the
+  gate definitions travel in the store's `meta` table rather than being imported from
+  `backtest engine/config.py`, because `paper api/api_paths.py` starting without the
+  trading stack is a property worth keeping.
+* **Population statistics are recomputed per query, never stored.** The noise ceiling, the
+  trial count, `exposure_corr`: each is defined over the whole candidate population, so one
+  new rule changes them for every existing row. Baked into a payload they go stale the
+  moment a file lands in `strategies/published/` and nobody rebuilds. The store carries a
+  `revision()` counter for the same reason one level down -- `board_rank` memoises a
+  sheet's tables, and behind an endpoint an un-keyed cache is a board frozen at the first
+  request.
+* **`dist/dashboard.html` stays baked**, and `--dist` is unaffected. It is one file with
+  no server behind it; a frozen board is what that artifact is.
+
+A submitted rule leaves one deliberate gap: it is in `results.db` and in
+`book_<cls>_<tf>.csv` (the worker merges through `merge_book.py`), but **not** in
+`edge_standard.csv` or `strat_summary_*`, because those runs are scoped and must not
+overwrite a sheet of record. `tools/export_results.py` prints that gap and, only when
+told, closes it.
 
 ## Generated files are never edited
 

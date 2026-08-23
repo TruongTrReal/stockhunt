@@ -1,0 +1,63 @@
+[Unit]
+Description=Score strategies submitted through /v1/research and put them on the board
+Documentation=https://github.com/TruongTrReal/stockhunt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stockhunt
+Group=stockhunt
+# The quoting trap again: systemd splits single-path directives on whitespace and takes
+# quotes literally, so "walk-forward optimization" cannot be spelled in WorkingDirectory=.
+# The cd happens in the shell, exactly as stockhunt-api and stockhunt-desk do it. Running
+# from that directory is not cosmetic -- every module in it imports its siblings by bare
+# name, which is the whole reason the folders cannot be packages.
+ExecStart=/bin/sh -c 'cd "/opt/stockhunt/walk-forward optimization" && exec /opt/stockhunt/.venv/bin/python -u research_worker.py'
+Environment=PYTHONUNBUFFERED=1
+
+# A drain, not a daemon. `--watch` exists and is deliberately not used here: the worker
+# holds pandas, numpy and TA-Lib resident and fires rarely, so a long-lived process would
+# keep several hundred MB alive on a box whose memory is already the binding constraint on
+# how many rule-loop workers a sweep can use. `research_worker.py` with no flag drains the
+# queue and exits.
+#
+# Overlap is safe twice over. systemd skips a timer trigger while the unit is still
+# running, and `resultsdb.claim_job` takes its row under BEGIN IMMEDIATE -- so even two
+# workers on one database cannot take the same job.
+#
+# Same reasoning as stockhunt-rotation: this is a CLIENT of the ledger, not part of the
+# desk. It can fail, hang or be killed and the worst case is a submission scored late.
+# Nothing it touches is a position or a forward-test record.
+
+# A walk-forward pass over the biggest sheet is ~4 minutes and a job runs three of them;
+# `research_worker.STAGE_TIMEOUT` already kills any single stage at 20. This is the outer
+# bound for the whole drain, so a queue that has backed up is not cut off mid-job.
+TimeoutStartSec=3600
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Five paths, and each is a stage doing its ordinary job:
+#   results/          the *.partial sheets, book_<cls>_<tf>.csv via merge_book, results.db
+#   logs/             one log per job, which is what a rejection reason is quoted from
+#   strategies/published/   where a submitted MODULE lands, and is removed from again
+#                           if the causality gate refuses it
+#   data/reference/   trials.csv -- every submission is registered before it is scored
+#   .cache/           the on-disk position cache the rule loop reads and writes
+#
+# `logs/` and `.cache/` are GITIGNORED and therefore absent on a fresh clone, and a
+# ReadWritePaths= entry pointing at a missing path makes systemd fail to set up the mount
+# namespace -- the unit refuses to start at all, naming the path but not the reason. They
+# are created by the install step in deploy/README.md rather than marked optional with a
+# leading `-`, for two reasons: `-` only suppresses the startup failure and would leave the
+# worker unable to mkdir into a read-only tree anyway, and its interaction with a quoted
+# path is not something to discover on a box that is serving. Every other unit here takes
+# the same line.
+ReadWritePaths="/opt/stockhunt/walk-forward optimization/results" "/opt/stockhunt/walk-forward optimization/logs" "/opt/stockhunt/strategies/published" "/opt/stockhunt/data/reference" "/opt/stockhunt/.cache"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+[Unit]
+Description=Drain the research submission queue every two minutes
+
+[Timer]
+# Two minutes, and the number comes from what is being waited on rather than from taste.
+# A submission takes minutes to score, so shaving the wait to seconds buys a submitter
+# nothing they can perceive; a wake-up that finds an empty queue costs an interpreter
+# start and exits, so the idle price of being prompt is small but not zero.
+#
+# OnBootSec as well as OnUnitActiveSec: a wall-clock schedule needs an anchor and this has
+# none until the service has run once, which is the trap stockhunt-refresh.timer's comment
+# records. Persistent= is deliberately NOT set -- a missed drain is not work to catch up
+# on, the queue is still there and the next tick takes it.
+OnBootSec=2min
+OnUnitActiveSec=2min
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target

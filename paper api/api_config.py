@@ -121,6 +121,11 @@ CAPITAL_PER_STRATEGY = float(env("API_CAPITAL_PER_STRATEGY", "10000") or 10000)
 # database and a bot in a tight retry loop can fill it faster than the desk drains it.
 MAX_ORDERS_PER_MINUTE = env_int("API_MAX_ORDERS_PER_MINUTE", 60)
 
+# Research submissions per minute, per account. Two orders of magnitude below the order
+# limit, because these are not cheap: each one is a walk-forward run over a whole sheet
+# and the queue is drained one at a time. Filling it gains nobody anything.
+MAX_TRIALS_PER_MINUTE = env_int("API_MAX_TRIALS_PER_MINUTE", 4)
+
 # How old the desk's heartbeat may get before this process calls it down.
 #
 # The desk ticks every second (`desk_control.TICK_SECONDS`), so twenty is twenty missed

@@ -12,11 +12,48 @@ folder's results.
 One payload, two outputs:
 
 ```
-payload.py            reads the CSVs -> one document
+board_rank.py         reads results.db -> the ranked leaderboard
+   |                  ...and `paper api` calls the SAME function per request
+payload.py            + the CSVs it still opens by name -> one document
    |
 build_dashboard.py --serve   -> web/data.js + web/curves/*.json    (SPA, live)
                    --dist    -> dist/dashboard.html                (one file, no server)
 ```
+
+**The leaderboard is no longer baked.** `board_rank.build_sheet` was moved out of
+`payload.py` whole -- every filter, every tiebreak and every comment came across unchanged
+-- and reads `results.db` instead of six CSVs. `payload.py` still calls it for the baked
+build, and `paper api` calls it for `/v1/research/board`, which `app.js` fetches on load.
+One ranking, two callers.
+
+`tools/test_board_equivalence.py` is the gate on that move: it compares the rendered sheet
+against a captured baseline as JSON **text**, so a value-wise-equal difference cannot slip
+through. The one drift it has ever caught was rounding a metric inside the store instead of
+inside the ranker, which turned every `-0.0` into `0.0` on three of twenty sheets.
+
+Three properties of `board_rank.py` to preserve:
+
+* **It imports pandas and `stockhunt.resultsdb`, and nothing else from this repo.** Not
+  `dash_config`, not `paper_config`, not the engine's `config`. `paper api/api_paths.py`
+  is the one bootstrap that pulls in no trading code, and the HTTP layer starting without
+  a TA-Lib build depends on it. The six gate definitions therefore travel in the store's
+  `meta` table, written there by `tools/ingest_results.py`.
+* **Its caches are keyed on `resultsdb.revision()`.** They were written for a builder that
+  ran once and exited; behind an endpoint an un-keyed cache is a board frozen at the first
+  request, which is the same staleness this whole change removed, one level down and far
+  harder to see because nothing is stale on disk.
+* **The population statistics are computed on every call** -- `noise_ceiling`, the trial
+  count, `exposure_corr`. Adding one rule changes them for every existing row, so a stored
+  copy is wrong the moment anything lands.
+
+`build_board()` -- all twenty sheets at once, which is what both servers hand the page --
+is **~13s cold and a dictionary lookup warm**, memoised on the same revision. The first
+request after the worker inserts a rule pays the rebuild and every other one is free. Most
+of that 13s is the per-asset layer: `_per_asset_from_riskmatch` ranks every name for every
+rule on the sheet (~400 x ~600 on us_stocks 1d) and only the `TOP_N` rows that ship carry
+the result. Ranking first and building per-asset rows only for those would remove most of
+it -- a real change to moved code, so it wants `test_board_equivalence.py` either side of
+it and a commit of its own.
 
 There used to be two independent builders over two different subsets of the same CSVs, with
 two separate implementations of every view. They drifted: at the time they were merged the
@@ -47,9 +84,9 @@ everything else comes off local CSVs. A dead API key must not block a rebuild.
 
 | section | source |
 |---|---|
-| backtest leaderboards, per-asset | `../walk-forward optimization/results/wf_*` (singles) + `cwf_*` (pairs) |
-| **edge standard** (`#/edge`) | `../walk-forward optimization/results/edge_standard.csv` |
-| **book columns + the ranking** | `../walk-forward optimization/results/book_<class>_<tf>.csv` |
+| backtest leaderboards, per-asset | **`results.db`**, via `board_rank.build_sheet`. Filled from `wf_*` / `cwf_*` / `strat_*` by `tools/ingest_results.py` |
+| **edge standard** (`#/edge`) | **`results.db`** `edge` table, from `edge_standard.csv` |
+| **book columns + the ranking** | **`results.db`** `book` table, from `book_<class>_<tf>.csv` |
 | **converted-strategy board** (`conv`) | `../walk-forward optimization/results/convert_*.csv` + `portfolio.csv` — same stage, same columns |
 | equity curves | `../walk-forward optimization/results/book_curves_*.json` — **written by the same run as the book columns** |
 | research summary, gate power, prereg | same folder, `wf_meta`, `prereg_*` |
@@ -284,7 +321,7 @@ about.**
 
 | board | population | timeframes | source |
 |---|---|---|---|
-| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES`, 1d and 4h | `wf_summary_*` + `book_<cls>_<tf>.csv` |
+| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES` — the research axis: **1d/4h/1h/15m** (2026-08-22; finer sizes stay fetchable in `config.WINDOWS` but are out of the program); a timeframe with no sheet renders the empty state naming the command | `wf_summary_*` + `book_<cls>_<tf>.csv` |
 | `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_book_*` where it exists, else `convert_*.csv` + `portfolio.csv` |
 
 Everything that decides what a number MEANS is shared. Both sheets came out of
@@ -384,6 +421,63 @@ and click-to-sort behaviour is one implementation across both boards. **A column
 without a `doc` is the one column nobody can ask about** — that rule holds on `CONV_COLS`
 too.
 
+## Three research views on the backtest page (2026-08-22)
+
+`#/backtest` answers three different questions with three different views, switched by
+the **Research** strip in the filter row, each a real hash route:
+
+| view | route | question |
+|---|---|---|
+| Discover | `#/backtest` | what looks interesting on this sheet? |
+| Compare | `#/backtest/compare` | which of these is better? |
+| Robustness | `#/backtest/robust[/<rule-slug>]` | does it generalise? |
+
+Asset class and timeframe are **filters** (native selects, `.fsel`), not navigation —
+the pill strips they replaced read as tabs and stop scaling past two timeframes. The
+board switch (house / conv) stays a pill pair because it changes the *population*, not a
+research dimension. The masthead item is labelled **Research** now, in all three masthead
+copies (here, `../paper api/web/desk.html`, `docs.html`) — the copies must keep saying
+the same word or the nav jumps between processes.
+
+**Discover** is the leaderboard, kept whole but defaulted to 10 of its 18 columns plus a
+new `Robustness` column; the rest sit behind the `More columns` toggle (`adv: true` in
+`LB_COLS`, filtered by `lbCols`). Hiding a column never renumbers an explanation —
+`data-doc` indexes the FULL list. The `lb-search` box filters the SHIPPED rows only and
+the note says how many match; it cannot reach the rows `payload.py` cut, which is the
+same top-N honesty rule the sort already follows. The compare checkbox lives *inside*
+the Strategy cell (`cbxCell`), not in a column of its own, so the phone's frozen first
+column stays the name.
+
+**The compare selection is pinned to one sheet** (`lbSel`, capped at 6): rows from two
+sheets sit on different bars, benchmarks and cost grids, and a table across them would
+be the mixed-measurement bug this page already removed once — ticking on another sheet
+starts a fresh selection. Compare renders `LB_COLS` **transposed** — one row per column,
+buy-and-hold as its own column — through the same cell renderers, so a number there is
+coloured, blanked and explained exactly as on the leaderboard. Its chart draws each book
+**as traded** (the caption says so and points at the risk-matched chart on the detail
+page); `equityChart` grew an optional `styles` argument for the six distinct strokes.
+
+**Robustness reads `D.robust`, cut from the FULL `book_*.csv` sheets** by
+`payload.robustness_index` — ~400 rules × 9 environments, ~260 kB, inlined because the
+view needs all of it at once. A matrix built from the shipped rows would show a rule
+only where it ranked well and its weak environments would vanish, which inverts the
+question the view exists to answer. Three things to preserve:
+
+- **`robust.fields` and the field lookups in `app.js`** (`ROB_METRICS`,
+  `robMatrixTable`) **must move together** — the per-cell arrays are positional.
+- **The `Robustness` column and the view's summary are raw counts** — environments
+  where the book's Sharpe cleared the same universe held passively — never a composite
+  score. The matrix tint carries that same single meaning whatever metric is displayed,
+  via `color-mix` so it stays honest in dark mode.
+- **A cell is honest about why it is empty**: an em-dash where the book stage never
+  scored the rule, `0 trades` where it never opened a position, and a cell whose rule is
+  not on that sheet's shipped board says so and shows the payload record instead of
+  dead-linking to a detail page that does not exist.
+
+The detail page carries the same matrix (`robSection`), marked at its own cell, with
+shipped cells linking to their sibling detail pages — and an **Add to Compare** button
+that joins the selection under the same one-sheet rule.
+
 ## One leaderboard per asset class
 
 The **house** board splits on **asset class and timeframe, and on nothing else**. Single rules
@@ -452,6 +546,14 @@ exactly why removing the instruction was not enough: one `--host 0.0.0.0` publis
 position, every fill and the whole research record to whoever had the URL, and the page
 looked identical. Sharing goes through `../paper api/`, which serves this same directory
 behind an emailed sign-in code.
+
+**The one sanctioned exception is `--lan`** (`run.ps1 -Lan`), added 2026-08-22 for
+checking a view on a phone: it binds 0.0.0.0 and prints a banner naming the audience —
+every device on the network, no login — plus the device URL and the firewall hint. It is
+a named flag rather than a permitted `--host` value so the exposure can never be the
+side effect of a copied command line; `--host <anything non-loopback>` still refuses and
+now points at the flag. It is for a network you trust, for as long as the test runs, and
+it is not a way to share the desk — that stays `../paper api/`.
 
 The `/ws` handler is a **file watcher** on `web/live.json`. It never talks to the trading
 node. If this process dies the desk keeps trading.
@@ -618,6 +720,16 @@ reached from a system's holdings table now.
 - **`web/data.js`, `web/live.json`, `web/curves/`, `web/paper_curves.json` and
   `dist/dashboard.html` are generated.** Edit `payload.py`, `app.js`, `app.css` or
   `index.html`; never the outputs.
+- **`data.js`'s `backtest` section is a FALLBACK now, not the source.** `app.js` fetches
+  `/v1/research/board` before its first `render()` and replaces `D.backtest` with the
+  answer; a non-200 leaves the baked payload in place. That degradation is deliberate --
+  the board is served by two processes and a session can expire, and yesterday's numbers
+  beat a blank page. It is skipped entirely under `__SNAPSHOT__`, because a single-file
+  board with no server behind it is *supposed* to be frozen.
+- **`serve.py` answers `/v1/research/board` too**, read-only, importing `board_rank`
+  directly. Without it the loopback board silently shows whatever the last build froze.
+  There is no submission route there and there must not be: queuing a rule is an act
+  attributable to an account, and that process authenticates nobody.
 - **`paper_curves.py` takes its system list from the DESK, not from the sheet.**
   `run_paper.py` defaults to `--top 0` and trades what has been registered — books of
   combos and published strategies — while `paper_config.top_rules` returns single rules off

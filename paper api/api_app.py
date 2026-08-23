@@ -97,6 +97,7 @@ def create_app() -> FastAPI:
     # mounted after the board can be shadowed by it.
     import api_house
     import api_orders
+    import api_research
     import api_strategies
     import api_webhook
 
@@ -109,6 +110,9 @@ def create_app() -> FastAPI:
     # `/v1/orders`.
     app.include_router(api_webhook.router)
     app.include_router(api_house.router)
+    # The research board, and the queue that puts rows on it. It reads `results.db` and
+    # writes job rows; it owns no trading and touches no order path.
+    app.include_router(api_research.router)
 
     @app.get("/healthz", tags=["meta"], summary="Liveness, with nothing sensitive in it")
     def healthz() -> dict:

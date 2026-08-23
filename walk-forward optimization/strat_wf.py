@@ -110,7 +110,7 @@ from stockhunt import parallel
 # the fee model and the fold machinery. `config` is imported first on purpose -- it is
 # what puts the repo root on sys.path so `strategies` resolves.
 from strategies.catalog import (BASELINE, CATALOG, CONTROLS, RANDOM_DRAWS, SEP,
-                                build, cells, decode, skipped_for)
+                                build, cells, decode, encode, skipped_for)
 
 DEFAULT_TIMEFRAMES = ("1d", "4h")
 
@@ -277,15 +277,50 @@ def select_cells(labels: list[str], rules: list[str] | None) -> list[str]:
     An unknown name is fatal; a name that is simply not runnable on THIS class is not.
     `monday_effect` is undefined on crypto, and a `--class crypto us_stocks` run naming
     it should score it where it exists rather than refuse to start.
+
+    **A well-formed cell OFF the declared grid is admitted and appended** (2026-08-23).
+    `ibs@buy=0.35` is not one of `ibs`'s four published cells, but `registry.decode` reads
+    it, `registry.build` builds it and it round-trips through `encode` — so refusing it was
+    a restriction of this function rather than of the machinery. `research_worker.py` needs
+    it: a submitted variant that cannot be scored cannot be ranked, and asking somebody to
+    edit a `GRID` literal and re-run the whole catalogue is the manual step this repo is
+    trying to stop needing.
+
+    The consequence is real and it is handled elsewhere, not waved away. The grid IS the
+    declared trial family, so admitting arbitrary cells means the search space is no longer
+    fixed in advance — which is precisely the multiplicity problem `data/reference/trials.csv`
+    exists for. Every off-grid cell must therefore be registered as a trial before it is
+    scored; `research_worker` does that, and anything else reaching this path by hand must
+    too, or `dsr` on the sheet is deflating against a search smaller than the one that
+    happened.
+
+    Round-tripping is the check, not a regex. A label that `decode` mangles or that
+    `encode` renders differently would be scored under one name and stored under another,
+    which is worse than being refused.
     """
     if not rules:
         return labels
     want = set(rules)
-    unknown = {r for r in want if r not in CATALOG and r not in set(labels)}
+    known = set(labels)
+    extra = []
+    for r in sorted(want):
+        if r in known or r in CATALOG:
+            continue
+        try:
+            name, params = decode(r)
+        except Exception:
+            # `decode` raises rather than returning None for an unknown strategy or an
+            # unparseable parameter list. Either way this is not a cell, and it falls
+            # through to the `unknown` message below with the label named.
+            continue
+        if name in CATALOG and encode(name, params, CATALOG[name]) == r:
+            extra.append(r)
+    unknown = {r for r in want
+               if r not in CATALOG and r not in known and r not in set(extra)}
     if unknown:
         raise SystemExit(f"not in the catalog: {sorted(unknown)} — "
                          f"`python strat_wf.py --list` prints what is")
-    return [c for c in labels if c in want or decode(c)[0] in want]
+    return [c for c in labels if c in want or decode(c)[0] in want] + extra
 
 
 def _context(asset_class: str, timeframe: str) -> dict | None:

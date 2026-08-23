@@ -84,14 +84,52 @@ class _DropNonGet(logging.Filter):
 logging.getLogger("websockets.server").addFilter(_DropNonGet())
 
 
+# The one dynamic route this server has, and the reason it exists at all.
+#
+# The research board is queried per request from `results.db` now rather than baked into
+# `data.js` (see `board_rank.py`). `app.js` asks for it on load and falls back to the baked
+# payload when nobody answers — so without this, the loopback board silently keeps showing
+# whatever the last `build_dashboard.py` run froze, which is exactly the staleness the
+# store was built to remove.
+#
+# **Read-only, and there is no submission route here.** Queuing a rule for scoring is an
+# act attributable to an account, and this process authenticates nobody. `paper api/`
+# carries `POST /v1/research/trials`; this carries the two GETs and nothing else.
+RESEARCH_BOARD = "/v1/research/board"
+
+
+def _research_board() -> Response:
+    """The same ranking `paper api` serves, from the same module. Imported lazily: it pulls
+    in pandas, and a server whose job is static files should not pay for that until asked."""
+    import board_rank                                                  # noqa: PLC0415
+
+    body = json.dumps(board_rank.build_board(), separators=(",", ":")).encode("utf-8")
+    return Response(200, "OK", Headers({
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": str(len(body)),
+        "Cache-Control": "no-store"}), body)
+
+
 def http_handler(connection, request):
     """Serve a file for any request that is not the WebSocket upgrade.
 
     Returning `None` tells `websockets` to continue with the handshake, which is exactly
     what should happen on `/ws` and nowhere else.
     """
-    if request.path.split("?", 1)[0] == WS_PATH:
+    path = request.path.split("?", 1)[0]
+    if path == WS_PATH:
         return None
+    if path == RESEARCH_BOARD:
+        try:
+            return _research_board()
+        except Exception as exc:
+            # A missing or empty `results.db` must not 500 the board. `app.js` treats any
+            # non-200 as "no live board" and keeps the baked payload, which is the honest
+            # degradation: yesterday's numbers, not a blank page.
+            print(f"  {RESEARCH_BOARD}: {type(exc).__name__}: {exc}")
+            return Response(503, "Service Unavailable",
+                            Headers({"Content-Type": "text/plain"}),
+                            b"no results store; run tools/ingest_results.py")
     target = web_files.resolve(WEB, request.path)
     if target is None:
         return Response(404, "Not Found", Headers({"Content-Type": "text/plain"}),
@@ -163,12 +201,12 @@ async def main_async(host: str, port: int, lan: bool = False) -> None:
             else:
                 print("  from a device:    http://<this machine's LAN address>:%d" % port)
             print("If the device cannot connect, Windows Firewall is blocking inbound")
-            print("Python on private networks â€” allow it once in the prompt, or:")
+            print("Python on private networks — allow it once in the prompt, or:")
             print('  netsh advfirewall firewall add rule name="stockhunt dash (test)"'
                   " dir=in action=allow protocol=TCP localport=%d" % port)
             print("=" * 72)
         # Flushed, because this process is normally started with stdout redirected to
-        # logs/serve.log and block-buffered â€” the URL a phone should open would otherwise
+        # logs/serve.log and block-buffered — the URL a phone should open would otherwise
         # sit invisible in the buffer until shutdown.
         print("serving from", WEB, flush=True)
         await asyncio.Future()
@@ -203,7 +241,7 @@ def main() -> None:
     ap.add_argument("--lan", action="store_true",
                     help="ALSO answer this LAN (binds 0.0.0.0), for testing on a phone. "
                          "No login: everyone on the network sees everything. The named "
-                         "flag is the point â€” `--host` alone still refuses.")
+                         "flag is the point — `--host` alone still refuses.")
     args = ap.parse_args()
     if args.lan:
         args.host = "0.0.0.0"
