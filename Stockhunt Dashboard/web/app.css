@@ -632,3 +632,87 @@ td.book-pnl{opacity:.55;}
 /* Prose under a table, in the same muted ink the section notes use. `.logic-p.mut` did
  * this for one view only; these paragraphs sit under three. */
 p.mut{font-size:14.5px;color:var(--muted);margin:0;max-width:78ch;}
+
+/* ---------- the research views (2026-08-22) ----------
+ *
+ * Discover / Compare / Robustness. Same ink, same hairlines, no new typeface; the only
+ * new *colour* is the matrix tint, and it carries the page's one meaning for colour —
+ * beat or trailed the same universe held passively. */
+
+/* A dropdown styled as text, sitting on the same baseline as the pills beside it.
+ * Research dimensions are filters, not navigation, and a select scales past the point
+ * where a row of pills stops fitting. */
+.fsel{font:inherit;font-size:13.5px;color:var(--ink);background:none;border:none;
+  border-bottom:1px solid var(--hair-2);padding:0 2px 2px 0;cursor:pointer;}
+.fsel:hover{border-bottom-color:var(--ink);}
+/* The research view switch is three <a>s wearing the pill class; the anchor rule above
+ * gives every link a hairline underline, which on a pill reads as a permanent "on". */
+a.pill{border-bottom:1.5px solid transparent;padding-bottom:2px;}
+a.pill:hover{border-bottom-color:transparent;color:var(--ink);}
+a.pill.on{border-bottom-color:var(--ink);}
+
+.lb-tools{display:flex;gap:18px;align-items:baseline;flex-wrap:wrap;}
+.search{font:inherit;font-size:13.5px;color:var(--ink);background:none;border:none;
+  border-bottom:1px solid var(--hair-2);padding:0 2px 2px;width:200px;}
+.search:focus{outline:none;border-bottom-color:var(--ink);}
+.search::placeholder{color:var(--muted);}
+
+/* The compare checkbox, drawn inside the Strategy cell rather than as a column of its
+ * own so the phone's frozen first column stays the name. */
+.cbx{display:inline-flex;width:14px;height:14px;border:1px solid var(--hair-2);
+  border-radius:3px;margin-right:9px;vertical-align:-2px;cursor:pointer;flex:none;
+  position:relative;}
+.cbx:hover{border-color:var(--ink-2);}
+.cbx.on{background:var(--ink);border-color:var(--ink);}
+.cbx.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+  border-right:1.5px solid var(--paper);border-bottom:1.5px solid var(--paper);
+  transform:rotate(40deg);}
+
+/* The Robustness column's micro-bar: share of scored environments beating holding. */
+.rb{display:inline-block;width:40px;height:3px;background:var(--hair);
+  vertical-align:middle;margin-left:8px;}
+.rb i{display:block;height:3px;background:var(--ink-2);}
+
+/* The floating compare bar — same visual voice as .update-bar, because both are the
+ * page speaking over the content rather than in it. */
+.cmp-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:20;
+  display:flex;align-items:center;gap:14px;padding:11px 14px;font-size:13px;
+  color:var(--paper);background:var(--ink);border-radius:8px;
+  box-shadow:0 6px 24px rgba(0,0,0,.28);}
+.cmp-bar[hidden]{display:none;}
+.cmp-bar button{font:inherit;font-size:12.5px;line-height:1;white-space:nowrap;
+  padding:7px 12px;cursor:pointer;color:var(--ink);background:var(--paper);
+  border:0;border-radius:999px;}
+.cmp-bar button:hover{opacity:.86;}
+.cmp-bar .quiet{background:none;color:var(--paper);opacity:.7;padding:7px 2px;}
+.cmp-bar .quiet:hover{opacity:1;}
+
+/* Selected-strategy chips on the compare page, each carrying its line's stroke. */
+.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.fchip{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;
+  color:var(--ink-2);border:1px solid var(--hair-2);border-radius:999px;
+  padding:5px 12px;background:none;cursor:pointer;}
+.fchip:hover{border-color:var(--ink-2);}
+.fchip .x{color:var(--muted);}
+.fchip:hover .x{color:var(--loss);}
+.key-line{display:inline-block;width:16px;height:0;border-top:2px solid var(--muted);
+  vertical-align:middle;flex:none;}
+th.cmp-name{cursor:pointer;text-decoration:underline dotted var(--hair-2);
+  text-underline-offset:3px;}
+th.cmp-name:hover{color:var(--ink);}
+th.cmp-name .mut{font-weight:400;font-size:11.5px;color:var(--muted);}
+
+/* The robustness matrix — the one place on the page with a filled cell, because a
+ * heat-map's fill IS its statement. color-mix against transparent keeps the tint honest
+ * in both themes, where a hard-coded rgba() would glow in dark mode. */
+.mx{max-width:820px;}
+.mx td.l{white-space:nowrap;}
+.mx-cell{cursor:pointer;}
+.mx-cell:hover{outline:1px solid var(--ink-2);outline-offset:-1px;}
+.mx-cell.mx-on{outline:1.5px solid var(--ink);outline-offset:-1px;}
+.tint-g1{background:color-mix(in srgb, var(--gain) 7%, transparent);}
+.tint-g2{background:color-mix(in srgb, var(--gain) 14%, transparent);}
+.tint-g3{background:color-mix(in srgb, var(--gain) 22%, transparent);}
+.tint-l1{background:color-mix(in srgb, var(--loss) 7%, transparent);}
+.tint-l2{background:color-mix(in srgb, var(--loss) 14%, transparent);}
+.tint-l3{background:color-mix(in srgb, var(--loss) 22%, transparent);}

@@ -5,6 +5,8 @@
 # down.
 #
 #   .\run.ps1                    # http://127.0.0.1:8765, local only
+#   .\run.ps1 -Lan               # ...plus this LAN, for testing on a phone. No login:
+#                                #    every device on the network sees everything
 #   .\run.ps1 -Port 9000
 #   .\run.ps1 -Stop              # stop whatever this script started
 #
@@ -19,6 +21,7 @@
 [CmdletBinding()]
 param(
     [int]$Port = 8765,
+    [switch]$Lan,
     [switch]$Tunnel,
     [switch]$Stop
 )
@@ -59,17 +62,28 @@ whoever had the URL. The same board, behind an emailed sign-in code:
 "@
 }
 
-# serve.py refuses anything but loopback, so there is nothing else this can be.
-$BindHost = "127.0.0.1"
+# serve.py refuses anything but loopback unless --lan is passed explicitly; -Lan here
+# passes exactly that flag, so the exposure is named in both places.
+$ServeArgs = @("serve.py", "--port", "$Port")
+if ($Lan) { $ServeArgs += "--lan" } else { $ServeArgs += @("--host", "127.0.0.1") }
 $pids = @()
 
 $serve = Start-Process -FilePath $Python `
-    -ArgumentList @("serve.py", "--host", $BindHost, "--port", "$Port") `
+    -ArgumentList $ServeArgs `
     -WorkingDirectory $Here -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput (Join-Path $Logs "serve.log") `
     -RedirectStandardError  (Join-Path $Logs "serve.err")
 $pids += "$($serve.Id) serve.py"
 "serve.py    pid $($serve.Id)  ->  http://127.0.0.1:$Port"
+if ($Lan) {
+    $Ip = (Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp,Manual `
+        -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -notlike "169.254.*" -and $_.IPAddress -ne "127.0.0.1" } |
+        Select-Object -First 1).IPAddress
+    "LAN MODE — no login; every device on this network sees everything while it runs."
+    if ($Ip) { "from a device:  http://${Ip}:$Port" }
+    "details (and the firewall hint if a device cannot connect): logs\serve.log"
+}
 
 $pids | Set-Content -Path $PidFile -Encoding utf8
 ""

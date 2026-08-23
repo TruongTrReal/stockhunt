@@ -29,7 +29,16 @@ or touch a position. If this dies the desk keeps trading.
 Run::
 
     python serve.py                    # 127.0.0.1:8765, and nowhere else
+    python serve.py --lan              # ...plus this LAN, for testing on a phone. Loud,
+                                       # explicit, and still no login: everyone on the
+                                       # network sees everything while it runs
     cd "../paper api" && python run_api.py    # the same board, behind a login
+
+`--lan` exists because "check the new view on the phone" is a real workflow and the
+refusal below kept forcing it through a tunnel with a sign-in code. It is a separate
+flag rather than a permitted `--host` value so the exposure can never be the side effect
+of a copied command line: the flag names the intent, the banner names the audience, and
+the default stays loopback-only.
 """
 
 from __future__ import annotations
@@ -39,6 +48,7 @@ import asyncio
 import json
 import logging
 import mimetypes
+import socket
 
 import websockets
 from websockets.asyncio.server import serve
@@ -123,12 +133,44 @@ async def ws_handler(ws):
         pass
 
 
-async def main_async(host: str, port: int) -> None:
+def _lan_ip() -> str | None:
+    """This machine's address on the LAN, for printing the URL a phone should open.
+
+    The UDP-connect trick: no packet is sent, the OS just picks the interface it would
+    route through. Fails closed to None on a machine with no route at all.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 80))       # TEST-NET-1; nothing is transmitted
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+async def main_async(host: str, port: int, lan: bool = False) -> None:
     async with serve(ws_handler, host, port, process_request=http_handler,
                      ping_interval=20, ping_timeout=20, max_size=None):
         where = "localhost" if host in ("127.0.0.1", "localhost") else host
         print(f"dashboard on http://{where}:{port}   (ws on {WS_PATH}, same origin)")
-        print("serving from", WEB)
+        if lan:
+            ip = _lan_ip()
+            print("=" * 72)
+            print("LAN MODE: no login. Every position, every fill and the whole research")
+            print("record is readable by ANY device on this network while this runs.")
+            print(f"  on this machine:  http://127.0.0.1:{port}")
+            if ip:
+                print(f"  from a device:    http://{ip}:{port}")
+            else:
+                print("  from a device:    http://<this machine's LAN address>:%d" % port)
+            print("If the device cannot connect, Windows Firewall is blocking inbound")
+            print("Python on private networks â€” allow it once in the prompt, or:")
+            print('  netsh advfirewall firewall add rule name="stockhunt dash (test)"'
+                  " dir=in action=allow protocol=TCP localport=%d" % port)
+            print("=" * 72)
+        # Flushed, because this process is normally started with stdout redirected to
+        # logs/serve.log and block-buffered â€” the URL a phone should open would otherwise
+        # sit invisible in the buffer until shutdown.
+        print("serving from", WEB, flush=True)
         await asyncio.Future()
 
 
@@ -144,7 +186,9 @@ def _check_host(host: str) -> None:
     raise SystemExit(
         f"serve.py refuses to bind {host}: it has no login, so anything that can reach it\n"
         "sees every position and every result.\n\n"
-        "To share the desk, serve the same board behind an emailed sign-in code:\n\n"
+        "To test on a device on YOUR OWN network, the explicit opt-in is:\n\n"
+        "    python serve.py --lan\n\n"
+        "To share the desk beyond it, serve the same board behind an emailed sign-in code:\n\n"
         '    cd "../paper api"\n'
         "    python admin_users.py allow them@example.com\n"
         "    .\\run.ps1 -Tunnel\n"
@@ -156,10 +200,17 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1",
                     help="loopback only; sharing goes through ../paper api/")
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--lan", action="store_true",
+                    help="ALSO answer this LAN (binds 0.0.0.0), for testing on a phone. "
+                         "No login: everyone on the network sees everything. The named "
+                         "flag is the point â€” `--host` alone still refuses.")
     args = ap.parse_args()
-    _check_host(args.host)
+    if args.lan:
+        args.host = "0.0.0.0"
+    else:
+        _check_host(args.host)
     try:
-        asyncio.run(main_async(args.host, args.port))
+        asyncio.run(main_async(args.host, args.port, lan=args.lan))
     except KeyboardInterrupt:
         pass
 

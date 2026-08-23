@@ -1027,6 +1027,59 @@ def copy_curves(shown: dict | None = None) -> dict:
     return index
 
 
+def robustness_index(backtest: dict) -> dict:
+    """Every rule the book stage scored, on every (class, timeframe) it scored it.
+
+    The robustness view asks the one question a leaderboard structurally cannot: not
+    "what ranked here" but "does this signal survive everywhere else". A matrix built
+    from the shipped `TOP_N` rows would answer it with survivorship â€” a rule appears
+    exactly where it did well and its weak environments vanish, which inverts the point
+    of the view. So this index is cut from the full `book_*.csv` sheets instead: ~400
+    rules per sheet, eight numbers per cell, ~250 kB inlined. Curves stay fetched on
+    demand; this is small enough to ride in `data.js` and the view needs all of it at
+    once to draw a matrix.
+
+    `fields` names the per-cell array order and `ROB_FIELDS` in `app.js` mirrors it â€”
+    change one and change the other in the same commit.
+    """
+    fields = ["sharpe", "cm_excess_cagr", "cagr", "dd", "exposure", "n_trades",
+              "profit_factor", "win_rate"]
+    envs: list[dict] = []
+    rules: dict[str, dict] = {}
+    for key, cls, _label, _u in GROUPS:
+        for tf in TIMEFRAMES:
+            book, bench = _book_index(cls, tf)
+            if not book or bench is None:
+                continue
+            ekey = f"{key}_{tf}"
+            envs.append({"key": ekey, "cls": key, "tf": tf,
+                         "bench": {"sharpe": bench.get("sharpe"),
+                                   "cagr": bench.get("cagr"),
+                                   "dd": bench.get("dd"),
+                                   "wealth": bench.get("wealth")},
+                         "years": bench.get("years"),
+                         "n_names": bench.get("n_names")})
+            for rule, rec in book.items():
+                rules.setdefault(str(rule), {})[ekey] = [rec.get(f) for f in fields]
+    # The leaderboard's Robustness column, attached here so the page never re-derives
+    # the definition: environments where the book's Sharpe cleared the same universe
+    # held passively, out of the environments the rule was scored on at all. A raw
+    # count on purpose â€” a composite "robustness score" with an undefined formula is
+    # exactly the kind of number this dashboard exists to not print.
+    bench_sharpe = {e["key"]: (e["bench"] or {}).get("sharpe") for e in envs}
+    for g in backtest.values():
+        for s in g["sheets"]:
+            for r in s["rows"]:
+                cells = rules.get(r["rule"])
+                if not cells:
+                    continue
+                beat = sum(1 for ek, v in cells.items()
+                           if v[0] is not None and bench_sharpe.get(ek) is not None
+                           and v[0] > bench_sharpe[ek])
+                r["rob"] = {"n": beat, "total": len(cells)}
+    return {"fields": fields, "envs": envs, "rules": rules}
+
+
 def _reachable(all_rules: dict, shown: set | None) -> dict:
     """The curves a reader can open, out of every curve the book run wrote.
 
@@ -1162,12 +1215,6 @@ def paper_state() -> dict:
 # `build_web_data.py` fed the served site. Two builders over two different subsets of the
 # same CSVs meant the two outputs disagreed by a day in practice; they are one payload now.
 # ---------------------------------------------------------------------------------------
-
-def _read(path):
-    try:
-        return pd.read_csv(path)
-    except Exception:
-        return pd.DataFrame()
 
 
 def research_sheets() -> list[dict]:
@@ -1818,6 +1865,10 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
             backtest[key] = {"label": label, "n": len(universe),
                              "universe": universe, "sheets": sheets}
 
+    # Attaches `rob` to every shipped row as a side effect, so it runs after the sheets
+    # are built and before the payload is assembled.
+    robust = robustness_index(backtest)
+
     paper = paper_state()
     # Only the rules this payload can actually open. `run_book.sh` curves all ~409 labels
     # per sheet and `results/` keeps every one of them, but a leaderboard ships `TOP_N`
@@ -1881,6 +1932,9 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
                            "target": c["target"], "ask": c.get("note", "")}
                           for c in dash_config.bt_config.GATES],
         "backtest": backtest,
+        # The full-population robustness index â€” see `robustness_index` for why it is
+        # not derived from the shipped rows.
+        "robust": robust,
         # The second board on the same page. Its own timeframe axis (1d down to
         # 1m), its own trial family, and its own facets -- see `conversion_sheets`
         # for why it is not rows on the first one.
