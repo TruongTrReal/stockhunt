@@ -90,6 +90,15 @@ const statusChip = s => { let [c, l] = STATUS[s.status] || ["mut", s.status];
 const fmtUnits = v => !v ? "—" : Math.abs(v) >= 100 ? v.toFixed(2)
   : Math.abs(v) >= 1 ? v.toFixed(3) : v.toFixed(6);
 const stateCell = s => `<span class="pos-${s.state}">${s.state}</span>`;
+/* Internal class keys leak into free text the desk composed at registration time. This
+ * turns them back into the labels the rest of the page uses, on the way to the screen. */
+const CLASS_KEY_LABEL = {
+  us_stocks: "US stock", us_etfs: "ETF", crypto: "crypto",
+  commodities: "commodity", cme_futures: "CME futures",
+};
+const prettyNote = txt => String(txt || "").replace(
+  /\b(us_stocks|us_etfs|crypto|commodities|cme_futures)\b/g,
+  k => CLASS_KEY_LABEL[k] || k);
 /* ---------- the acceptance standard, on the row ----------
  * `D.edge_criteria` comes from `config.GATES`, so the letters and their order are whatever
  * the standard currently says rather than a copy here that can drift from it.
@@ -555,7 +564,8 @@ const isMine = s => {
   const a = String(s.account || D.house || "00");
   return a === String(D.account) || (D.is_admin && a === String(D.house || "00"));
 };
-const paperWhoPills = () => [
+const hasAccount = () => D.account != null;
+const paperWhoPills = () => !hasAccount() ? [] : [
   ["mine", D.is_admin ? "Mine & the desk" : "Mine"],
   ["others", D.is_admin ? "Members" : "The desk"],
 ];
@@ -573,7 +583,7 @@ function paperEmpty() {
 
   <div class="strip">
     <div class="stat"><span class="k">Systems live</span><span class="v">0</span>
-      <span class="s">node not started</span></div>
+      <span class="s">not started</span></div>
     <div class="stat"><span class="k">Data feed</span>
       ${feedValue()}
       ${feedNote(`${esc(D.feed.source)} · ${esc(D.feed.plan)}`)}</div>
@@ -582,10 +592,8 @@ function paperEmpty() {
       <span class="s">${esc(D.venue.name)}</span></div>
   </div>
 
-  <div class="note">Three things stand between here and a live number: the order path has
-  never filled, so it is unproven; nothing yet writes the state file this page reads; and the
-  node has to stay up for days to accumulate anything worth looking at. Until then the
-  research is the real content — see <a href="#/backtest">Backtest</a>.</div>`;
+  <div class="note">The forward test has not yet accumulated a record worth reading. The
+  multi-year evidence is the research — see <a href="#/backtest">Backtest</a>.</div>`;
 }
 
 /* A run replayed from cached bars is NOT paper trading, and the difference is not a
@@ -629,16 +637,15 @@ const feedNote = sub => feedStale()
   ? `<span class="s loss">no update in ${fmtAge(feedAgeMs())}</span>`
   : `<span class="s">${sub}</span>`;
 const staleBanner = () => feedStale()
-  ? `<div class="note"><b>The desk is not running.</b> Nothing has been published for
-     ${fmtAge(feedAgeMs())} — the last word from the node was
-     "${esc(D.feed.status)}" at ${esc(D.generated_at)}. Every figure below is that
-     snapshot, not a live number. Restart with <code>python run_paper.py</code>.</div>`
+  ? `<div class="note"><b>Figures as of ${esc(D.generated_at)}.</b> The desk has not
+     published for ${fmtAge(feedAgeMs())}, so everything below is that snapshot rather
+     than a live quote.</div>`
   : "";
 const replayBanner = () => isReplay()
   ? `<div class="note"><b>Replay, not live.</b> These figures come from running the live
      strategy over cached historical bars inside Nautilus — the run that proves bars,
      signals, orders and fills all connect. Nothing is trading against a live feed yet, so
-     read the P&amp;L as a test of the plumbing and nothing else.</div>` : "";
+     read the P&amp;L as a test of the execution path and nothing else.</div>` : "";
 
 function paperMaster() {
   if (!D.strategies.length) return paperEmpty();
@@ -649,8 +656,8 @@ function paperMaster() {
       ? `The live strategy class, the live signal layer and the live order path — run over
          cached bars in a Nautilus backtest engine. Same code, historical clock.`
       : `Live simulated fills from the Nautilus sandbox on real Twelve Data bars.`}
-    This section is about whether the <em>pipeline</em> works. Whether the rules work is a
-    different question, answered in <a href="#/backtest">Backtest</a>.</p>
+    This section is about whether the <em>execution path</em> works. Whether the rules
+    work is a different question, answered in <a href="#/backtest">Backtest</a>.</p>
   </div>
 
   ${replayBanner()}
@@ -659,8 +666,8 @@ function paperMaster() {
   <div id="paper-strip"></div>
 
   <div class="filters">
-    <span class="f-group"><span class="f-label">Whose</span>
-      ${pills(paperWhoPills(), pf.who, "data-who")}</span>
+    ${paperWhoPills().length ? `<span class="f-group"><span class="f-label">Whose</span>
+      ${pills(paperWhoPills(), pf.who, "data-who")}</span>` : ""}
     <span class="f-group"><span class="f-label">Asset</span>
       ${pills(paperClassPills(), pf.cls, "data-cls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
@@ -736,7 +743,7 @@ function paintPaper(refreeze = true) {
   paperStrip();
   const rows = D.strategies.filter(s =>
     s.cls === pf.cls && s.tf === pf.tf
-    && (pf.who === "mine" ? isMine(s) : !isMine(s)));
+    && (!hasAccount() || (pf.who === "mine" ? isMine(s) : !isMine(s))));
   const host = document.getElementById("paper-body");
   host.innerHTML = `
   <section class="sec">
@@ -1042,9 +1049,11 @@ function liveMetrics(rows, curve, cls, tf) {
  * formatter and a shared one would be a switch statement pretending to be a table. */
 function liveMetricRows(m) {
   const dash = "—";
-  const stale = "not in this payload — the desk published these fills before it recorded " +
-    "what each one closed. It fills in on the desk's next start; the record itself is " +
-    "complete, in paper.db.";
+  // Not an error and not a gap in the record: these fills predate the desk recording
+  // what each one closed, so the closed-trade statistics cannot be derived from them yet.
+  // The underlying fills are complete either way, which is what the sentence has to say.
+  const stale = "not available for this period — these fills were recorded before the " +
+    "desk began tracking what each one closed. The fill record itself is complete.";
   const short = `not yet — needs ${MIN_METRIC_BARS} bars of record, there ` +
     `${m.bars === 1 ? "is" : "are"} ${m.bars}`;
   return [
@@ -1109,11 +1118,11 @@ function liveMetricsSection(rows, curve, cls, tf) {
       <caption>Measured over ${m.bars} closed bar${m.bars === 1 ? "" : "s"} of
       ${isReplay() ? "replay" : "paper trading"}${m.capped ? ` and the last
       ${systemFills(rows).length} fills the board carries` : ""} — a record this short
-      describes the plumbing, not the rule. There is deliberately no buy-and-hold column:
-      the comparison that decides whether a strategy is worth running is the risk-matched
-      one over decades, on the <a href="#/backtest">backtest</a> page. These are also the
-      desk's own arithmetic and not the research definitions in
-      <code>stockhunt/stats.py</code>, so do not quote them against a sheet.</caption>
+      describes the execution path, not the rule. There is deliberately no buy-and-hold
+      column: the comparison that decides whether a strategy is worth running is the
+      risk-matched one over decades, on the <a href="#/backtest">backtest</a> page. These
+      are the desk's own live arithmetic and are not directly comparable with the research
+      figures.</caption>
     </table></div>
   </section>`;
 }
@@ -1171,8 +1180,8 @@ function fillsSection(rows) {
     <div class="tbl-tools">
       <button class="btn" data-csv="fills">Export CSV</button>
       ${fills.length < lifetime ? `<span class="sec-note">The desk publishes its most
-        recent ${fills.length.toLocaleString()} fills per system; the full record stays in
-        <code>paper.db</code>.</span>` : ""}
+        recent ${fills.length.toLocaleString()} fills per system; the full record is
+        retained.</span>` : ""}
     </div>
     <div class="tbl-wrap fills-box"><table>
       <thead><tr><th class="l">Time</th><th class="l">Asset</th><th class="l">Side</th>
@@ -1351,9 +1360,11 @@ function systemList(rows, systems) {
     return `
     <div class="grp"><div class="grp-row" role="link" tabindex="0"
         data-go="${systemHash(cls, tf, rule)}"
-        aria-label="${esc(rule)}, ${esc(tf)} ${esc(cls)} — open this system">
+        aria-label="${esc(rule)}, ${esc(tf)} ${esc(
+          PAPER_CLASS_LABEL[cls] || cls)} — open this system">
       <span class="grp-id"><span class="grp-name">${esc(rule)}</span>
-        <span class="grp-meta">${esc(tf)} · ${esc(cls)} · ${assetCount(mine)} ·
+        <span class="grp-meta">${esc(tf)} · ${esc(PAPER_CLASS_LABEL[cls] || cls)} ·
+          ${assetCount(mine)} ·
           ${a.fills} fill${a.fills === 1 ? "" : "s"}</span></span>
       <span class="grp-live">${live.length > 1
         ? pnlLive(live, bench, breaks, 300, 34)
@@ -1421,7 +1432,7 @@ function paperSystem(cls, tf, ruleSlug) {
       <span class="chip mut">${esc(tf)}</span>
       <span class="chip mut">${esc(PAPER_CLASS_LABEL[cls] || cls)}</span>
       ${rows.length === 1 ? statusChip(rows[0]) : ""}</div>
-    <p class="lede">${esc(rows[0].note || "")}</p>
+    <p class="lede">${esc(prettyNote(rows[0].note))}</p>
   </div>
 
   ${replayBanner()}
@@ -1433,7 +1444,7 @@ function paperSystem(cls, tf, ruleSlug) {
     ? `Whether this rule actually works is the multi-year question, and it is not answered
        here — see <a href="${href}">the walk-forward result for ${esc(rule)}</a>. What this
        page shows is ${isReplay() ? "a replay over cached bars" : "days of simulated fills"},
-       which is evidence about the pipeline and about nothing else.`
+       which is evidence about the execution path and about nothing else.`
     : `Whether this rule actually works is the multi-year question, answered in
        <a href="#/backtest">Backtest</a> — this rule has no row on the
        ${esc(PAPER_CLASS_LABEL[cls] || cls)} ${esc(tf)} leaderboard, which ships only its
@@ -1574,9 +1585,8 @@ function paintSystem() {
       the record above is what it did. Whether it beats holding is the multi-year
       question, and it is answered on the backtest page, not by three months of either
       line.</p>`
-    : `<p class="sec-note pnl-caveat">No simulated history for this system —
-      <code>python paper_curves.py</code> has not been run since it was promoted, so there
-      is nothing to show beside the live record.</p>`}
+    : `<p class="sec-note pnl-caveat">No simulated history for this system yet; only the
+      live record below is available.</p>`}
   </section>
 
   ${fillsSection(rows)}
@@ -1604,7 +1614,7 @@ function paperDetail(id) {
   <div class="hero">
     <div class="d-head"><span class="d-name">${esc(s.symbol)} · ${esc(s.rule)}</span>
       <span class="chip mut">${s.tf}</span>${statusChip(s)}</div>
-    <p class="lede">${esc(s.note)}</p>
+    <p class="lede">${esc(prettyNote(s.note))}</p>
   </div>
 
   ${replayBanner()}
@@ -1711,7 +1721,7 @@ const BOARD_HERO = {
     the asset class separates them, because only the asset class changes the prices, the
     costs and the benchmark.</p>`,
   conv: `<h1>Converted strategies</h1>
-    <p class="lede">Thirteen strategies supplied from outside this repo — eight TradingView
+    <p class="lede">Thirteen strategies sourced from outside this catalogue — eight TradingView
     Pine scripts, four freqtrade strategies and one pair of notebooks — put through the
     same machinery as everything else and ranked on the same key. Every cell was
     pre-registered before it was scored. They keep their own board because they were tested
@@ -1884,9 +1894,9 @@ const LB_COLS = [
     // that places the row, and the line every rule above it has cleared.
     bh: () => `<td class="flat">0.000</td>`,
     doc: `<b>The book's</b> Sharpe minus the same universe held passively — one account
-      against one account, computed <b>per fold and then averaged</b>, which is how
-      <code>config.EDGE_STANDARD</code> defines the criterion the <b>Standard</b> column
-      scores. The pooled version (one Sharpe over all bars, minus one) is stored beside it
+      against one account, computed <b>per fold and then averaged</b>, which is how the
+      acceptance standard defines the criterion the <b>Standard</b> column scores. The
+      pooled version (one Sharpe over all bars, minus one) is stored beside it
       and runs a little higher; a per-fold mean weights every fold equally where pooling
       weights every bar equally. Sharpe is used rather than information ratio throughout
       because IR compares a part-time rule against a full-time one and scores capital
@@ -1894,10 +1904,9 @@ const LB_COLS = [
       <br><br><b>Idle capital earns nothing here.</b> A rule that sits out half the time
       is credited with no interest for those bars, and neither is the passive book it is
       measured against — the two lose the credit together, so what goes is a return that
-      was never the signal's. The per-asset version of this
-      number lives in <code>edge_standard.csv</code> and is what the <b>Standard</b>
-      column still counts; it is a median across names rather than an account, so the two
-      do not have to agree.`,
+      was never the signal's. The per-asset version of this number is what the
+      <b>Standard</b> column still counts; it is a median across names rather than an
+      account, so the two do not have to agree.`,
     sv: r => r.book && r.book.dsharpe, bsv: () => 0 },
   { h: "t", adv: true, cell: r => bookNum(r, r.book && r.book.t, v => fmtSigned(v, 2)),
     doc: ({ sh }) => `How reliable the ΔSharpe beside it is: its mean divided by its own
@@ -2020,8 +2029,8 @@ const LB_COLS = [
       <br><br><b>This is not the drawdown of a typical single stock</b>, which is the
       figure this column used to carry and is roughly twice as deep: individual names fall
       on different days, so a book of them falls far less than any of its parts. The
-      per-asset figure still exists in <code>edge_standard.csv</code>; it is just not what
-      anyone would have experienced. A rule that sits out part of the time ought to fall
+      per-asset figure is still measured; it is just not what anyone would have
+      experienced. A rule that sits out part of the time ought to fall
       less than one that never does; many here do not, and that is worth knowing before
       the money columns are believed.`,
     // Drawdowns are negative, so the largest number is the shallowest fall — sorting
@@ -2341,18 +2350,13 @@ function paintBacktest() {
    * commands, so they say different things rather than sharing one. */
   if (!sh || !sh.rows.length) {
     head.innerHTML = "";
-    const cmd = `--class ${CLASS_ARG[bf.cls]} --tf ${bf.tf}`;
     host.innerHTML = !sh
-      ? `<div class="note">No walk-forward sheet for ${esc(grp.label)} at ${bf.tf}. Run
-         <code>python walkforward.py ${cmd}</code> in
-         <code>walk-forward optimization/</code>.</div>`
+      ? `<div class="note">${esc(grp.label)} at ${bf.tf} has not been scored yet.</div>`
       : `<div class="note"><b>${sh.n_rules} strategies were ranked for
          ${esc(grp.label)} at ${bf.tf}, and none of them can be shown.</b> Every column on
-         this board is the book, and no rule here has one${sh.n_flat_dropped
-           ? ` — all ${sh.n_flat_dropped} opened no position` : ""}. The walk-forward
-         sweep has run; the book stage has not. Run <code>./run_book.sh</code> in
-         <code>walk-forward optimization/</code>, or
-         <code>python portfolio_wf.py ${cmd} --curves</code> for this sheet alone.</div>`;
+         this board is measured at portfolio level, and no rule on this sheet has a
+         portfolio result${sh.n_flat_dropped
+           ? ` — all ${sh.n_flat_dropped} opened no position` : ""}.</div>`;
     return;
   }
   const best = sh.rows[0], cols = lbCols();
@@ -2416,7 +2420,7 @@ function paintBacktest() {
         pnlRatio(best.net_pct, best.bh_pct) == null ? ""
           : " · " + fmtRatio(pnlRatio(best.net_pct, best.bh_pct)) + " the profit"}</span></div>`}
     <div class="stat"><span class="k">Luck threshold</span><span class="v">+${sh.noise_ceiling}</span>
-      <span class="s">best of ${sh.n_rules} worthless strategies</span></div>
+      <span class="s">best of ${sh.n_rules} signal-free controls</span></div>
   </div>`;
 
   host.innerHTML = `
@@ -3318,9 +3322,8 @@ function robustView(ruleSlug) {
   </div>
   <div class="filters">${researchNav("robust")}</div>`;
   if (!R || !R.envs || !R.envs.length) {
-    app.innerHTML = heroNav + `<div class="note">This payload predates the robustness
-      index. Rebuild it: <code>python build_dashboard.py --serve</code> in
-      <code>Stockhunt Dashboard/</code>.</div>`;
+    app.innerHTML = heroNav + `<div class="note">The robustness index is not available
+      in this build.</div>`;
     return;
   }
   const names = Object.keys(R.rules).sort((a, b) => a.localeCompare(b));
@@ -3415,9 +3418,8 @@ function robustView(ruleSlug) {
       ? `<p class="sec-note"><a class="btn" href="#/backtest/${e.cls}/${e.tf}/${
           slug(rule)}">Open the full detail page &rarr;</a></p>`
       : `<p class="sec-note">This rule is not among the ${shRows
-            ? shRows.rows.length : "top"} rows that sheet ships, so it has no detail
-          page; the full record is in <code>book_${esc(CLASS_ARG[e.cls] || e.cls)}_${
-            esc(e.tf)}.csv</code>.</p>`}
+            ? shRows.rows.length : "top"} rows this sheet publishes, so it has no detail
+          page; the figures above are its full record for this cell.</p>`}
   </section>`;
   })();
 
@@ -3779,7 +3781,8 @@ function bookSwitch(r, cls, tf, isPair) {
     return `<div class="promote blocked">
       <div class="promote-top"><span class="promote-label">Not on the desk</span>
         <span class="sw off"></span></div>
-      <div class="promote-sub">The desk carries no ${esc(cls)} names right now, so there
+      <div class="promote-sub">The desk carries no ${esc(CLASS_LABEL[cls] || cls)} names
+        right now, so there
         is nothing for a book to hold.</div>
       <div class="promote-state bad">unavailable</div></div>`;
   }
@@ -4081,11 +4084,8 @@ async function paintCurves(cls, tf, r) {
   if (document.getElementById("curve-host") !== host) return;   // navigated away
 
   if (!data || data.__error) {
-    host.innerHTML = `<p class="sec-note">Equity curves unavailable${
-      data && data.__error ? ` (${esc(data.__error)})` : ""}. They are written by the book
-      run: <code>./run_book.sh</code> in <code>walk-forward optimization/</code>
-      (or <code>python portfolio_wf.py --class ${CLASS_ARG[cls] || cls} --tf ${tf} --pit
-      --curves</code> for this sheet alone), then rebuild the dashboard.</p>`;
+    host.innerHTML = `<p class="sec-note">Equity curves are not available for this
+      sheet.</p>`;
     return;
   }
   const c = data[r.rule];
@@ -4093,11 +4093,8 @@ async function paintCurves(cls, tf, r) {
     /* The curve file is written by the same run that scores the book, so a rule with a
      * book column and no curve means the JSON is older than the CSV beside it. Say that,
      * rather than the old text about a top-N cut, which no longer exists. */
-    host.innerHTML = `<p class="sec-note">No curve stored for ${esc(r.rule)}. This sheet's
-      curve file carries ${Object.keys(data).length} rules and every rule on the board is
-      supposed to be one of them, so it predates ${esc(r.rule)}. Rebuild it by re-running
-      the book stage with <code>--curves</code> (<code>./run_book.sh</code> in
-      <code>walk-forward optimization/</code>).</p>`;
+    host.innerHTML = `<p class="sec-note">No equity curve is stored for
+      ${esc(r.rule)} on this sheet.</p>`;
     return;
   }
 
@@ -4117,9 +4114,9 @@ async function paintCurves(cls, tf, r) {
         curveSide(c) === "short" ? "long/short" : "long/flat"}</b></span></div>
     ${curveSide(c) === "short" ? `<div class="note"><b>This is the long/short version of the
     rule.</b> "Stay out" is turned into "sell it" (<code>2p&minus;1</code>), so it is in the
-    market on every bar and pays borrow on the short leg. That is the side
-    <code>edge_standard.csv</code> scored for this rule, and the chart has to show the same
-    strategy the verdict was computed on. The long/flat version is a different strategy with
+    market on every bar and pays borrow on the short leg. That is the side scored for
+    this rule, and the chart has to show the same strategy the verdict was computed on.
+    The long/flat version is a different strategy with
     a different exposure and is not what the row above reports.</div>` : ""}
     ${eq.html}
   </section>
@@ -4266,11 +4263,8 @@ async function paintConvCurve(cls, tf, r) {
      * the minute sheets are being re-scored, and that re-score is measured in hours
      * because its cost is set by bar count -- the runs that produced those CSVs took 36
      * hours between them. */
-    host.innerHTML = `<p class="sec-note">No equity series stored for this cell yet.
-      Curves are written by the same run that scores the sheet, so they arrive together:
-      <code>./run_convert_curves.sh ${esc(tf)}</code> in
-      <code>walk-forward optimization/</code>, then rebuild the dashboard.${
-      data && data.__error ? ` <span class="mut">(${esc(data.__error)})</span>` : ""}</p>`;
+    host.innerHTML = `<p class="sec-note">No equity series is stored for this cell
+      yet.</p>`;
     return;
   }
 

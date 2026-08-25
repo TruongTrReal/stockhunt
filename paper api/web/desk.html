@@ -317,7 +317,7 @@
      the bar is byte-for-byte the board's — same rail, same links, same order. -->
 <header class="top">
   <div class="top-in">
-    <span class="brand"><b>stockhunt</b> // truong's dashboard</span>
+    <span class="brand"><b>stockhunt</b></span>
     <nav class="nav">
       <a href="/#/paper">Paper trading</a>
       <a href="/#/backtest">Research</a>
@@ -1893,7 +1893,11 @@ el("signout").addEventListener("click", async ev => {
 (async () => {
   try {
     const me = await j("GET", "/auth/me");
-    el("who").textContent = `${me.email}${me.is_admin ? " · owner" : ""}`;
+    // The signed-in identity is deliberately NOT the email address. This page gets
+    // shown on calls and over shared screens, and an address on it is a credential
+    // handed to whoever is watching. The account label says which desk you are on,
+    // which is the only thing this line was ever read for.
+    el("who").textContent = me.label || (me.is_admin ? "Owner" : "Member");
     await Promise.all([refresh(), loadKeys()]);
     startRefresh();
     // The terms the wizard states. Fetched after the tables so a slow limits call cannot

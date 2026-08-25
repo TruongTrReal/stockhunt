@@ -102,6 +102,17 @@ TAG_MAX = 36
 TAG_HASH = 8
 
 
+# The class keys in words, for text a reader sees. Deliberately singular: every use
+# is an adjective in front of a noun ("across 100 US stock names").
+_CLASS_WORDS = {
+    "us_stocks": "US stock",
+    "us_etfs": "ETF",
+    "crypto": "crypto",
+    "commodities": "commodity",
+    "cme_futures": "CME futures",
+}
+
+
 def _order_id_tag(strategy_id: str) -> str:
     """A unique 36-character tag for a registration of any length.
 
@@ -393,9 +404,12 @@ class DeskController(Controller):
                 window_bars=(paper_config.DECIDE_EARLY_WINDOW_BARS if signal_tf
                              else paper_config.DEFAULT_WINDOW_BARS),
                 export_state=self.config.export_state,
+                # The note is read by people, on a page that gets shown to people, so
+                # it says the class in words. `reg['cls']` is the internal key and was
+                # printing straight through as "100 us_stocks names".
                 note=f"{reg['rule']} held as one book of "
                      f"${float(reg['capital']):,.0f} across {len(names)} "
-                     f"{reg['cls']} names at {reg['tf']}"
+                     f"{_CLASS_WORDS.get(reg['cls'], reg['cls'])} names at {reg['tf']}"
                      + (f", deciding {paper_config.DEFAULT_DECIDE_LEAD_MIN}m before the "
                         f"close off {signal_tf} bars." if signal_tf else ".")))
 

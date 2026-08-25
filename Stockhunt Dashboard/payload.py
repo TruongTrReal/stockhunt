@@ -289,9 +289,9 @@ PAPER_GROUPS = [
     {"key": "book", "label": "One book, the whole class",
      "note": "A single account holding every name in the class at once — $100,000 split "
              "equally, a name the rule is out of holding cash, and the slice growing with "
-             "the book. This is the shape the research scored: `ir_net` is a mean across "
-             "the class, so a one-symbol forward test measures something the backtest "
-             "never reported.",
+             "the book. This is the shape the research scored — its figures are means "
+             "across the whole class, so a forward test on a single symbol would measure "
+             "something the backtest never reported.",
      "symbols": []},
     {"key": "megacap", "label": "20 US mega-caps",
      "note": "The same universe the equity rules were ranked on — the only like-for-like "
