@@ -130,3 +130,4 @@ combo_per_asset_*.parquet
 # pre-fill-fix and mega20-universe copies, which nothing reads.
 **/results/riskmatch.closefill_archive.parquet
 **/results/riskmatch.mega20.parquet
+*.csv.bak
