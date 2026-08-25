@@ -51,7 +51,7 @@ UNION = OUT / "leaderboard_union.txt"
 RESULTS = wfo_paths.RESULTS_DIR
 
 CLASSES = ["us_stocks", "us_etfs", "crypto", "commodities", "cme_futures"]
-TFS = ["1d", "4h", "1h", "15m"]
+TFS = ["1d", "4h", "1h", "15m", "5m"]
 
 
 def main() -> int:
