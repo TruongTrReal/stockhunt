@@ -343,6 +343,16 @@ about.**
 |---|---|---|---|
 | `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES` — the research axis: **1d/4h/1h/15m/5m** (5m added 2026-08-25; finer sizes stay fetchable in `config.WINDOWS` but are out of the program) | `wf_summary_*` + `book_<cls>_<tf>.csv` |
 
+**Discover is EMPTY at 1h, 15m and 5m, and the reason is the `edge` table.** Every column
+on this board is gated on the six-criteria verdict, and `riskmatch_wf.py` has only ever
+been run at **1d and 4h** — so `results.db`'s `edge` table has no rows at the finer sizes
+and `build_sheet` drops all ~409 candidates as *unscored*. The books are not missing: 180
+rules per cell are in the `book` table and on Robustness. The empty state therefore names
+the verdict, prints `riskmatch_wf.py --class X --tf Y`, and points at Robustness; it used
+to blame "no portfolio result", which is the one thing that is not absent. Three distinct
+blank states now, and they must stay distinct — no sheet, sheet with every row unscored,
+sheet with every row flat.
+
 **`TIMEFRAMES` is the ROBUSTNESS axis, and Discover has sheets for only part of it.**
 `5m` has no `wf_summary_*` on any class and no close-fill book: it was run for the
 robustness question only — the 152 rules already on the board, re-scored as books at the

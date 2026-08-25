@@ -2350,24 +2350,38 @@ function paintBacktest() {
    * commands, so they say different things rather than sharing one. */
   if (!sh || !sh.rows.length) {
     head.innerHTML = "";
-    /* "Not scored yet" stopped being true once a timeframe could be scored at BOOK level
-     * without a ranking sheet behind it. `5m` is exactly that: the leaderboard's own rules
-     * were re-run there at the pessimistic fill for the robustness question, and no
-     * `wf_summary` was produced because ranking 231 singles on 78 bars a day was not what
-     * that run was for. Sending a reader to re-run a stage whose output is already on the
-     * next tab is the worst of the three things this box could say. */
+    /* THREE reasons this board can be blank, and they want three different sentences —
+     * one of them because the reader should stop looking here, two because the answer is
+     * on the next tab. Saying "not scored yet" for all three was true of none of them
+     * once the robustness runs landed.
+     *
+     * `robHas` is the pivot: the 152 rules already on the board were re-run as books at
+     * 1h/15m/5m for the robustness question, so those cells HAVE a portfolio result. What
+     * they have never had is a `riskmatch_wf` pass, and every column on this board is
+     * gated on that verdict — so `build_sheet` drops all ~409 rows as unscored and the
+     * old copy blamed the missing portfolio result, which is the one thing that is not
+     * missing. */
     const robHas = (D.robust && D.robust.envs || [])
       .some(e => e.cls === bf.cls && e.tf === bf.tf);
+    const clsArg = esc(CLASS_ARG[bf.cls] || bf.cls), tfArg = esc(bf.tf);
+    const seeRobust = `The rules already on this board were re-run there as books, so the
+      comparison lives on <a href="#/backtest/robust">Robustness</a> — one column per
+      timeframe, at the pessimistic fill.`;
+    const allUnscored = sh && sh.n_unscored_dropped >= sh.n_rules && !sh.n_flat_dropped;
     host.innerHTML = !sh
       ? (robHas
         ? `<div class="note"><b>${esc(grp.label)} at ${bf.tf} has no ranking sheet, but it
-           has been measured.</b> The rules already on this board were re-run there as
-           books, so the comparison lives on
-           <a href="#/backtest/robust">Robustness</a> — one column per timeframe, at the
-           pessimistic fill. A ranking sheet needs
-           <code>walkforward.py --class ${esc(CLASS_ARG[bf.cls] || bf.cls)} --tf
-           ${esc(bf.tf)}</code>.</div>`
+           has been measured.</b> ${seeRobust} A ranking sheet needs
+           <code>walkforward.py --class ${clsArg} --tf ${tfArg}</code>.</div>`
         : `<div class="note">${esc(grp.label)} at ${bf.tf} has not been scored yet.</div>`)
+      : allUnscored
+      ? `<div class="note"><b>${sh.n_rules} strategies were ranked for
+         ${esc(grp.label)} at ${bf.tf}, and none of them carries a verdict.</b> Every
+         column here is gated on the six-criteria standard, and
+         <code>riskmatch_wf.py</code> has never been run at ${tfArg} — so all
+         ${sh.n_unscored_dropped} were dropped as unscored${sh.n_book
+           ? "" : ", books and all"}. ${robHas ? seeRobust + " " : ""}The verdict needs
+         <code>riskmatch_wf.py --class ${clsArg} --tf ${tfArg}</code>.</div>`
       : `<div class="note"><b>${sh.n_rules} strategies were ranked for
          ${esc(grp.label)} at ${bf.tf}, and none of them can be shown.</b> Every column on
          this board is measured at portfolio level, and no rule on this sheet has a
