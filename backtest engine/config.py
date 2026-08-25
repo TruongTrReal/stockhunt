@@ -956,12 +956,36 @@ LOO_MIN_RETENTION = 0.80          # dropping the best asset must cost < 20% of t
 # `results/edge_standard.csv` is the one place a pass or fail exists. A pipeline that
 # cannot compute the standard must not render a verdict against it.
 #
-# The threshold was validated by power analysis, not chosen: on us_stocks 1d the measured
+# S's threshold was validated by power analysis, not chosen: on us_stocks 1d the measured
 # fold-to-fold sd of delta-Sharpe is 0.258 over 54 folds, so the minimum detectable effect
 # is +0.070 and a true edge of +0.10 is caught 81% of the time — the conventional target.
 # +0.15 was needlessly strict. For calibration, the S&P's own Sharpe is ~0.6 and
 # practitioners call 1.0 good for a systematic strategy, so +0.10 (0.63 -> 0.73) sits well
 # below anything anyone calls impressive.
+#
+# **THAT 81% DESCRIBES A GATE THAT NO LONGER BINDS, and the difference is not small.**
+# Re-measured 2026-08-22 by Monte Carlo over the same fold model:
+#
+#     t >= 2.0, 54 folds, sd 0.258  (what the paragraph above was computed for)  80.0%
+#     t >= 3.76, 21 folds, sd 0.258 (the bar T is actually scored against)        4.6%
+#     t >= 3.76, 21 folds, sd 0.619 (…at `ibs`'s own measured fold spread)        0.5%
+#
+# Two things moved underneath it and neither was re-run. The 2000 history cut took
+# us_stocks 1d from 54 folds to 21; and T is not scored against 2.0 but against the
+# multiplicity-corrected bar from `portfolio_wf._t_bar`, which lands near 3.76 over ~400
+# candidates. Against THAT gate, an edge of exactly +0.10 — the size S was tuned to
+# detect — is found a few times in a hundred. Clearing it at 21 folds needs a mean
+# per-fold delta-Sharpe near **+0.51**, five times S's own threshold, which is why T has
+# passed zero rows on every sheet in this repo's history.
+#
+# So read S and T as measuring different things, not as one calibrated pair: S is sized
+# for an effect worth having, T asks a question this much history cannot answer about it.
+# The honest routes to a verdict on a specific rule are pre-registration (`prereg.py` and
+# the trials ledger, where a rule named in advance faces 2.0 rather than 3.76) and the
+# live forward test, not a retroactively lowered bar. `boot_t` — the block bootstrap over
+# the book's bars — is the better-powered estimator and rides on every row already, but it
+# has not been validated against `test_t_bar.py`'s sign-flip machinery, so it is a second
+# opinion and not the verdict.
 GATES = EDGE_STANDARD = [
     {"key": "dsharpe", "letter": "S", "min": 0.10,
      "label": "delta-Sharpe vs buy-and-hold, mean of per-fold values",

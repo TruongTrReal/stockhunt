@@ -120,6 +120,34 @@ row). So `TIMEFRAMES` carries `2m` and `3m` with `interval: None`, `td_loader.fe
 refuses them by name, and `resample_intraday.py` aggregates them out of the cached 1m. `load` never
 knows the difference — same directory layout, same parquet, same single door.
 
+### Intraday timestamps are NOT on one clock across classes (measured 2026-08-23)
+
+Every intraday parquet has a tz-**naive** index, and the wall clock it carries depends on
+who sold the bars. On 2025-07-15:
+
+| class | bars/day | first → last | clock |
+|---|---|---|---|
+| `us_stocks`, `us_etfs` | 390 | 09:30 → 15:59 | **exchange-local (ET)**, regular session only |
+| `crypto` | 1440 | 00:00 → 23:59 | UTC |
+| `commodities` | 1417 | 00:00 → 23:59 | UTC |
+| `cme_futures` | 1380 | 00:00 → 23:59 | **UTC** (`db_intraday.py` writes it) |
+
+Twelve Data returns exchange-local time and Databento returns UTC, and neither stamps the
+zone, so nothing in the cache announces the difference. It is invisible at 1d — a daily
+bar is a date — and decides the answer at every intraday size:
+
+* **Resampling is per class, never a shared rule.** A 15m or 30m bar cut on UTC boundaries
+  is correct for futures, crypto and commodities and wrong for equities, where the session
+  starts at 09:30 local and the grid has to start there or every bar straddles two.
+* **Slicing equities by a UTC window silently returns the wrong bars.** Checking the 1m
+  cache against the daily one with `between_time('13:30','19:59')` — the correct UTC span
+  for the US session in summer — put Open out by 60-130 bp while Close stayed at ~1.6 bp,
+  which reads like bad data rather than a bad query. Aggregating the whole session instead
+  reproduces the daily cache at **0.00 bp on open, high and low**.
+* **Close lands 0.9-2.2 bp off the daily bar and that is correct, not drift.** The daily
+  Close is the official closing-auction print; the last 1m bar is the last continuous
+  trade before it. They are different prices and always will be.
+
 Three properties of that aggregation are load-bearing, and each is pinned in
 `tests/test_resample_intraday.py`:
 

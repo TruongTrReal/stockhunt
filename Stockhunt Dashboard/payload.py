@@ -99,6 +99,38 @@ def copy_curves(shown: dict | None = None) -> dict:
     return index
 
 
+_OPEN_CACHE: dict[tuple, tuple] = {}
+
+
+def _book_open_index(cls: str, tf: str) -> tuple[dict, dict | None]:
+    """`(rule -> book record, benchmark)` from `book_<cls>_<tf>_open.csv`, off disk.
+
+    Deliberately NOT through `resultsdb`. The store holds the board, and the board is the
+    published close-fill convention; the pessimistic bound is an analysis artifact that
+    sits beside it, produced by `run_open_fill.sh` for the robustness view alone. Giving
+    it a place in the schema would make "which fill is this row?" a question every reader
+    of the store has to ask, and every writer has to answer. Reading the CSV keeps the
+    ambiguity out of the board entirely, at the cost of one file read per cell.
+
+    Shares `_book_record` with the close-fill path, so the two are the same eight numbers
+    computed the same way — the fill is the only thing that differs, which is the whole
+    point of showing them together.
+    """
+    key = (cls, tf)
+    if key in _OPEN_CACHE:
+        return _OPEN_CACHE[key]
+    df = _read(BM / f"book_{cls}_{tf}_open.csv")
+    out: dict[str, dict] = {}
+    bench: dict | None = None
+    if not df.empty:
+        for r in df.itertuples():
+            out[str(r.rule)] = _book_record(r)
+            if bench is None:
+                bench = _book_bench(r)
+    _OPEN_CACHE[key] = (out, bench)
+    return out, bench
+
+
 def robustness_index(backtest: dict) -> dict:
     """Every rule the book stage scored, on every (class, timeframe) it scored it.
 
@@ -113,11 +145,32 @@ def robustness_index(backtest: dict) -> dict:
 
     `fields` names the per-cell array order and `ROB_FIELDS` in `app.js` mirrors it —
     change one and change the other in the same commit.
+
+    **Two fills, and the second one is the point.** `book_<cls>_<tf>.csv` is the
+    published close-fill convention: the signal is computed from a bar's own high, low
+    and close and then transacted at that same close, a price nobody knew when the
+    decision was made. That has always been labelled an optimistic bound; measured
+    2026-08-24 it stops being a nudge and becomes the whole result as bars get finer,
+    because the bias is per-bar and compounds. `ibs` on commodities, same instruments
+    and period, close fill:
+
+        1d  6,511 bars      5.5%/yr  Sharpe  0.45
+        4h  6,067 bars     37.9%/yr  Sharpe  2.13
+        1h 23,249 bars    122.7%/yr  Sharpe  4.61
+        15m 75,909 bars 1,970.1%/yr  Sharpe 13.04
+
+    A matrix on close fill alone therefore ranks every reversion rule higher at finer
+    timeframes for a reason that has nothing to do with the rule — which would make this
+    view actively misleading, since comparing timeframes IS what it is for. So
+    `book_<cls>_<tf>_open.csv` rides alongside under `open`, and the view can show
+    either. Neither is the truth: `open` charges a full session of delay a
+    market-on-close order would not pay. The honest read is the range.
     """
     fields = ["sharpe", "cm_excess_cagr", "cagr", "dd", "exposure", "n_trades",
               "profit_factor", "win_rate"]
     envs: list[dict] = []
     rules: dict[str, dict] = {}
+    rules_open: dict[str, dict] = {}
     for key, cls, _label, _u in GROUPS:
         for tf in TIMEFRAMES:
             book, bench = _book_index(cls, tf)
@@ -133,12 +186,27 @@ def robustness_index(backtest: dict) -> dict:
                          "n_names": bench.get("n_names")})
             for rule, rec in book.items():
                 rules.setdefault(str(rule), {})[ekey] = [rec.get(f) for f in fields]
+            # The pessimistic bound, where it has been run. Absent is a real state —
+            # a cell scored at close fill only — and the view says so rather than
+            # falling back to the close number under an "open" label.
+            ob, obench = _book_open_index(cls, tf)
+            if ob and obench is not None:
+                for rule, rec in ob.items():
+                    rules_open.setdefault(str(rule), {})[ekey] = [rec.get(f)
+                                                                  for f in fields]
+                for e in envs:
+                    if e["key"] == ekey:
+                        e["bench_open"] = {"sharpe": obench.get("sharpe")}
     # The leaderboard's Robustness column, attached here so the page never re-derives
     # the definition: environments where the book's Sharpe cleared the same universe
     # held passively, out of the environments the rule was scored on at all. A raw
     # count on purpose — a composite "robustness score" with an undefined formula is
     # exactly the kind of number this dashboard exists to not print.
     bench_sharpe = {e["key"]: (e["bench"] or {}).get("sharpe") for e in envs}
+    # The open-fill benchmark is its OWN number, not the close-fill one: holding is also
+    # filled a bar later, so comparing an open-fill rule against a close-fill benchmark
+    # would charge the delay to one side only.
+    bench_open = {e["key"]: (e.get("bench_open") or {}).get("sharpe") for e in envs}
     for g in backtest.values():
         for s in g["sheets"]:
             for r in s["rows"]:
@@ -148,8 +216,19 @@ def robustness_index(backtest: dict) -> dict:
                 beat = sum(1 for ek, v in cells.items()
                            if v[0] is not None and bench_sharpe.get(ek) is not None
                            and v[0] > bench_sharpe[ek])
-                r["rob"] = {"n": beat, "total": len(cells)}
-    return {"fields": fields, "envs": envs, "rules": rules}
+                # Both bounds on the row, because the drop between them IS the finding on
+                # several rules: `ibs` beats holding in 8 of 20 environments at the
+                # published fill and 5 of 20 once it can no longer transact at a close it
+                # used to peek at. A single number here would have to pick one, and
+                # whichever it picked would be quoted without the other.
+                ocells = rules_open.get(r["rule"]) or {}
+                obeat = sum(1 for ek, v in ocells.items()
+                            if v[0] is not None
+                            and (bench_open.get(ek) or bench_sharpe.get(ek)) is not None
+                            and v[0] > (bench_open.get(ek) or bench_sharpe[ek]))
+                r["rob"] = {"n": beat, "total": len(cells),
+                            "n_open": obeat, "total_open": len(ocells)}
+    return {"fields": fields, "envs": envs, "rules": rules, "open": rules_open}
 
 
 def _reachable(all_rules: dict, shown: set | None) -> dict:

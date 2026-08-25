@@ -3232,13 +3232,38 @@ const ROB_METRICS = {
 let robMetric = "sharpe";
 let robCell = null;          // env key of the drilled-into cell, or null
 
+/* WHICH FILL THE MATRIX IS DRAWN ON, and it is the one control on this view that changes
+ * what the numbers mean rather than which of them is shown.
+ *
+ * `close` is the published convention: the signal is computed from a bar's own high, low
+ * and close and then transacted at that same close — a price nobody knew when the
+ * decision was made. Every other page here treats that as an optimistic bound. On THIS
+ * page it is worse than optimistic, because the bias is per-bar and the whole purpose of
+ * the view is to compare timeframes: `ibs` on commodities reads 5.5%/yr at 1d over 6,511
+ * bars and 1,970%/yr at 15m over 75,909, same instruments and same period. A matrix on
+ * close fill alone says every reversion rule is more robust the finer you slice, which is
+ * an artifact of counting, not a property of the rule.
+ *
+ * `open` fills at the next bar's open instead. It is not the truth either — it charges a
+ * full session of delay a market-on-close order would not pay — so the honest reading is
+ * the RANGE, which is why the summary strip prints both counts side by side whatever this
+ * is set to, and why the default is `open`: on a view about generalisation, the bound that
+ * cannot be inflated by slicing is the safer thing to land on. */
+let robFill = "open";
+const robSource = () => (robFill === "open" && D.robust && D.robust.open)
+  ? D.robust.open : (D.robust || {}).rules || {};
+/* The benchmark has to move with the fill: holding is filled a bar later too, and scoring
+ * an open-fill rule against a close-fill benchmark charges the delay to one side only. */
+const robBench = e => (robFill === "open" && e.bench_open && e.bench_open.sharpe != null)
+  ? e.bench_open.sharpe : (e.bench || {}).sharpe;
+
 /* The matrix both the Robustness view and each detail page draw. `mark` outlines one
  * cell as "you are here"; a cell whose rule is on that sheet's shipped board carries a
  * `data-mx-go` link to its detail page, and one that is not says so in its title rather
  * than dead-clicking. */
 function robMatrixTable(rule, metric, mark) {
   const R = D.robust;
-  const cells = (R.rules || {})[rule] || {};
+  const cells = robSource()[rule] || {};
   const iS = R.fields.indexOf("sharpe"), iT = R.fields.indexOf("n_trades"),
         iM = R.fields.indexOf(metric);
   const fmt = ROB_METRICS[metric][1];
@@ -3252,7 +3277,7 @@ function robMatrixTable(rule, metric, mark) {
       title="the book stage did not score this rule here">—</td>`;
     if (a[iT] === 0) return `<td class="flat"
       title="the book opened no positions here — there is nothing to score">0 trades</td>`;
-    const s = a[iS], bs = (e.bench || {}).sharpe;
+    const s = a[iS], bs = robBench(e);
     const beat = s != null && bs != null && s > bs;
     const mag = (s != null && bs != null) ? Math.min(Math.abs(s - bs) / 0.5, 1) : 0;
     const lvl = mag > 0.66 ? 3 : mag > 0.33 ? 2 : 1;
@@ -3310,7 +3335,7 @@ function robustView(ruleSlug) {
     rule = names.includes(guess) ? guess : names[0];
     robCell = null;
   }
-  const cells = R.rules[rule] || {};
+  const cells = robSource()[rule] || {};
   const iS = R.fields.indexOf("sharpe"), iT = R.fields.indexOf("n_trades");
   const scored = R.envs.filter(e => cells[e.key]);
   const active = scored.filter(e => cells[e.key][iT] !== 0);
@@ -3319,9 +3344,26 @@ function robustView(ruleSlug) {
     .map(e => ({ e, s: cells[e.key][iS] })).filter(x => x.s != null)
     .sort((a, b) => a.s - b.s);
   const beat = active.filter(e => {
-    const s = cells[e.key][iS], bs = (e.bench || {}).sharpe;
+    const s = cells[e.key][iS], bs = robBench(e);
     return s != null && bs != null && s > bs;
   });
+  /* Counted on BOTH fills whatever the matrix is showing, because the gap between them is
+   * the finding on several rules rather than a footnote to it: `ibs` clears holding in 8
+   * of 20 environments at the published fill and 5 of 20 once it can no longer transact at
+   * a close it peeked at. Printing one number would mean printing it without the other. */
+  const countOn = src => {
+    const c = (src || {})[rule] || {};
+    const envs = R.envs.filter(e => c[e.key] && c[e.key][iT] !== 0);
+    const isOpen = src === (R.open || null);
+    const n = envs.filter(e => {
+      const s = c[e.key][iS];
+      const bs = isOpen && e.bench_open && e.bench_open.sharpe != null
+        ? e.bench_open.sharpe : (e.bench || {}).sharpe;
+      return s != null && bs != null && s > bs;
+    }).length;
+    return { n, total: envs.length };
+  };
+  const cClose = countOn(R.rules), cOpen = countOn(R.open);
   const med = sharpes.length
     ? (sharpes.length % 2
         ? sharpes[(sharpes.length - 1) / 2].s
@@ -3385,6 +3427,11 @@ function robustView(ruleSlug) {
       <select class="fsel" id="rob-rule">${names.map(n =>
         `<option value="${esc(n)}"${n === rule ? " selected" : ""}>${esc(n)}</option>`)
         .join("")}</select></span>
+    <span class="f-group"><span class="f-label">Fill</span>
+      <select class="fsel" id="rob-fill">
+        <option value="open"${robFill === "open" ? " selected" : ""}>Open (pessimistic)</option>
+        <option value="close"${robFill === "close" ? " selected" : ""}>Close (published)</option>
+      </select></span>
     <span class="f-group"><span class="f-label">Metric</span>
       <select class="fsel" id="rob-metric">${Object.keys(ROB_METRICS).map(k =>
         `<option value="${k}"${k === robMetric ? " selected" : ""}>${
@@ -3399,7 +3446,8 @@ function robustView(ruleSlug) {
     <div class="stat"><span class="k">Beat holding</span>
       <span class="v ${beat.length ? "" : "loss"}">${beat.length} / ${active.length}</span>
       <span class="s">book Sharpe above the passive universe — a raw count, not a
-        score</span></div>
+        score${cOpen.total && cClose.total ? ` · <b>${cOpen.n}/${cOpen.total}</b> at the
+        pessimistic fill, ${cClose.n}/${cClose.total} at the published one` : ""}</span></div>
     <div class="stat"><span class="k">Median Sharpe</span>
       <span class="v">${fmtNum(med, 2)}</span>
       <span class="s">across the traded environments</span></div>
@@ -3426,6 +3474,8 @@ function robustView(ruleSlug) {
     robCell = null;
     location.hash = `#/backtest/robust/${slug(this.value)}`;
   };
+  const fillSel = document.getElementById("rob-fill");
+  if (fillSel) fillSel.onchange = function () { robFill = this.value; repaint(); };
   document.getElementById("rob-metric").onchange = function () {
     robMetric = this.value; repaint();
   };

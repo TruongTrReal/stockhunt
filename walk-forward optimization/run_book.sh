@@ -31,19 +31,21 @@ mkdir -p logs
 export STOCKHUNT_WORKERS=6
 
 # class tf oos_start -- keep in step with book_rules/starts.csv
-SHEETS=(
-  "us_stocks   1d 2003-01-03"
-  "us_stocks   4h 2022-06-21"
-  "us_etfs     1d 2003-01-03"
-  "us_etfs     4h 2023-02-10"
-  "crypto      1d 2020-08-29"
-  "crypto      4h 2023-01-07"
-  "commodities 1d 2003-01-03"
-  "commodities 4h 2023-01-20"
-  # 1d only: the vendor's hourly CME archive is holed before 2013, so there is no 4h
-  # futures sheet to book. See `../backtest engine/db_loader.py`.
-  "cme_futures 1d 2013-06-07"
-)
+# THE SHEET LIST IS READ, NOT TYPED (2026-08-23). It used to be a hardcoded array of
+# nine `class tf start` rows, and the file's own header already admitted the hazard: the
+# dates duplicate what `make_book_rules.py` computes and writes to `book_rules/starts.csv`,
+# "regenerate both together or they drift apart". Two copies of a number that must agree
+# is a drift waiting to happen, and it also meant every new (class, timeframe) had to be
+# remembered here by hand -- when the axis grew to 1d/4h/1h/15m across five classes the
+# array would have silently booked nine cells out of twenty and reported success.
+#
+# `starts.csv` is written by the stage immediately upstream and carries exactly the three
+# fields this loop needs, so it is the source now and the array is gone.
+STARTS="book_rules/starts.csv"
+if [ ! -f "$STARTS" ]; then
+  echo "no $STARTS -- run make_book_rules.py first"; exit 1
+fi
+mapfile -t SHEETS < <(tail -n +2 "$STARTS" | awk -F, 'NF>=5 {print $1" "$2" "$5}' | tr -d '')
 
 fail=0
 for row in "${SHEETS[@]}"; do
