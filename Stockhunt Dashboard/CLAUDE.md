@@ -31,7 +31,7 @@ against a captured baseline as JSON **text**, so a value-wise-equal difference c
 through. The one drift it has ever caught was rounding a metric inside the store instead of
 inside the ranker, which turned every `-0.0` into `0.0` on three of twenty sheets.
 
-Three properties of `board_rank.py` to preserve:
+Four properties of `board_rank.py` to preserve:
 
 * **It imports pandas and `stockhunt.resultsdb`, and nothing else from this repo.** Not
   `dash_config`, not `paper_config`, not the engine's `config`. `paper api/api_paths.py`
@@ -45,15 +45,35 @@ Three properties of `board_rank.py` to preserve:
 * **The population statistics are computed on every call** -- `noise_ceiling`, the trial
   count, `exposure_corr`. Adding one rule changes them for every existing row, so a stored
   copy is wrong the moment anything lands.
+* **`build_board()` holds `_BOARD_LOCK` across a rebuild, and sweeps the older revision
+  before it starts.** Both are consequences of the caches outliving a single call now.
+  Without the lock, N readers arriving cold each run the whole join and N-1 answers are
+  thrown away; without `_evict`, `_RM_CACHE` / `_EDGE_CACHE` / `_BOOK_CACHE` keep one
+  full copy per revision for the life of the process, and the per-asset rows are the
+  largest thing this module holds.
 
 `build_board()` -- all twenty sheets at once, which is what both servers hand the page --
-is **~13s cold and a dictionary lookup warm**, memoised on the same revision. The first
-request after the worker inserts a rule pays the rebuild and every other one is free. Most
-of that 13s is the per-asset layer: `_per_asset_from_riskmatch` ranks every name for every
+is **cold once per store revision and a dictionary lookup after that**. The first request
+after the worker inserts a rule pays the rebuild and every other one is free. Most of the
+cold time is the per-asset layer: `_per_asset_from_riskmatch` ranks every name for every
 rule on the sheet (~400 x ~600 on us_stocks 1d) and only the `TOP_N` rows that ship carry
 the result. Ranking first and building per-asset rows only for those would remove most of
 it -- a real change to moved code, so it wants `test_board_equivalence.py` either side of
 it and a commit of its own.
+
+**A server may take that cold build off the request path** with
+`board_rank.start_warmer(seconds)` / `stop_warmer()`, which `paper api` calls from its
+lifespan (`api_config.BOARD_WARM_SECONDS`, `0` to disable). It is a daemon thread that
+calls the same `build_board()` a reader calls, so the freshness contract is untouched --
+the revision still decides whether anything is rebuilt. What it changes is **who waits**:
+`app.js` awaits `/v1/research/board` before its first `render()`, so without it the first
+person to open the board after a deploy watches a blank page for the whole build. The poll
+is what notices a write from `research_worker.py`, which scores in its own interpreter and
+can announce itself no other way.
+
+`tests/test_board_cache.py` pins the lock, the sweep and the warmer. It is in the root
+suite, which is why `tests/conftest.py` puts this folder on `sys.path` -- `board_rank`
+brings no dependency the unit suite did not already have.
 
 There used to be two independent builders over two different subsets of the same CSVs, with
 two separate implementations of every view. They drifted: at the time they were merged the

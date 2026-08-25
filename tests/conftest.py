@@ -30,8 +30,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # test imports from it: adding a directory to `sys.path` imports nothing. The folders are
 # designed to sit on the path together — that is what the distinct bootstrap names
 # (`config` / `wfo_paths` / `paper_config` / `dash_config`) exist to make safe.
+#
+# `Stockhunt Dashboard/` is here for `board_rank`, which is the leaderboard's ranking and
+# is now read by three callers. It imports pandas and `stockhunt.resultsdb` and nothing
+# else from this repo -- deliberately, so that `paper api` can start without the trading
+# stack -- so having it on the path costs this suite no dependency it did not already have.
 for _p in (REPO_ROOT, REPO_ROOT / "backtest engine",
-           REPO_ROOT / "walk-forward optimization"):
+           REPO_ROOT / "walk-forward optimization",
+           REPO_ROOT / "Stockhunt Dashboard"):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

@@ -33,11 +33,15 @@ recomputed on read they cannot.
 
 from __future__ import annotations
 
+import logging
+import threading
 from statistics import NormalDist
 
 import pandas as pd
 
 from stockhunt import resultsdb
+
+log = logging.getLogger("stockhunt.board_rank")
 
 
 # ---------------------------------------------------------------- the store as a source
@@ -71,6 +75,11 @@ def universes() -> dict:
 
 _BOARD_CACHE: dict[int, dict] = {}
 
+# Held across a rebuild so that N readers arriving on a cold cache pay for ONE build
+# rather than N. Two tabs reloading together used to run the whole join twice on a
+# two-core box and throw one of the answers away; the second now waits for the first.
+_BOARD_LOCK = threading.Lock()
+
 
 def build_board() -> dict:
     """Every sheet, shaped like the dashboard's `backtest` section. Memoised per revision.
@@ -78,9 +87,9 @@ def build_board() -> dict:
     Keyed on the dashboard's group keys rather than on class names, because that is what
     `app.js` reads and the tab strip is `Object.keys(D.backtest)`.
 
-    **The memo is not optional at this size.** Building all twenty sheets takes ~13s cold
-    and ~4s warm, which is a fine price for a builder that runs once and an unacceptable
-    one on every page load. Most of it is the per-asset layer: `_per_asset_from_riskmatch`
+    **The memo is not optional at this size.** Building every sheet takes tens of
+    seconds — 20.7s measured on the deployed two-core box — which is a fine price for a
+    builder that runs once and an unacceptable one on every page load. Most of it is the per-asset layer: `_per_asset_from_riskmatch`
     ranks every name for every rule on the sheet, ~400 rules x ~600 symbols on us_stocks
     1d, and only the `TOP_N` rows that ship ever carry the result.
 
@@ -88,6 +97,12 @@ def build_board() -> dict:
     The first request after the worker inserts a rule pays the rebuild; every other one is
     a dictionary lookup. That is the honest trade — freshness is exact, latency is
     amortised — and it is only safe because the key is the revision rather than a clock.
+
+    Two things follow from the memo outliving a single call, and both are stated below
+    rather than here: the rebuild is serialised on `_BOARD_LOCK`, so concurrent readers
+    share one build instead of racing several, and `_evict` sweeps the previous
+    revision's sheet memos so that they stay a cache rather than becoming a leak. A
+    server that would rather nobody paid the first build at all calls `start_warmer`.
 
     The obvious next optimisation is to rank the sheet first and build per-asset rows only
     for the rows that ship. It is a real change to moved code rather than a cache, so it
@@ -97,19 +112,114 @@ def build_board() -> dict:
     hit = _BOARD_CACHE.get(rev)
     if hit is not None:
         return hit
-    tfs = resultsdb.get_meta("timeframes", [])
-    out = {}
-    for g in resultsdb.get_meta("groups", []):
-        sheets = [sh for sh in (build_sheet(g["cls"], tf, g["universe"]) for tf in tfs)
-                  if sh]
-        if sheets:
-            out[g["key"]] = {"label": g["label"], "n": len(g["universe"]),
-                             "universe": g["universe"], "sheets": sheets}
-    # One revision's worth. Superseded entries are unreachable and holding them would keep
-    # a few MB per write alive for the life of the process.
-    _BOARD_CACHE.clear()
-    _BOARD_CACHE[rev] = out
-    return out
+    with _BOARD_LOCK:
+        # Re-read under the lock. Whoever held it may have been building exactly this
+        # revision, in which case the work is already done and this is a dictionary
+        # lookup after all.
+        hit = _BOARD_CACHE.get(rev)
+        if hit is not None:
+            return hit
+        _evict(rev)
+        tfs = resultsdb.get_meta("timeframes", [])
+        out = {}
+        for g in resultsdb.get_meta("groups", []):
+            sheets = [sh for sh in (build_sheet(g["cls"], tf, g["universe"]) for tf in tfs)
+                      if sh]
+            if sheets:
+                out[g["key"]] = {"label": g["label"], "n": len(g["universe"]),
+                                 "universe": g["universe"], "sheets": sheets}
+        # One revision's worth. Superseded entries are unreachable and holding them would
+        # keep a few MB per write alive for the life of the process.
+        _BOARD_CACHE.clear()
+        _BOARD_CACHE[rev] = out
+        return out
+
+
+def _evict(rev: int) -> None:
+    """Drop every sheet-level memo left over from a superseded revision.
+
+    `_BOARD_CACHE` has always cleared itself; the three caches below never did, and under
+    a builder that runs once and exits that was invisible. Behind an endpoint it is a leak
+    rather than a cache: `_RM_CACHE` holds the per-asset rows for every sheet on the board
+    -- 435,012 of them on the deployed store -- so each write to the store used to add a
+    second full copy and keep the first one for the life of the process.
+
+    Called from inside the lock, before a rebuild, which is the one moment every one of
+    them is about to be repopulated anyway.
+    """
+    for cache in (_RM_CACHE, _EDGE_CACHE, _BOOK_CACHE):
+        for key in [k for k in cache if k[-1] != rev]:
+            del cache[key]
+
+
+# ------------------------------------------------------------------ keeping it warm
+#
+# The memo above makes a warm board free and leaves the FIRST reader after any restart
+# paying for all of it -- 20.7s on the deployed two-core box, measured, with the page
+# rendering nothing until it lands because `app.js` awaits `/v1/research/board` before its
+# first `render()`. That is the wrong person to charge. A restart is a deploy, a deploy is
+# a push, and a push is followed within seconds by somebody opening the board to look at
+# what they just shipped.
+#
+# So a server may ask for the build to happen on a thread it owns instead. Nothing about
+# the freshness contract changes -- this calls the same `build_board()` every reader
+# calls, and the revision is still what decides whether a rebuild happens. It only moves
+# the cost off the critical path of whoever asked first.
+#
+# The poll is what catches a write from ANOTHER PROCESS: `research_worker.py` scores a
+# submitted rule in its own interpreter, and this one learns about it exactly the way a
+# reader would -- by noticing the revision moved. Without the poll, a warmer would keep
+# the board hot only until the first submission and then hand the cost straight back.
+_WARM_STOP = threading.Event()
+_WARM_THREAD: threading.Thread | None = None
+
+
+def start_warmer(interval: float = 30.0) -> threading.Thread | None:
+    """Build the board off the request path, now and whenever the store moves.
+
+    Idempotent, and a no-op for `interval <= 0` -- that is how a caller turns it off
+    without branching, and how the test suites keep a pandas job out of their fixtures.
+
+    A daemon thread: it holds no resource whose loss matters and must never be the reason
+    a process refuses to exit. `stop_warmer` is still worth calling, because a build in
+    flight at shutdown otherwise runs on into the next test's store.
+    """
+    global _WARM_THREAD
+    if interval <= 0:
+        return None
+    if _WARM_THREAD is not None and _WARM_THREAD.is_alive():
+        return _WARM_THREAD
+    _WARM_STOP.clear()
+
+    def loop() -> None:
+        while not _WARM_STOP.is_set():
+            try:
+                build_board()
+            except Exception:
+                # A store that is missing, empty or mid-ingest must not take the process
+                # down from a background thread. The endpoint degrades on its own -- a
+                # non-200 leaves `app.js` on the baked payload -- and the next tick
+                # retries, so there is nothing to do here but say so once.
+                log.warning("board warm-up failed; will retry", exc_info=True)
+            _WARM_STOP.wait(interval)
+
+    _WARM_THREAD = threading.Thread(target=loop, name="board-warmer", daemon=True)
+    _WARM_THREAD.start()
+    return _WARM_THREAD
+
+
+def stop_warmer(timeout: float = 5.0) -> None:
+    """Ask the warmer to finish and wait briefly for it.
+
+    The wait is bounded because a rebuild already in flight cannot be interrupted, and
+    blocking a shutdown for the length of one is worse than letting a daemon thread die
+    with the process.
+    """
+    global _WARM_THREAD
+    _WARM_STOP.set()
+    thread, _WARM_THREAD = _WARM_THREAD, None
+    if thread is not None and thread.is_alive():
+        thread.join(timeout)
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:

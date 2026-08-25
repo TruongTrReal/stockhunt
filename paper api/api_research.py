@@ -188,9 +188,14 @@ def board(who: dict = Depends(api_auth.current_principal)) -> dict:
     Shaped like `payload["backtest"]` rather than as something new, which is what lets the
     browser keep one code path for the baked snapshot and the live board.
 
-    `build_board` memoises on the store's revision: ~13s to build all twenty sheets, then
-    a dictionary lookup until something is written. The first request after the worker
-    inserts a rule pays the rebuild.
+    `build_board` memoises on the store's revision: tens of seconds to build every sheet,
+    then a dictionary lookup until something is written. Nobody reading the board should
+    meet the slow case — `api_app`'s lifespan starts `board_rank.start_warmer`, which does
+    that build on a thread this process owns and repeats it whenever the store moves.
+
+    The warmer is a latency measure and nothing else. It calls exactly this function, so
+    turning it off (`API_BOARD_WARM_SECONDS=0`) changes who waits and never what they
+    are handed.
     """
     return board_rank.build_board()
 

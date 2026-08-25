@@ -6,6 +6,13 @@ only on the box. These files are the deployment; the VPS holds copies of them.
     root@186.241.18.137   Ubuntu 22.04, repo at /opt/stockhunt, one venv, user `stockhunt`
     ssh -i ~/.ssh/id_ed25519_stockhunt root@186.241.18.137
 
+`nginx/` holds the TLS front door as it stands on the box. **Nothing here applies it** --
+`autodeploy.sh` restarts the API and never touches nginx, so a change to those files is
+inert until somebody copies it over and reloads. They are in the repo because the one
+thing that had gone wrong in them, a `gzip_types` list that silently skipped 4 MB of
+JavaScript per page load, was invisible for as long as nobody could read the file
+alongside the code that produced the responses. See `nginx/README.md`.
+
 ## Three services and three timers
 
 | unit | what |

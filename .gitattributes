@@ -1,0 +1,7 @@
+# `core.autocrlf=true` on this machine, which is right for everything in this repo that is
+# read on Windows and wrong for the few files that are only ever read by Linux. These are
+# copies of what sits in /etc on the VPS; a CRLF in one is a papercut waiting for whoever
+# pastes it back onto the box.
+deploy/nginx/*.conf   text eol=lf
+deploy/*.sh           text eol=lf
+deploy/systemd/*      text eol=lf

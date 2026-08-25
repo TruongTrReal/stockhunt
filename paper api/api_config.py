@@ -99,6 +99,22 @@ OWNER_EMAIL = env("API_OWNER_EMAIL")
 # because `serve.py` now refuses to bind anything but loopback.
 SERVE_BOARD = env_flag("API_SERVE_BOARD", True)
 
+# How often a background thread rebuilds the research leaderboard, so that no reader has
+# to. `0` turns it off and every reader pays for the first build after a restart.
+#
+# The board is a query over `results.db` and `board_rank` memoises it on the store's
+# revision, so a warm board costs a dictionary lookup and a cold one costs the whole join
+# -- 20.7s measured on the deployed box. Whoever reloads first after a deploy is the one
+# who eats that today, and they eat it staring at a blank page, because `app.js` awaits
+# `/v1/research/board` before its first render.
+#
+# Thirty seconds is chosen against what it is watching rather than against taste. A tick
+# that finds the revision unchanged is one SELECT of one row, so the idle price is
+# nothing; what it is waiting for is `research_worker.py` finishing a submission in
+# ANOTHER process, and half a minute of lag on a job that took minutes to score is not
+# perceptible to whoever submitted it.
+BOARD_WARM_SECONDS = float(env("API_BOARD_WARM_SECONDS", "30") or 0)
+
 # ------------------------------------------------------------------- the manager desk
 #
 # What one account may ask the desk to run. None of this is a risk limit — the desk trades
@@ -169,6 +185,7 @@ def startup_banner() -> list[str]:
         f"  mail         {'via ' + str(GMAIL_USER) if mail_configured() else 'NOT CONFIGURED'}",
         f"  cors         {', '.join(CORS_ORIGINS) if CORS_ORIGINS else 'no browser origins'}",
         f"  board        {'served at / behind the login' if SERVE_BOARD else 'not served'}",
+        f"  board warmer {f'every {BOARD_WARM_SECONDS:g}s' if BOARD_WARM_SECONDS > 0 else 'off'}",
     ]
     if TRUST_PROXY:
         lines.append("  proxy        trusting X-Forwarded-For")

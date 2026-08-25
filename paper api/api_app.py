@@ -54,7 +54,15 @@ async def lifespan(app: FastAPI):
     log.info("  cleaned      %s expired sessions, %s old challenges",
              dropped["sessions"], dropped["challenges"])
     log.info("  users        %s on the allowlist", authdb.user_count())
+    # The research leaderboard, built on a thread this process owns rather than on the
+    # request of whoever reloads first after a restart. See `api_config.BOARD_WARM_SECONDS`
+    # for why that reader is the wrong one to charge; `board_rank.start_warmer` for what
+    # the thread actually does. It is started AFTER the banner so a slow first build
+    # cannot delay the line that says the port is open.
+    import board_rank                                                  # noqa: PLC0415
+    board_rank.start_warmer(api_config.BOARD_WARM_SECONDS)
     yield
+    board_rank.stop_warmer()
     authdb.close()
 
 
