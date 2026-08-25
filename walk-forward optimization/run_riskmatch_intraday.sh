@@ -30,8 +30,21 @@ mkdir -p logs results/edge_cells
 
 echo "=== RISKMATCH 1h/15m $(date -u +%H:%M:%S) ==="
 for tf in 1h 15m; do
-  # Cheapest first, so the first timing lands early enough to re-plan on.
-  for cls in commodities us_etfs cme_futures us_stocks; do
+  # CHEAPEST FIRST, and the order is measured rather than guessed at. Cost here tracks
+  # PER-SYMBOL series length superlinearly, not symbol count and not total bars, so the
+  # ordering that looks right from the universe sizes is wrong: commodities is three
+  # symbols and cost 4,476s at 15m while us_etfs is ten and cost 459s, because a
+  # commodities series is 148,727 bars long and an ETF's is 41,741.
+  #
+  #   cell           bars/symbol @15m    1h -> 15m
+  #   us_etfs               41,741         8.2x   (measured)
+  #   us_stocks             41,773         8.2x   (assumed, same shape)
+  #   commodities          148,727        37x     (measured)
+  #   cme_futures          251,082      ~70x      (extrapolated -- hours, not minutes)
+  #
+  # cme_futures goes LAST because it is the only cell that can run overnight, and putting
+  # it earlier blocks an 80-minute us_stocks cell behind an 8-hour one for no reason.
+  for cls in commodities us_etfs us_stocks cme_futures; do
     out="results/edge_cells/edge_${cls}_${tf}.csv"
     [ -f "$out" ] && { echo "=== $cls $tf SKIP (have $(basename "$out"))"; continue; }
     t0=$SECONDS
