@@ -83,6 +83,6 @@ GROUPS = [("stocks", "us_stocks", "Top 100 US stocks, point-in-time", bt_config.
 # 15m is the floor on purpose: below it the vendor's ~6 years of intraday history buys
 # ever more bars of ever less independent information, and the Standard's fold count —
 # not the bar count — is what the verdict needs.
-TIMEFRAMES = ["1d", "4h", "1h", "15m"]
+TIMEFRAMES = ["1d", "4h", "1h", "15m", "5m"]
 BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
 TOP_N = 30                       # leaderboard depth; the tail is all worse, not different

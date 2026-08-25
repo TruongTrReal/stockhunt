@@ -174,29 +174,42 @@ def robustness_index(backtest: dict) -> dict:
     for key, cls, _label, _u in GROUPS:
         for tf in TIMEFRAMES:
             book, bench = _book_index(cls, tf)
-            if not book or bench is None:
+            ob, obench = _book_open_index(cls, tf)
+            has_close = bool(book) and bench is not None
+            has_open = bool(ob) and obench is not None
+            # EITHER fill makes the environment real, and neither implies the other.
+            # `5m` was run at `open` only — deliberately, because a close-fill number on
+            # 78 bars a day is the look-ahead and not the rule — so gating the whole
+            # environment on the close sheet dropped five cells from the matrix without
+            # a word. The reverse gap is the older one: every cell existed at `close`
+            # before the pessimistic pass was run at all.
+            if not has_close and not has_open:
                 continue
             ekey = f"{key}_{tf}"
+            # Years and the universe size are facts about the CELL, not about the fill,
+            # so they come off whichever sheet is present. The benchmark's own scores
+            # never cross: a close-fill Sharpe under an `open` label would charge the
+            # delay to one side only, which is the thing this split exists to prevent.
+            shape = bench if has_close else obench
             envs.append({"key": ekey, "cls": key, "tf": tf,
-                         "bench": {"sharpe": bench.get("sharpe"),
-                                   "cagr": bench.get("cagr"),
-                                   "dd": bench.get("dd"),
-                                   "wealth": bench.get("wealth")},
-                         "years": bench.get("years"),
-                         "n_names": bench.get("n_names")})
-            for rule, rec in book.items():
-                rules.setdefault(str(rule), {})[ekey] = [rec.get(f) for f in fields]
+                         "bench": ({"sharpe": bench.get("sharpe"),
+                                    "cagr": bench.get("cagr"),
+                                    "dd": bench.get("dd"),
+                                    "wealth": bench.get("wealth")}
+                                   if has_close else None),
+                         "years": shape.get("years"),
+                         "n_names": shape.get("n_names")})
+            if has_close:
+                for rule, rec in book.items():
+                    rules.setdefault(str(rule), {})[ekey] = [rec.get(f) for f in fields]
             # The pessimistic bound, where it has been run. Absent is a real state —
             # a cell scored at close fill only — and the view says so rather than
             # falling back to the close number under an "open" label.
-            ob, obench = _book_open_index(cls, tf)
-            if ob and obench is not None:
+            if has_open:
                 for rule, rec in ob.items():
                     rules_open.setdefault(str(rule), {})[ekey] = [rec.get(f)
                                                                   for f in fields]
-                for e in envs:
-                    if e["key"] == ekey:
-                        e["bench_open"] = {"sharpe": obench.get("sharpe")}
+                envs[-1]["bench_open"] = {"sharpe": obench.get("sharpe")}
     # The leaderboard's Robustness column, attached here so the page never re-derives
     # the definition: environments where the book's Sharpe cleared the same universe
     # held passively, out of the environments the rule was scored on at all. A raw

@@ -2350,8 +2350,24 @@ function paintBacktest() {
    * commands, so they say different things rather than sharing one. */
   if (!sh || !sh.rows.length) {
     head.innerHTML = "";
+    /* "Not scored yet" stopped being true once a timeframe could be scored at BOOK level
+     * without a ranking sheet behind it. `5m` is exactly that: the leaderboard's own rules
+     * were re-run there at the pessimistic fill for the robustness question, and no
+     * `wf_summary` was produced because ranking 231 singles on 78 bars a day was not what
+     * that run was for. Sending a reader to re-run a stage whose output is already on the
+     * next tab is the worst of the three things this box could say. */
+    const robHas = (D.robust && D.robust.envs || [])
+      .some(e => e.cls === bf.cls && e.tf === bf.tf);
     host.innerHTML = !sh
-      ? `<div class="note">${esc(grp.label)} at ${bf.tf} has not been scored yet.</div>`
+      ? (robHas
+        ? `<div class="note"><b>${esc(grp.label)} at ${bf.tf} has no ranking sheet, but it
+           has been measured.</b> The rules already on this board were re-run there as
+           books, so the comparison lives on
+           <a href="#/backtest/robust">Robustness</a> — one column per timeframe, at the
+           pessimistic fill. A ranking sheet needs
+           <code>walkforward.py --class ${esc(CLASS_ARG[bf.cls] || bf.cls)} --tf
+           ${esc(bf.tf)}</code>.</div>`
+        : `<div class="note">${esc(grp.label)} at ${bf.tf} has not been scored yet.</div>`)
       : `<div class="note"><b>${sh.n_rules} strategies were ranked for
          ${esc(grp.label)} at ${bf.tf}, and none of them can be shown.</b> Every column on
          this board is measured at portfolio level, and no rule on this sheet has a
@@ -3277,8 +3293,18 @@ function robMatrixTable(rule, metric, mark) {
     if (!e) return `<td class="flat"
       title="no book run covers this cell — the class has no sheet at this timeframe">—</td>`;
     const a = cells[e.key];
-    if (!a) return `<td class="flat"
-      title="the book stage did not score this rule here">—</td>`;
+    /* Two different absences, and saying "not scored" for both would hide the one the
+     * reader can act on. A cell scored at the OTHER fill is a gap in this pass, not a
+     * gap in the rule: `5m` was run at `open` only, so every 5m column is blank under
+     * `close` and switching the selector fills it in. */
+    if (!a) {
+      const other = (robFill === "open" ? (D.robust || {}).rules : (D.robust || {}).open)
+        || {};
+      const elsewhere = (other[rule] || {})[e.key];
+      return `<td class="flat" title="${elsewhere
+        ? "not scored at this fill — switch the fill selector to see it"
+        : "the book stage did not score this rule here"}">—</td>`;
+    }
     if (a[iT] === 0) return `<td class="flat"
       title="the book opened no positions here — there is nothing to score">0 trades</td>`;
     const s = a[iS], bs = robBench(e);

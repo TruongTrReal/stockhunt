@@ -341,7 +341,17 @@ about.**
 
 | board | population | timeframes | source |
 |---|---|---|---|
-| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES` — the research axis: **1d/4h/1h/15m** (2026-08-22; finer sizes stay fetchable in `config.WINDOWS` but are out of the program); a timeframe with no sheet renders the empty state naming the command | `wf_summary_*` + `book_<cls>_<tf>.csv` |
+| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES` — the research axis: **1d/4h/1h/15m/5m** (5m added 2026-08-25; finer sizes stay fetchable in `config.WINDOWS` but are out of the program) | `wf_summary_*` + `book_<cls>_<tf>.csv` |
+
+**`TIMEFRAMES` is the ROBUSTNESS axis, and Discover has sheets for only part of it.**
+`5m` has no `wf_summary_*` on any class and no close-fill book: it was run for the
+robustness question only — the 152 rules already on the board, re-scored as books at the
+pessimistic fill — because ranking 231 singles on 78 bars a day is not what that run was
+for. So selecting `5m` on Discover hits the empty state on all five classes, and that
+state **points at Robustness** rather than printing a stage to re-run: sending a reader to
+regenerate output that is already on the next tab is worse than either of the other two
+things the box could say. It is gated on `D.robust.envs`, so it corrects itself the moment
+a ranking sheet does land.
 | `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_book_*` where it exists, else `convert_*.csv` + `portfolio.csv` |
 
 Everything that decides what a number MEANS is shared. Both sheets came out of
@@ -478,10 +488,10 @@ coloured, blanked and explained exactly as on the leaderboard. Its chart draws e
 page); `equityChart` grew an optional `styles` argument for the six distinct strokes.
 
 **Robustness reads `D.robust`, cut from the FULL `book_*.csv` sheets** by
-`payload.robustness_index` — ~400 rules × 9 environments, ~260 kB, inlined because the
-view needs all of it at once. A matrix built from the shipped rows would show a rule
-only where it ranked well and its weak environments would vanish, which inverts the
-question the view exists to answer. Three things to preserve:
+`payload.robustness_index` — ~400 rules × 25 environments (5 classes × 1d/4h/1h/15m/5m),
+inlined because the view needs all of it at once. A matrix built from the shipped rows
+would show a rule only where it ranked well and its weak environments would vanish, which
+inverts the question the view exists to answer. Four things to preserve:
 
 - **`robust.fields` and the field lookups in `app.js`** (`ROB_METRICS`,
   `robMatrixTable`) **must move together** — the per-cell arrays are positional.
@@ -492,7 +502,20 @@ question the view exists to answer. Three things to preserve:
 - **A cell is honest about why it is empty**: an em-dash where the book stage never
   scored the rule, `0 trades` where it never opened a position, and a cell whose rule is
   not on that sheet's shipped board says so and shows the payload record instead of
-  dead-linking to a detail page that does not exist.
+  dead-linking to a detail page that does not exist. A **fourth** absence joined them on
+  2026-08-25 — scored at the *other* fill — and it reads differently, because the reader
+  can act on it: the tooltip says to switch the fill selector rather than claiming the
+  rule was never scored there.
+- **EITHER fill makes an environment real** (`robustness_index`). The loop used to `continue`
+  unless the close-fill book existed, with the open sheet attached underneath it — which
+  was fine while `open` was strictly a second pass over cells that already had a `close`
+  one. `5m` broke that assumption in the other direction: it was run at `open` ONLY, on
+  purpose, because a close-fill number on 78 bars a day is the look-ahead rather than the
+  rule. Gating on the close sheet dropped all five 5m cells out of the matrix without a
+  word — the exact silent-narrowing failure this view exists to prevent. `years` and
+  `n_names` now come off whichever sheet is present (they are facts about the cell, not
+  the fill); the benchmark's own Sharpe never crosses, because a close-fill benchmark
+  under an `open` label charges the delay to one side only.
 
 The detail page carries the same matrix (`robSection`), marked at its own cell, with
 shipped cells linking to their sibling detail pages — and an **Add to Compare** button
