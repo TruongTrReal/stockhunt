@@ -84,8 +84,10 @@ this dashboard exists to watch. Do not re-fork them.
 
 ```powershell
 python build_dashboard.py --serve            # rebuild what serve.py serves
-python build_dashboard.py --dist             # rebuild the shareable single file (8.4 MB)
-python build_dashboard.py --dist --no-curves # ...without the curve JSONs (4.8 MB)
+python build_dashboard.py --dist             # rebuild the shareable single file
+python build_dashboard.py --dist --no-curves # ...without the DETAIL-page curve JSONs.
+                                             #   the small board curves stay either way:
+                                             #   they back the chart on the landing view
 python build_dashboard.py --serve --offline  # skip the live price snapshot
 python paper_curves.py --top 5               # rebuild web/paper_curves.json
 
@@ -347,21 +349,24 @@ about.**
 on this board is gated on the six-criteria verdict, and `riskmatch_wf.py` has only ever
 been run at **1d and 4h** — so `results.db`'s `edge` table has no rows at the finer sizes
 and `build_sheet` drops all ~409 candidates as *unscored*. The books are not missing: 180
-rules per cell are in the `book` table and on Robustness. The empty state therefore names
-the verdict, prints `riskmatch_wf.py --class X --tf Y`, and points at Robustness; it used
-to blame "no portfolio result", which is the one thing that is not absent. Three distinct
-blank states now, and they must stay distinct — no sheet, sheet with every row unscored,
-sheet with every row flat.
+rules per cell are in the `book` table and in the robustness index. The empty state
+therefore names the verdict, prints `riskmatch_wf.py --class X --tf Y`, and says where the
+measurement DID land — open any strategy from a sheet that does have rows and use the
+**Robustness** matrix at the bottom of its page, where every scored square is a link,
+including the cell this timeframe would have shown. It used to blame "no portfolio
+result", which is the one thing that is not absent. Three distinct blank states now, and
+they must stay distinct — no sheet, sheet with every row unscored, sheet with every row
+flat.
 
 **`TIMEFRAMES` is the ROBUSTNESS axis, and Discover has sheets for only part of it.**
 `5m` has no `wf_summary_*` on any class and no close-fill book: it was run for the
 robustness question only — the 152 rules already on the board, re-scored as books at the
 pessimistic fill — because ranking 231 singles on 78 bars a day is not what that run was
-for. So selecting `5m` on Discover hits the empty state on all five classes, and that
-state **points at Robustness** rather than printing a stage to re-run: sending a reader to
-regenerate output that is already on the next tab is worse than either of the other two
-things the box could say. It is gated on `D.robust.envs`, so it corrects itself the moment
-a ranking sheet does land.
+for. So selecting `5m` hits the empty state on all five classes, and that state **points
+at the robustness matrix** rather than printing a stage to re-run: sending a reader to
+regenerate output that already exists is worse than either of the other two things the box
+could say. It is gated on `D.robust.envs`, so it corrects itself the moment a ranking sheet
+does land.
 | `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_book_*` where it exists, else `convert_*.csv` + `portfolio.csv` |
 
 Everything that decides what a number MEANS is shared. Both sheets came out of
@@ -461,75 +466,209 @@ and click-to-sort behaviour is one implementation across both boards. **A column
 without a `doc` is the one column nobody can ask about** — that rule holds on `CONV_COLS`
 too.
 
-## Three research views on the backtest page (2026-08-22)
+## One research page, three questions (2026-08-26)
 
-`#/backtest` answers three different questions with three different views, switched by
-the **Research** strip in the filter row, each a real hash route:
+`#/backtest` had three views behind a **Research** pill strip — Discover, Compare and
+Robustness, each a real hash route. Two of them are gone, absorbed by the pages that were
+already carrying most of their content, and the strip went with them.
 
-| view | route | question |
-|---|---|---|
-| Discover | `#/backtest` | what looks interesting on this sheet? |
-| Compare | `#/backtest/compare` | which of these is better? |
-| Robustness | `#/backtest/robust[/<rule-slug>]` | does it generalise? |
+| question | where it is answered now |
+|---|---|
+| what looks interesting on this sheet? | the leaderboard, `#/backtest` |
+| which of these is better? | the same leaderboard: **every** metric as a column, and a chart of the ticked rows over the table |
+| does it generalise? | the **Robustness** section at the bottom of each strategy's own page |
 
-Asset class and timeframe are **filters** (native selects, `.fsel`), not navigation —
+`#/backtest/compare` and `#/backtest/robust[/<rule>]` are **kept as redirects, not
+deleted**. Both were bookmarkable by design and both were linked from the board, from
+detail pages and from an empty state, so those URLs are in the world; a hash route that
+matches nothing falls through to `paperMaster`, which would answer "compare these
+strategies" with the paper desk. Compare goes back to the board. A robustness link carries
+the rule it was about, so it opens that rule on the sheet currently selected.
+
+Asset class and timeframe stay **filters** (native selects, `.fsel`), not navigation —
 the pill strips they replaced read as tabs and stop scaling past two timeframes. The
 board switch (house / conv) stays a pill pair because it changes the *population*, not a
-research dimension. The masthead item is labelled **Research** now, in all three masthead
-copies (here, `../paper api/web/desk.html`, `docs.html`) — the copies must keep saying
-the same word or the nav jumps between processes.
+research dimension. The masthead item is still labelled **Research**, in all three
+masthead copies (here, `../paper api/web/desk.html`, `docs.html`) — the copies must keep
+saying the same word or the nav jumps between processes.
 
-**Discover** is the leaderboard, kept whole but defaulted to 10 of its 18 columns plus a
-new `Robustness` column; the rest sit behind the `More columns` toggle (`adv: true` in
-`LB_COLS`, filtered by `lbCols`). Hiding a column never renumbers an explanation —
-`data-doc` indexes the FULL list. The `lb-search` box filters the SHIPPED rows only and
-the note says how many match; it cannot reach the rows `payload.py` cut, which is the
-same top-N honesty rule the sort already follows. The compare checkbox lives *inside*
-the Strategy cell (`cbxCell`), not in a column of its own, so the phone's frozen first
-column stays the name.
+### The leaderboard shows every column, by default
 
-**The compare selection is pinned to one sheet** (`lbSel`, capped at 6): rows from two
-sheets sit on different bars, benchmarks and cost grids, and a table across them would
-be the mixed-measurement bug this page already removed once — ticking on another sheet
-starts a fresh selection. Compare renders `LB_COLS` **transposed** — one row per column,
-buy-and-hold as its own column — through the same cell renderers, so a number there is
-coloured, blanked and explained exactly as on the leaderboard. Its chart draws each book
-**as traded** (the caption says so and points at the risk-matched chart on the detail
-page); `equityChart` grew an optional `styles` argument for the six distinct strokes.
+`lbAdv` starts **true**: all of `LB_COLS`, and the toggle now hides rather than reveals.
+It defaulted the other way on the argument that the full table reads as a spreadsheet. It
+does — and a spreadsheet is what somebody comparing thirty strategies came for. The nine
+`adv` columns are ΔSharpe, t, Expectancy, Win %, ROE/yr, the two signal-free controls and
+the cost headroom, which is most of the evidence on the row; hidden, the first screenful
+looked thinner than the sheet is, and the reader who most needed them was the least
+likely to know the button was there. Collapsing to the ranking ten is still one click, for
+a phone or a screenshot.
 
-**Robustness reads `D.robust`, cut from the FULL `book_*.csv` sheets** by
-`payload.robustness_index` — ~400 rules × 25 environments (5 classes × 1d/4h/1h/15m/5m),
-inlined because the view needs all of it at once. A matrix built from the shipped rows
-would show a rule only where it ranked well and its weak environments would vanish, which
-inverts the question the view exists to answer. Four things to preserve:
+Two rules survive the flip unchanged. **Hiding a column never renumbers an explanation** —
+`data-doc` indexes the FULL list. And **a column added without a `doc` is the one column
+nobody can ask about**.
+
+### The chart is on the board, above the table
+
+The ticked rows are drawn as one chart at the top of `#/backtest` (`paintBoardChart`,
+`pnlLines`). **Buy-and-hold is always on it**, whether or not anything is ticked. Ticking
+a row adds its book; six is the ceiling.
+
+**A sheet opens with its top five already drawn** (`seedSel`, `LB_SEL_SEED = 5`). It
+opened empty for about a day, on the reasoning that a selection the reader did not make is
+a claim they did not ask for — which was wrong about which claim was being made. An empty
+chart says "this page has nothing for you until you work out what the checkboxes do", and
+the picture worth seeing first is the one the ranking has already argued for. Three
+properties of the seeding:
+
+- **It is the DELIVERED order** — `Standard`, ties on `book vs B&H` — not the column the
+  reader has since sorted by. "The top five" has to mean the same five whichever way the
+  table is pointing, or the chart quietly re-picks itself when somebody sorts on a test
+  column, which is the selection-on-a-test-column mistake this repo has made once.
+- **Five, not six.** Buy-and-hold is a line too, and six plus the benchmark is the tangle
+  `LB_SEL_MAX` exists to prevent.
+- **It seeds once per sheet, guarded on the SHEET KEY and not on the list being empty.**
+  That is what makes `Clear` mean clear: emptying the selection leaves `cls`/`tf` pointing
+  here, so nothing grows back under the reader. Switching sheets and returning re-seeds,
+  because that is a different chart.
+
+The floating `#cmp-bar` is **hidden until `lbSel.touched`** for the same reason: the
+seeded five are the page's opening position, and a bar floating over the ranking to
+announce a choice nobody made is noise on every visit. `bc-note` says which of the two
+states is on screen — "the top 5 on this sheet" against a plain count.
+
+- **The selection is pinned to ONE sheet** (`lbSel`, `LB_SEL_MAX = 6`). Rows from two
+  sheets sit on different bars, benchmarks and cost grids, and one chart across them would
+  be the mixed-measurement bug this page already removed once — ticking on another sheet
+  starts a fresh selection.
+- **Colour follows the STRATEGY, not its position in the list.** `lbSel.slot` holds the
+  assignment and `toggleSel` reuses a freed slot. Keyed on the index instead, un-ticking
+  the second of four lines would repaint the other three, and a reader who removed one
+  thing would watch the whole chart change identity. The ticked checkbox wears the same
+  colour, which is what ties a row to a line whose name has been clipped.
+- **Six is also the palette.** `--s1`..`--s6` in `app.css` are a categorical set validated
+  **in that order** against both surfaces for adjacent CVD and normal-vision separation;
+  the order is the safety mechanism, not decoration. They contain **no green and no red**,
+  because on this page those two mean gained and lost, and a line's identity must never be
+  readable as a verdict. Buy-and-hold is not in the set at all — muted ink, dashed, because
+  it is the reference rather than a seventh competitor. Three of the light steps sit under
+  3:1 against the paper, which is only allowed because **every line is named at its own
+  end**; that direct label is the relief, so do not drop it and keep the colours.
+- **`pnlLines` is a second chart function, deliberately.** `equityChart` draws one strategy
+  against its risk-matched benchmarks and names them in a legend underneath; this draws up
+  to seven independent books and has to answer "which line is that?" once they cross. The
+  label column is real width taken out of the plot (`pad.r`), never an overlay, and labels
+  are de-collided by a pass down and a pass back up — without the second, a sheet whose
+  lines all finish high runs its last labels off the canvas.
+- **The chart is `as traded`, and the caption says so**, pointing at `book vs B&H` for the
+  exposure-priced version and at the detail page for the risk-matched one.
+
+### Its curves are their own file, and that is the point
+
+The chart reads `curves/board_<cls>_<tf>.json`, built by `payload.board_curves`:
+`dates`, `bench` and `rules`, downsampled onto **one shared index list** and rounded to
+2dp. Tens of kB a sheet against 300–650 kB for `curves/<cls>_<tf>.json`, which carries
+full-resolution series plus `matched`, `metrics` and `bench_metrics` for every shipped
+rule. None of that is wanted above a leaderboard, and paying it on every visit to the
+board — to draw one dashed line until somebody ticks something — is the cost this file
+exists to remove.
+
+- **The last index is always kept** (`_downsample`). That point is the terminal wealth the
+  `$10k / book` column prints, and dropping it would hang a chart over the table that
+  disagrees with the row underneath — the exact disagreement `curves.py` was deleted for.
+- **Only the rows the sheet SHIPS get a line, and an empty list means no lines** — the
+  opposite of `_reachable`'s "no list, publish everything". A 409-line header chart is not
+  a fallback for a missing 30-line one.
+- **It reaches both builds through `payload["_files"]`**, a side channel `emit_serve`
+  writes to `web/` and `emit_dist` merges into `__EMBEDDED__`. Neither may leave it in the
+  serialized document. Going through the channel is what lets `--dist` alone embed freshly
+  built bytes rather than whatever a previous `--serve` left on disk, while keeping the
+  standing rule that `--dist` never writes into `web/`.
+
+### Robustness is a section on the strategy's page
+
+**It sits above the per-name table, and the order is the argument.** Both sections answer
+"where else does this hold up" on different axes — the matrix across asset classes and
+timeframes, the table across the names inside this one sheet. The matrix is the wider
+question and by far the cheaper read, twenty-five squares against several hundred rows, so
+a reader who stops after one section should have stopped after that one. It is also the
+only section on the page that navigates anywhere, and underneath the longest table on the
+page the exits were the hardest thing on it to find.
+
+`robSection` puts the container in with the rest of the detail page and `paintRob` fills
+it when the index arrives, so nothing else on the page waits on that fetch and changing
+the fill or the metric costs one `innerHTML` rather than a re-render under the reader.
+It carries what the old view carried: the fill selector, the metric selector, the summary
+strip, and the matrix marked at the page's own cell.
+
+As a third tab it asked the reader to pick a strategy twice — once on the leaderboard to
+find it, again from a dropdown over there — and drew a matrix about one rule on a page
+that was about none.
+
+**`D.robust` is fetched, not inlined.** `payload.robustness_index` still cuts it from the
+FULL `book_*.csv` sheets — ~400 rules × 25 environments (5 classes × 1d/4h/1h/15m/5m),
+because a matrix built from the shipped rows would show a rule only where it ranked well
+and its weak environments would vanish, which inverts the question. At that size it was
+the second largest thing in `data.js` and was read by exactly one view, so it publishes as
+`web/robust.json` and `ensureRobust()` fetches it the first time a detail page needs it.
+`payload["robust"]` is the stub `{"file": "robust.json"}`; `ensureRobust` still reads an
+inlined index, so a `dist/dashboard.html` of either vintage renders.
+
+**EVERY scored cell is a link now.** It used to link only where the sheet's shipped board
+carried the rule, which here means almost nowhere — a leaderboard ships thirty of ~400,
+and `riskmatch_wf.py` has only been run at some timeframes — so most of the matrix was
+drawn, tinted, titled, and swallowed the click. A square that does that reads as a broken
+page, not as an absence. `backtestDetail` falls through to **`offBoardDetail`** for the
+cells no leaderboard carries.
+
+Five things to preserve:
 
 - **`robust.fields` and the field lookups in `app.js`** (`ROB_METRICS`,
   `robMatrixTable`) **must move together** — the per-cell arrays are positional.
-- **The `Robustness` column and the view's summary are raw counts** — environments
+- **The `Robustness` column and the section's summary are raw counts** — environments
   where the book's Sharpe cleared the same universe held passively — never a composite
   score. The matrix tint carries that same single meaning whatever metric is displayed,
   via `color-mix` so it stays honest in dark mode.
-- **A cell is honest about why it is empty**: an em-dash where the book stage never
-  scored the rule, `0 trades` where it never opened a position, and a cell whose rule is
-  not on that sheet's shipped board says so and shows the payload record instead of
-  dead-linking to a detail page that does not exist. A **fourth** absence joined them on
-  2026-08-25 — scored at the *other* fill — and it reads differently, because the reader
-  can act on it: the tooltip says to switch the fill selector rather than claiming the
-  rule was never scored there.
-- **EITHER fill makes an environment real** (`robustness_index`). The loop used to `continue`
-  unless the close-fill book existed, with the open sheet attached underneath it — which
-  was fine while `open` was strictly a second pass over cells that already had a `close`
+- **The `Robustness` column is carried across the live-board swap by `carryRob`.**
+  `board_rank.build_sheet` ranks and does not know about the robustness index — it must
+  not, since importing pandas and `stockhunt.resultsdb` and nothing else is what lets the
+  HTTP layer start without a TA-Lib build — so `rob` is attached one level up by
+  `payload.robustness_index`. The served board therefore never carried it and the column
+  printed an em-dash on every row of every server-backed page, visible only on
+  `dist/dashboard.html`, which makes no such fetch and so looked like a column that
+  worked. `loadLiveBoard` now copies it across by (class, timeframe, rule), the same shape
+  as `applyLive` carrying `group`. A rule that reached the board after the last build has
+  no baked count and still prints an em-dash, which is the honest answer for it.
+- **A cell is honest about why it is empty**: an em-dash where the book stage never scored
+  the rule, `0 trades` where it never opened a position, and — since 2026-08-25 — a
+  separate reading for a cell scored at the *other* fill, which the reader can act on: the
+  tooltip says to switch the fill selector rather than claiming the rule was never scored
+  there.
+- **EITHER fill makes an environment real** (`robustness_index`). The loop used to
+  `continue` unless the close-fill book existed, with the open sheet attached underneath
+  it — fine while `open` was strictly a second pass over cells that already had a `close`
   one. `5m` broke that assumption in the other direction: it was run at `open` ONLY, on
   purpose, because a close-fill number on 78 bars a day is the look-ahead rather than the
   rule. Gating on the close sheet dropped all five 5m cells out of the matrix without a
   word — the exact silent-narrowing failure this view exists to prevent. `years` and
-  `n_names` now come off whichever sheet is present (they are facts about the cell, not
-  the fill); the benchmark's own Sharpe never crosses, because a close-fill benchmark
-  under an `open` label charges the delay to one side only.
+  `n_names` come off whichever sheet is present (they are facts about the cell, not the
+  fill); the benchmark's own Sharpe never crosses, because a close-fill benchmark under an
+  `open` label charges the delay to one side only.
 
-The detail page carries the same matrix (`robSection`), marked at its own cell, with
-shipped cells linking to their sibling detail pages — and an **Add to Compare** button
-that joins the selection under the same one-sheet rule.
+### `offBoardDetail` — a page for a cell no leaderboard carries
+
+It is deliberately smaller than the ranked page and says so at the top. What it has is the
+book's own record for the cell (off the robustness index, at the **same `robFill` the
+matrix is on**, so a reader who switched fills and clicked through is looking at the fill
+they chose), the same matrix again so they can keep walking, and the equity curve where
+the sheet published one.
+
+What it must not grow is the six-criteria verdict, the fold statistics or a per-asset
+table: none of those is computed for a rule the standard never scored, and rendering an
+empty one would imply the measurement exists somewhere. It reuses `paintCurves`,
+`equitySection` and `metricsSection` through a synthetic row marked `offBoard: true` —
+that flag exists because a pair and an off-board single both arrive at `equitySection`
+with an empty `per_asset`, and the pair's sentence (leg diagnostics instead of per-symbol
+rows) is untrue of the other. Two absences, two reasons, two sentences.
 
 ## One leaderboard per asset class
 
@@ -842,9 +981,14 @@ reached from a system's holdings table now.
   `payload._drop_offside_diagnostics` still nulls the per-asset columns and still sets
   `diag_missing`; nothing rendered reads them. Leave it: it costs nothing, and it is the
   thing that keeps those columns honest if they are ever put back on the page.
-- **Curves are not inlined into `data.js`.** Several hundred kB per sheet, and every visitor
-  would parse all eight before the leaderboard could render. The detail view fetches its
-  sheet on demand.
+- **Three things are deliberately NOT inlined into `data.js`**, and the reason is the same
+  each time: the landing view must not pay for a page most readers never open.
+  * **The detail-page curves.** Several hundred kB per sheet, and every visitor would parse
+    all twenty before the leaderboard could render. Fetched per sheet on demand.
+  * **The board curves** (`curves/board_<cls>_<tf>.json`). Tens of kB, fetched by the one
+    view that draws them. See *Its curves are their own file*.
+  * **The robustness index** (`robust.json`, ~830 kB). Read only by a strategy's own page,
+    and `ensureRobust()` fetches it the first time one is opened.
 - **The chart is the row (2026-08-13).** `book_curves_*.json` is written by
   `portfolio_wf.py --curves` from the same `build_book` result that produced
   `book_<class>_<tf>.csv`, so the chart's terminal wealth, CAGR, Sharpe and drawdown ARE the

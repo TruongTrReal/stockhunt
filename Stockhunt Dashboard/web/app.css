@@ -17,21 +17,46 @@
   --sans:ui-sans-serif,system-ui,"Segoe UI",-apple-system,"Helvetica Neue",sans-serif;
   --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
   --col:clamp(16px,4vw,34px);
+
+  /* THE SERIES PALETTE — line identity on the research chart, and nothing else.
+     This stylesheet's opening argument is that colour on this page carries meaning:
+     green gained, red lost. Six lines on one axis need six identities, which is a
+     different job, so these six slots are declared apart from --gain/--loss and
+     deliberately contain NEITHER: a strategy's line must never be readable as a
+     verdict, and a verdict must never be mistaken for a strategy.
+
+     Chosen, not invented. Six hues from a categorical set validated in this ORDER —
+     blue, orange, violet, aqua, yellow, magenta — against both surfaces, for adjacent
+     CVD separation and adjacent normal-vision separation. The order is the safety
+     mechanism, not decoration; re-order it and the adjacent pairs change. Three of the
+     light steps sit under 3:1 against the paper, which is allowed here only because
+     every line is directly labelled at its own end — that label is the relief, so do
+     not remove it and leave the colours. */
+  --s1:#2a78d6; --s2:#eb6834; --s3:#4a3aa7;
+  --s4:#1baf7a; --s5:#eda100; --s6:#e87ba4;
 }
 @media (prefers-color-scheme:dark){
   :root:where(:not([data-theme="light"])){
     --paper:#0B0B0C; --ink:#F1F1EE; --ink-2:#C3C3C0; --muted:#84848C;
     --hair:#232327; --hair-2:#33333A;
     --gain:#5FBE8F; --loss:#E08472;
+    /* The same six hues, stepped for the dark surface and validated as a set against it
+       — not an automatic flip of the light values. */
+    --s1:#3987e5; --s2:#d95926; --s3:#9085e9;
+    --s4:#199e70; --s5:#c98500; --s6:#d55181;
   }
 }
 :root[data-theme="dark"]{
   --paper:#0B0B0C; --ink:#F1F1EE; --ink-2:#C3C3C0; --muted:#84848C;
   --hair:#232327; --hair-2:#33333A; --gain:#5FBE8F; --loss:#E08472;
+  --s1:#3987e5; --s2:#d95926; --s3:#9085e9;
+  --s4:#199e70; --s5:#c98500; --s6:#d55181;
 }
 :root[data-theme="light"]{
   --paper:#FCFCFA; --ink:#16161A; --ink-2:#3F3F46; --muted:#78787F;
   --hair:#E4E4DE; --hair-2:#CFCFC8; --gain:#2E7D57; --loss:#B0402F;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#4a3aa7;
+  --s4:#1baf7a; --s5:#eda100; --s6:#e87ba4;
 }
 
 *{box-sizing:border-box;}
@@ -306,6 +331,13 @@ th.sort-asc::after{content:" \2191";}
 .panel h3{font-size:14px;font-weight:600;margin:0;}
 .chart{width:100%;height:190px;display:block;}
 @media (max-width:600px){.chart{height:150px;}}
+/* The chart over the leaderboard carries up to seven lines and names each of them at its
+   own right-hand end, so it needs the height a 190px strip cannot give seven labels 15px
+   apart. It does NOT shrink as far on a phone: the label column is a fixed share of the
+   viewBox, so squashing the height squeezes the plot and leaves the names where they
+   were. */
+.chart-board{height:330px;}
+@media (max-width:600px){.chart-board{height:260px;}}
 .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);}
 /* Scoped to the legend, because `.sw` is ALSO the paper-trade toggle further down this
    file — 42px by 24px with a knob on it. Same name, later rule, so an unscoped chart
@@ -667,6 +699,11 @@ a.pill.on{border-bottom-color:var(--ink);}
 .cbx.on::after{content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
   border-right:1.5px solid var(--paper);border-bottom:1.5px solid var(--paper);
   transform:rotate(40deg);}
+/* A ticked box is filled with its own line's colour (set inline, from `lbSel.slot`), so
+   the row and the line on the chart above are tied together by something other than a
+   name that may have been clipped. `.full` is the sixth-line ceiling: still clickable,
+   because clicking it is how you find out, but visibly not inviting. */
+.cbx.full{opacity:.4;}
 
 /* The Robustness column's micro-bar: share of scored environments beating holding. */
 .rb{display:inline-block;width:40px;height:3px;background:var(--hair);
@@ -687,20 +724,12 @@ a.pill.on{border-bottom-color:var(--ink);}
 .cmp-bar .quiet{background:none;color:var(--paper);opacity:.7;padding:7px 2px;}
 .cmp-bar .quiet:hover{opacity:1;}
 
-/* Selected-strategy chips on the compare page, each carrying its line's stroke. */
-.chips{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-.fchip{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12.5px;
-  color:var(--ink-2);border:1px solid var(--hair-2);border-radius:999px;
-  padding:5px 12px;background:none;cursor:pointer;}
-.fchip:hover{border-color:var(--ink-2);}
-.fchip .x{color:var(--muted);}
-.fchip:hover .x{color:var(--loss);}
-.key-line{display:inline-block;width:16px;height:0;border-top:2px solid var(--muted);
-  vertical-align:middle;flex:none;}
-th.cmp-name{cursor:pointer;text-decoration:underline dotted var(--hair-2);
-  text-underline-offset:3px;}
-th.cmp-name:hover{color:var(--ink);}
-th.cmp-name .mut{font-weight:400;font-size:11.5px;color:var(--muted);}
+/* `.chips`, `.fchip`, the second `.key-line` and `th.cmp-name` were the Compare page's
+   own furniture — selected-strategy chips and the transposed table's clickable strategy
+   headers — and went with it. The selection is expressed by the ticked boxes in the
+   table and by the named line ends on the chart above it, which is one representation
+   instead of three. (`.key-line` is still defined once, further up, for the paper
+   page's sparkline key.) */
 
 /* The robustness matrix — the one place on the page with a filled cell, because a
  * heat-map's fill IS its statement. color-mix against transparent keeps the tint honest

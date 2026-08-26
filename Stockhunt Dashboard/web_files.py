@@ -24,8 +24,13 @@ from pathlib import Path
 #
 # `demo_data.js` is deliberately absent. It sets `window.DEMO = true` and must never be
 # the tag that ships.
+#
+# `robust.json` is the robustness matrix, written by `build_dashboard.py --serve` out of
+# the payload's `_files` channel. It used to be inlined in `data.js` and is fetched on
+# demand now, because only a strategy's detail page reads it. Stable URL, contents change
+# every build, so it falls through to the short `max-age` branch below and is NOT stamped.
 ALLOWED = {"", "/", "/index.html", "/app.js", "/app.css", "/data.js",
-           "/live.json", "/paper_curves.json", "/catalog.json"}
+           "/live.json", "/paper_curves.json", "/catalog.json", "/robust.json"}
 ALLOWED_PREFIXES = ("/curves/",)
 
 # `live.json` changes every couple of seconds; a cached copy would freeze the desk for
@@ -77,7 +82,8 @@ def cache_control(name: str, private: bool = False) -> str:
     scope = "private" if private else "public"
     if name in STAMPED:
         return f"{scope}, max-age=31536000, immutable"
-    # Curve JSONs and `paper_curves.json`: stable URL, contents change every rebuild. A
+    # Curve JSONs, `robust.json` and `paper_curves.json`: stable URL, contents change every
+    # rebuild -- so they may be held briefly and never treated as immutable. A
     # minute is short enough that a reload after a build is right, and `app.js` fetches
     # them with `cache: "no-cache"` anyway, which revalidates regardless of this.
     return f"{scope}, max-age=60"

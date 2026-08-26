@@ -64,6 +64,125 @@ from board_rank import (_book_bench, _book_index, _book_record, _read,  # noqa: 
                         build_sheet, num, text)
 
 
+# The board's header chart is a THIRD reader of the same series, and it needs almost none
+# of what the other two need. `curves/<key>_<tf>.json` is 300-650 kB per sheet because a
+# detail page reads `matched`, `metrics`, `bench_metrics`, the index comparisons and every
+# point of every series. A chart above the leaderboard reads one line per ticked row and
+# nothing else, so fetching the detail file to draw it would put half a megabyte on the
+# wire before the reader has opened a single detail page.
+#
+# 200 points is where the line stops gaining anything a reader can see: the chart shares a
+# 1240px rail with its axis, so a finer series is bytes nobody can resolve. It is a cap,
+# not a target -- a sheet with fewer points ships all of them untouched.
+BOARD_CURVE_POINTS = 200
+
+
+def _downsample(n: int, limit: int) -> list[int]:
+    """Which index positions to keep out of `n`, at most `limit` of them, ends included.
+
+    Even stride, and the LAST index is kept whatever the stride lands on. That last point
+    is the terminal wealth the leaderboard's `$10k / book` column prints, so dropping it
+    would hang a chart above the table that disagrees with the row underneath it — which
+    is the exact class of disagreement `curves.py` was deleted for.
+
+    The stride is a ceiling over `limit - 1` GAPS rather than `limit` points, so appending
+    that final index can never push the result past the cap.
+    """
+    if n <= 0:
+        return []
+    if n <= limit:
+        return list(range(n))
+    step = -(-(n - 1) // (limit - 1))
+    keep = list(range(0, n, step))
+    if keep[-1] != n - 1:
+        keep.append(n - 1)
+    return keep
+
+
+def _thin(series: list, keep: list[int]) -> list:
+    """`series` at `keep`'s positions, rounded to 2dp, with nulls passed through.
+
+    Two decimals because these are growth-of-100 series: the third one is a hundredth of a
+    percent of the starting stake and costs a byte per point per line. `None` is left as
+    `None` rather than coerced to zero — a gap in a book's history is a gap, and a chart
+    that draws it as a fall to nothing invents a drawdown.
+
+    Reads past the end as `None` so a short series cannot silently shift against the ones
+    beside it: every line here is cut on the SAME positions, which is what keeps them
+    aligned to one date axis.
+    """
+    out = []
+    for i in keep:
+        v = series[i] if i < len(series) else None
+        out.append(None if v is None else round(v, 2))
+    return out
+
+
+def board_curves(shown_order: dict[str, list]) -> tuple[dict[str, str], dict]:
+    """One small file per house sheet, backing the chart at the top of the leaderboard.
+
+    Returns `(files, index)`: the files as JSON **text** keyed by the relative URL `app.js`
+    fetches, for the payload's `_files` side channel, and index entries in the same shape
+    `copy_curves` returns — so `D.curves[key].file` finds them with no further wiring.
+
+    **Nothing is written here.** Going through the side channel is what lets `--dist` alone
+    embed freshly built bytes instead of whatever a previous `--serve` happened to leave in
+    `web/`, and it keeps the standing rule that `--dist` never touches the served site's
+    files. `_curves_index_only` still lives with that drift for the detail-page curves; this
+    path had no reason to inherit it.
+
+    **Only the rows the sheet SHIPS get a line, and an empty list means no lines at all** —
+    the opposite of `_reachable`'s "no list, publish everything". This file exists to back a
+    chart over the shipped rows; a sheet that ships nothing has no chart to draw, and a
+    409-line header chart is not a useful fallback for a missing 30-line one.
+    """
+    files: dict[str, str] = {}
+    index: dict[str, dict] = {}
+    total = 0
+    for key, cls, _label, _u in GROUPS:
+        for tf in TIMEFRAMES:
+            src = BM / f"book_curves_{cls}_{tf}.json"
+            if not src.exists():
+                continue
+            k = f"board_{key}_{tf}"
+            all_rules = json.loads(src.read_text(encoding="utf-8"))
+            # Shipped ORDER, not a set: the index's `rules` list is what the page draws its
+            # legend from, and a set would hand it a different order every build.
+            recs = [(r, all_rules[r]) for r in (shown_order.get(f"{key}_{tf}") or [])
+                    if (all_rules.get(r) or {}).get("curve")]
+            # Dates and the benchmark are ONE series for the whole sheet — every record on
+            # it carries the same pair, and the page has always drawn them that way — so
+            # the first shipped rule that has them speaks for all of them. Carrying them
+            # per rule would triple the file for no information. If no rule has them the
+            # key is omitted rather than nulled: absent means "this sheet has no benchmark
+            # line", which is a state, where `null` reads as a build fault.
+            dates = bench = None
+            for _r, rec in recs:
+                if dates is None and rec.get("dates"):
+                    dates = rec["dates"]
+                if bench is None and rec.get("bench"):
+                    bench = rec["bench"]
+            lengths = [len(rec["curve"]) for _r, rec in recs]
+            lengths += [len(s) for s in (dates, bench) if s]
+            keep = _downsample(max(lengths) if lengths else 0, BOARD_CURVE_POINTS)
+            doc: dict = {}
+            if dates:
+                doc["dates"] = [dates[i] if i < len(dates) else None for i in keep]
+            if bench:
+                doc["bench"] = _thin(bench, keep)
+            # A rule with no curve is skipped above rather than written as a null entry: a
+            # missing series and a series of nulls draw differently, and only one of them
+            # is true.
+            doc["rules"] = {r: _thin(rec["curve"], keep) for r, rec in recs}
+            blob = json.dumps(doc, separators=(",", ":"))
+            n_bytes = len(blob.encode("utf-8"))
+            files[f"curves/{k}.json"] = blob
+            index[k] = {"file": f"curves/{k}.json", "bytes": n_bytes,
+                        "rules": [r for r, _rec in recs]}
+            total += n_bytes
+    print(f"  board curves: {len(files)} sheets, {total / 1e3:.0f} kB total")
+    return files, index
+
 
 def copy_curves(shown: dict | None = None) -> dict:
     """Publish `book_curves_*.json` beside the site, one file per sheet.
@@ -1021,6 +1140,15 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
     wanted for the served build. `offline` skips the one network call (the price snapshot),
     which matters when rebuilding without an API key or when Twelve Data is down -- the
     rest of the payload comes off local CSVs and must not be held hostage to that.
+
+    **`payload["_files"]` is a side channel, not a section of the document.** It maps the
+    relative URL `app.js` will fetch to that file's JSON text, for generated files that
+    must reach BOTH outputs without riding inside `window.DASH`: `emit_serve` writes them
+    under `web/`, `emit_dist` folds them into the embedded map, and both strip the key
+    before serialising. It exists so that neither emitter has to write into the other's
+    output directory to hand a file over -- `--dist` alone must not touch the served site,
+    and embedding what a previous `--serve` left on disk is a staleness this path does not
+    need to inherit.
     """
     backtest = {}
     for key, cls, label, universe in GROUPS:
@@ -1040,10 +1168,20 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
     # 13x the bytes into `web/curves/` and took the single-file build from 9 MB to 38 MB
     # to carry charts nothing links to. Raise `TOP_N` and they publish themselves; no
     # re-run is needed, because the source files already hold them.
-    shown = {f"{key}_{s['timeframe']}": {r["rule"] for r in s["rows"]}
-             for key, g in backtest.items() for s in g["sheets"]}
+    #
+    # Kept in SHIPPED ORDER and reduced to a set for the membership tests. `board_curves`
+    # needs the order — its index carries the legend the header chart draws — and deriving
+    # both from one expression is what stops the two lists drifting apart.
+    shown_order = {f"{key}_{s['timeframe']}": [r["rule"] for r in s["rows"]]
+                   for key, g in backtest.items() for s in g["sheets"]}
+    shown = {k: set(v) for k, v in shown_order.items()}
     curves_index = (copy_curves(shown) if copy_curve_files
                     else _curves_index_only(shown))
+    # The compact per-sheet series behind the leaderboard's own chart. They ride the
+    # `_files` channel rather than being written here, so `--dist` alone gets freshly built
+    # bytes and the served site's files are only ever touched by `--serve`.
+    board_files, board_index = board_curves(shown_order)
+    curves_index.update(board_index)
     # The second board's curves, in their own `conv_` namespace and cut to the rows it
     # ships, exactly like the first board's. Built here rather than inside
     # `conversion_sheets` so both boards' publishing happens in one place and neither can
@@ -1096,9 +1234,14 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
                            "target": c["target"], "ask": c.get("note", "")}
                           for c in dash_config.bt_config.GATES],
         "backtest": backtest,
-        # The full-population robustness index — see `robustness_index` for why it is
-        # not derived from the shipped rows.
-        "robust": robust,
+        # **A stub, and the index itself is a file now.** `robustness_index` is ~900 kB of
+        # the payload and, since the matrix moved onto each strategy's detail page, it is
+        # read only when somebody opens one — so every visitor was parsing it to render a
+        # leaderboard that does not use it. It goes out through `_files` as `robust.json`
+        # and `app.js` fetches it on demand, treating the presence of `file` as "not loaded
+        # yet". The stub carries nothing else on purpose: a half-filled `robust` would let
+        # a caller read a partial matrix without knowing it was partial.
+        "robust": {"file": "robust.json"},
         # The second board on the same page. Its own timeframe axis (1d down to
         # 1m), its own trial family, and its own facets -- see `conversion_sheets`
         # for why it is not rows on the first one.
@@ -1114,6 +1257,14 @@ def build(copy_curve_files: bool = True, offline: bool = False) -> dict:
             "parity": parity(),
             "prices": [] if offline else live_prices(),
         },
+    }
+    # The side channel. Assembled last so the sections above cannot accidentally read it,
+    # and stripped by whichever emitter serialises the payload -- it must never appear in
+    # `window.DASH`, which is the whole reason it is a separate key rather than a section.
+    payload["_files"] = {
+        # The robustness matrix, out of `data.js` and into a fetch a detail page makes.
+        "robust.json": json.dumps(robust, separators=(",", ":")),
+        **board_files,
     }
     return payload
 

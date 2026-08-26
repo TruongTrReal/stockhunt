@@ -82,6 +82,10 @@ report_payload.json
 **/web/data.js
 **/web/live.json
 **/web/paper_curves.json
+# The robustness index. It used to ride inside data.js, which is ignored just above; it is
+# its own file now because only a detail page reads it and it was 900 kB of the landing
+# payload. Same builder, same rebuild, so the same rule applies.
+**/web/robust.json
 **/web/curves/
 **/dist/dashboard.html
 

@@ -306,6 +306,116 @@ function equityChart(sets, labels, dates, h = 230, styles = null) {
       <span>log scale · growth of 100</span></div>`;
 }
 
+/* ---------- the compare chart that sits over the leaderboard ----------
+ * Six line colours, and they carry IDENTITY and nothing else -- which line is which
+ * strategy. Worth stating, because everywhere else on this page colour is a verdict:
+ * green cleared the benchmark, red trailed it. So the series palette deliberately
+ * contains no green and no red (`--s1`..`--s6` in `app.css`), and buy-and-hold is not in
+ * it at all -- it is muted ink, dashed, because it is the line the others are read
+ * against rather than a seventh competitor.
+ *
+ * Six is also `LB_SEL_MAX`, and the two are one number on purpose: the palette was
+ * validated for six adjacent slots against both themes, so a seventh line would have to
+ * repeat a hue, which is worse than not drawing it.
+ *
+ * A colour belongs to a STRATEGY, not to a position in the list. `lbSel.slot` holds the
+ * assignment for exactly that reason: un-ticking the second of four rows must not
+ * repaint the other three, or the chart re-colours itself under a reader who only
+ * removed something. */
+const SERIES_COLORS = ["var(--s1)", "var(--s2)", "var(--s3)",
+                       "var(--s4)", "var(--s5)", "var(--s6)"];
+const BENCH_STYLE = { color: "var(--muted)", w: 1.2, dash: "3 3" };
+
+const clip = (t, n) => String(t).length > n ? String(t).slice(0, n - 1) + "\u2026"
+                                           : String(t);
+
+/* Growth of 100 on a log scale, every line named at its own right-hand end.
+ *
+ * A separate function from `equityChart` rather than another argument to it. That one
+ * draws ONE strategy against its risk-matched benchmarks and names them in a legend
+ * underneath; this one draws up to seven independent books and has to answer "which line
+ * is that?" at a glance, which a legend cannot do once the lines cross. The label column
+ * is real width taken out of the plot (`pad.r`), not an overlay, so a long strategy name
+ * can never end up sitting on top of the data.
+ *
+ * The label TEXT is ink, never the line's colour: a short leader in the series colour
+ * carries the identity, and the name stays legible at the two light-mode steps that sit
+ * under 3:1 against the paper. */
+function pnlLines(series, dates, h = 300) {
+  const w = 960, pad = { l: 48, r: 158, t: 14, b: 22 };
+  let min = Infinity, max = -Infinity;
+  series.forEach(x => x.values.forEach(v => {
+    if (v > 0 && isFinite(v)) { if (v < min) min = v; if (v > max) max = v; }
+  }));
+  if (min === Infinity) return `<p class="sec-note">No curve data.</p>`;
+  const lo = Math.log10(min), hi = Math.log10(max), span = (hi - lo) || 1;
+  const n = Math.max(...series.map(x => x.values.length));
+  const px = i => pad.l + (i / Math.max(n - 1, 1)) * (w - pad.l - pad.r);
+  const py = v => pad.t + (1 - (Math.log10(Math.max(v, 1e-9)) - lo) / span)
+                          * (h - pad.t - pad.b);
+
+  // Decade gridlines, so the axis reads 100 / 1k / 10k rather than at interpolated values.
+  const ticks = [];
+  for (let e = Math.floor(lo); e <= Math.ceil(hi); e++) {
+    const v = Math.pow(10, e);
+    if (v >= min * 0.5 && v <= max * 2) ticks.push(v);
+  }
+  const grid = ticks.map(v => `
+    <line x1="${pad.l}" x2="${w - pad.r}" y1="${py(v)}" y2="${py(v)}"
+      stroke="var(--hair)" stroke-width="1"/>
+    <text x="${pad.l - 6}" y="${py(v) + 3.5}" text-anchor="end" font-size="9"
+      fill="var(--muted)" font-family="var(--mono)">${
+        v >= 1000 ? (v / 1000) + "k" : v}</text>`).join("");
+
+  const lines = series.map(x => `
+    <polyline points="${x.values.map((v, i) => v > 0 ? `${px(i)},${py(v)}` : "")
+      .filter(Boolean).join(" ")}" fill="none" stroke="${x.color}"
+      stroke-width="${x.w || 1.5}" stroke-linejoin="round"
+      ${x.dash ? `stroke-dasharray="${x.dash}"` : ""}
+      vector-effect="non-scaling-stroke"/>`).join("");
+
+  /* Where each line ends, and where its NAME ends up -- not the same y once two books
+   * finish within a few pixels of each other. One pass down pushes every label clear of
+   * the one above it; one pass up pulls the pile back inside the box from the bottom.
+   * Without the second, a sheet whose lines all finish high runs its last labels off the
+   * canvas, which is the failure mode of every end-labelled chart that only sorts. */
+  const GAP = 15;
+  const ends = [];
+  series.forEach(x => {
+    let i = x.values.length - 1;
+    while (i >= 0 && !(x.values[i] > 0)) i--;
+    if (i >= 0) ends.push({ s: x, x: px(i), y: py(x.values[i]), v: x.values[i] });
+  });
+  ends.sort((a, b) => a.y - b.y);
+  let floorY = pad.t + 5;
+  ends.forEach(p => { p.ly = Math.max(p.y, floorY); floorY = p.ly + GAP; });
+  let ceilY = h - pad.b - 2;
+  for (let i = ends.length - 1; i >= 0; i--) {
+    ends[i].ly = Math.min(ends[i].ly, ceilY);
+    ceilY = ends[i].ly - GAP;
+  }
+  const lx = w - pad.r + 12;
+  const labels = ends.map(p => `
+    <line x1="${p.x}" y1="${p.y}" x2="${lx - 5}" y2="${p.ly}" stroke="${p.s.color}"
+      stroke-width="1" opacity=".5" vector-effect="non-scaling-stroke"/>
+    <circle cx="${p.x}" cy="${p.y}" r="2.4" fill="${p.s.color}"/>
+    <text x="${lx}" y="${p.ly + 3.6}" font-size="11" font-family="var(--sans)"
+      fill="var(--ink)">${esc(clip(p.s.label, 15))}<tspan fill="var(--muted)"
+      font-family="var(--mono)"> ${esc(fmtMoney(p.v * 100))}</tspan></text>`).join("");
+
+  const first = dates && dates[0], last = dates && dates[dates.length - 1];
+  const axis = first ? `
+    <text x="${pad.l}" y="${h - 4}" font-size="9" fill="var(--muted)"
+      font-family="var(--mono)">${esc(first)}</text>
+    <text x="${w - pad.r}" y="${h - 4}" text-anchor="end" font-size="9"
+      fill="var(--muted)" font-family="var(--mono)">${esc(last)}</text>` : "";
+
+  return `<svg class="chart chart-board" viewBox="0 0 ${w} ${h}"
+      preserveAspectRatio="xMidYMid meet" role="img"
+      aria-label="${esc(series.map(x => x.label).join(" versus "))}"
+    >${grid}${lines}${labels}${axis}</svg>`;
+}
+
 /* The equity chart, with every benchmark held at the strategy's own volatility.
  *
  * There is one sizing here and it is the risk-matched one. The chart briefly offered both
@@ -484,19 +594,17 @@ const selOpts = (opts, active, attr) =>
     `<option value="${esc(v)}"${active === v ? " selected" : ""}>${esc(label)}</option>`)
     .join("")}</select>`;
 
-/* The three research views, as real hash links so each is bookmarkable. Discover asks
- * "what looks interesting", Compare "which of these is better", Robustness "does it
- * generalise" — one leaderboard was answering all three and answering the last one not
- * at all. The count on Compare is the current selection. */
-function researchNav(active) {
-  const n = lbSel.rules.length;
-  const link = (href, key, label) =>
-    `<a class="pill ${active === key ? "on" : ""}" href="${href}">${label}</a>`;
-  return `<span class="f-group"><span class="f-label">Research</span>
-    ${link("#/backtest", "discover", "Discover")}
-    ${link("#/backtest/compare", "compare", n ? `Compare (${n})` : "Compare")}
-    ${link("#/backtest/robust", "robust", "Robustness")}</span>`;
-}
+/* There were three research views behind a `Research` pill strip here -- Discover,
+ * Compare and Robustness -- and the strip is gone with two of them.
+ *
+ * Compare was the leaderboard transposed on a page of its own, reached by ticking rows
+ * and then travelling. Everything it showed except the chart was already on the rows the
+ * reader had just ticked, so the trip bought a rearrangement of columns; what it uniquely
+ * had was the picture of several books on one axis, and that is now drawn ABOVE the
+ * ranking, where the ticking happens. Robustness asked the reader to choose a strategy
+ * twice -- once on the leaderboard to find it, again in a dropdown over there -- and drew
+ * a matrix about one rule on a page that was about none; it is a section on each
+ * strategy's own page now. One page, three questions, no navigation between them. */
 
 /* ================================ PAPER ================================ */
 /* No "all" on any of the three. A desk that runs four classes at two horizons for several
@@ -1766,7 +1874,6 @@ function backtestMaster() {
       it. They stay outside both painted regions so the buttons survive a repaint — and so
       a sheet that does not exist still leaves you something to click. */""}
   <div class="filters wide">
-    ${bf.board === "house" ? researchNav("discover") : ""}
     <span class="f-group"><span class="f-label">Leaderboard</span>
       ${pills(BOARDS, bf.board, "data-bboard")}</span>
     <span class="f-group"><span class="f-label">Asset class</span>
@@ -2194,8 +2301,9 @@ const LB_COLS = [
       environments it was scored on at all, currently up to nine. A raw count,
       deliberately not a composite score: the formula for a "robustness score" would be
       one more free parameter. A rule high on this sheet with a low count here usually
-      means one flattering environment; the <b>Robustness</b> view above the table shows
-      the full matrix, weak cells included.`,
+      means one flattering environment; the <b>Robustness</b> section at the bottom of the
+      rule's own page draws the full matrix, weak cells included, and every square in it
+      opens that environment.`,
     sv: r => r.rob ? r.rob.n : null },
 ];
 
@@ -2294,12 +2402,20 @@ const benchRow = (bench, cols, sh) => {
  * a name that stays put. */
 const NARROW = matchMedia("(max-width:760px)");
 
-/* Ten columns by default, eighteen behind the toggle. The full table answered every
- * question at once and therefore read as a spreadsheet; the default set is the two
- * ranking keys, the row's identity and the figures a reader ranks with, and the
- * diagnostics are one click away. Hiding a column changes nothing about what it means —
- * `data-doc` indexes into the full list, so the explanations never renumber. */
-let lbAdv = false;
+/* EVERY column, by default. The toggle stays, and it now hides rather than reveals.
+ *
+ * It defaulted the other way for a while -- ten columns, the diagnostics one click
+ * behind `adv: true` -- on the argument that the full table reads as a spreadsheet. It
+ * does read as a spreadsheet, and a spreadsheet is what somebody comparing thirty
+ * strategies came here for: the hidden nine are ΔSharpe, t, Expectancy, Win %, ROE/yr,
+ * the two signal-free controls and the cost headroom, which is most of the evidence.
+ * Hiding them made the first screenful of the board look thinner than the sheet actually
+ * is, and the reader who most needed them was the least likely to know the button
+ * existed. Collapsing to the key ten is still one click, for a phone or a screenshot.
+ *
+ * Hiding a column changes nothing about what it MEANS -- `data-doc` indexes into the
+ * full list, so the explanations never renumber. */
+let lbAdv = true;
 
 const lbCols = () => {
   const cols = lbAdv ? LB_COLS : LB_COLS.filter(c => !c.adv);
@@ -2308,28 +2424,85 @@ const lbCols = () => {
   return [name, ...rest.filter(c => c.lead), ...rest.filter(c => !c.lead)];
 };
 
-/* ---------- selecting rows to compare ----------
+/* ---------- the rows drawn on the chart above the table ----------
  * The selection is pinned to ONE sheet. Rows from two sheets sit on different bars,
- * different benchmarks and different cost grids, and a comparison table across them
- * would be the mixed-measurement bug this page already removed once — so ticking a row
- * on a different sheet starts a new selection rather than extending the old one. */
-let lbSel = { cls: null, tf: null, rules: [] };
-const LB_SEL_MAX = 6;   // more than six lines on one log chart is a tangle
+ * different benchmarks and different cost grids, and one chart across them would be the
+ * mixed-measurement bug this page already removed once — so ticking a row on a different
+ * sheet starts a new selection rather than extending the old one.
+ *
+ * `slot` is which of the six colours a rule owns, held separately from the order it was
+ * picked in. Colour has to follow the STRATEGY: if it followed the index, un-ticking the
+ * second of four lines would recolour the other three, and a reader who removed one
+ * thing would watch the whole chart change identity. A freed slot is reused by the next
+ * pick, which is what keeps six colours enough for six lines. */
+let lbSel = { cls: null, tf: null, rules: [], slot: {} };
+const LB_SEL_MAX = 6;   // more than six lines on one log chart is a tangle, and the
+                        // series palette is validated for exactly six adjacent slots
+
+const selColor = rule => SERIES_COLORS[(lbSel.slot[rule] || 0) % SERIES_COLORS.length];
+
+/* How many lines a sheet opens with, and WHICH.
+ *
+ * The chart used to open empty but for buy-and-hold, on the reasoning that a selection
+ * the reader did not make is a claim they did not ask for. That reasoning was wrong about
+ * which claim: an empty chart says "this page has nothing to show you until you work out
+ * what the checkboxes do", and the picture worth seeing first is the one the ranking has
+ * already argued for. So a sheet opens with its top five — the DELIVERED order, ranked on
+ * `Standard` then `book vs B&H`, not whatever column the reader has since sorted by, so
+ * "top five" means the same five whichever way the table is pointing.
+ *
+ * Five and not six: buy-and-hold is a line too, and six lines plus the benchmark is the
+ * tangle `LB_SEL_MAX` exists to prevent. */
+const LB_SEL_SEED = 5;
+
+/* Seeded once per sheet, and never again.
+ *
+ * The guard is on the SHEET KEY, not on the list being empty, which is what makes
+ * `Clear` mean clear: emptying the selection leaves `cls`/`tf` pointing at this sheet, so
+ * nothing grows back under the reader. Switching sheets and returning re-seeds, because
+ * that is a different chart. */
+function seedSel(sh) {
+  if (lbSel.cls === bf.cls && lbSel.tf === bf.tf) return;
+  lbSel = { cls: bf.cls, tf: bf.tf, rules: [], slot: {}, touched: false };
+  sh.rows.slice(0, LB_SEL_SEED).forEach((r, i) => {
+    lbSel.rules.push(r.rule);
+    lbSel.slot[r.rule] = i;
+  });
+}
 
 function toggleSel(rule) {
   if (lbSel.cls !== bf.cls || lbSel.tf !== bf.tf)
-    lbSel = { cls: bf.cls, tf: bf.tf, rules: [] };
+    lbSel = { cls: bf.cls, tf: bf.tf, rules: [], slot: {} };
+  // From here on the selection is the reader's, which is what the floating bar reports on.
+  lbSel.touched = true;
   const i = lbSel.rules.indexOf(rule);
-  if (i >= 0) lbSel.rules.splice(i, 1);
-  else if (lbSel.rules.length < LB_SEL_MAX) lbSel.rules.push(rule);
+  if (i >= 0) {
+    lbSel.rules.splice(i, 1);
+    delete lbSel.slot[rule];
+  } else if (lbSel.rules.length < LB_SEL_MAX) {
+    const taken = new Set(Object.values(lbSel.slot));
+    let k = 0;
+    while (taken.has(k)) k++;
+    lbSel.slot[rule] = k;
+    lbSel.rules.push(rule);
+  }
 }
 
 /* Rendered inside the Strategy cell rather than as a column of its own, so the phone's
- * frozen first column stays the name and the table gains no track. */
+ * frozen first column stays the name and the table gains no track.
+ *
+ * A ticked box wears its line's colour, which is the only thing tying a row to a line on
+ * the chart above it once the names at the ends are clipped. */
 function cbxCell(rule) {
   const on = lbSel.cls === bf.cls && lbSel.tf === bf.tf && lbSel.rules.includes(rule);
-  return `<span class="cbx${on ? " on" : ""}" data-sel="${esc(rule)}" role="checkbox"
-    aria-checked="${on}" title="Select for comparison"></span>`;
+  const full = !on && lbSel.cls === bf.cls && lbSel.tf === bf.tf
+    && lbSel.rules.length >= LB_SEL_MAX;
+  return `<span class="cbx${on ? " on" : ""}${full ? " full" : ""}"
+    data-sel="${esc(rule)}" role="checkbox" aria-checked="${on}"${on
+      ? ` style="background:${selColor(rule)};border-color:${selColor(rule)}"` : ""}
+    title="${on ? "Drawn on the chart above — click to remove"
+      : full ? `Six lines is the ceiling; remove one first`
+      : "Draw this book on the chart above"}"></span>`;
 }
 
 let lbQuery = "";
@@ -2369,9 +2542,15 @@ function paintBacktest() {
     const robHas = (D.robust && D.robust.envs || [])
       .some(e => e.cls === bf.cls && e.tf === bf.tf);
     const clsArg = esc(CLASS_ARG[bf.cls] || bf.cls), tfArg = esc(bf.tf);
-    const seeRobust = `The rules already on this board were re-run there as books, so the
-      comparison lives on <a href="#/backtest/robust">Robustness</a> — one column per
-      timeframe, at the pessimistic fill.`;
+    /* Where the measurement DID land, now that Robustness is not a page of its own. The
+     * rules were re-scored as books here; what they never got is the verdict this board
+     * is gated on. Reaching them takes one hop through a sheet that does have rows —
+     * every strategy page carries the matrix, and every scored square in it is a link,
+     * including the ones this timeframe would have shown. */
+    const seeRobust = `The rules already on this board were re-run at ${tfArg} as books,
+      so the measurement exists — it is just not ranked. Open any strategy from a sheet
+      that does have rows and use the <b>Robustness</b> matrix at the bottom of its page:
+      every scored square is a link, this cell included.`;
     const allUnscored = sh && sh.n_unscored_dropped >= sh.n_rules && !sh.n_flat_dropped;
     host.innerHTML = !sh
       ? (robHas
@@ -2395,6 +2574,7 @@ function paintBacktest() {
     return;
   }
   const best = sh.rows[0], cols = lbCols();
+  seedSel(sh);
   /* Buy-and-hold does not depend on the rule, so its row is taken off the first scored row
    * rather than recomputed — one benchmark for the whole sheet. */
   const benchEdge = (sh.rows.find(r => r.edge) || {}).edge ?? null;
@@ -2459,6 +2639,18 @@ function paintBacktest() {
   </div>`;
 
   host.innerHTML = `
+  ${/* The chart sits ABOVE the ranking because the ticking happens in the ranking: the
+      old Compare page put this picture one navigation away from the checkboxes that
+      build it, so adding a line meant a round trip. Buy-and-hold is drawn whether or not
+      anything is selected — an empty chart with an explanation is a worse landing than
+      the one line every row on the table is scored against. */""}
+  <section class="sec">
+    <div class="sec-head"><h2>Cumulative P&amp;L</h2>
+      <span class="sec-note" id="bc-note">buy &amp; hold only — tick a strategy below to
+        add its book</span></div>
+    <div class="panel" id="board-chart"><p class="sec-note">Loading equity curves…</p></div>
+  </section>
+
   <section class="sec">
     <div class="sec-head"><h2>Leaderboard</h2>
       <span class="sec-note" id="lb-note"></span></div>
@@ -2466,9 +2658,10 @@ function paintBacktest() {
       <input class="search" id="lb-search" type="search"
         placeholder="Search strategies…" value="${esc(lbQuery)}">
       <button class="pill ${lbAdv ? "on" : ""}" id="lb-more" title="${lbAdv
-        ? "Back to the ten default columns"
-        : "Show the diagnostic columns: ΔSharpe, t, Expectancy, Win %, ROE/yr, the two controls and fees"}">More columns</button>
-      <span class="sec-note">tick a name to compare</span>
+        ? "Collapse to the ten ranking columns — hides ΔSharpe, t, Expectancy, Win %, ROE/yr, the two signal-free controls and the cost headroom"
+        : "Show every metric this sheet holds for these rows"}">${lbAdv
+        ? `All ${LB_COLS.length} columns` : "Key columns"}</button>
+      <span class="sec-note">tick a name to draw it on the chart above</span>
     </div>
     ${/* The `powered: false` banner used to sit here — a paragraph above the table on
         * every underpowered sheet, which is five of the eight. It said the standard cannot
@@ -2502,26 +2695,32 @@ function paintBacktest() {
   /* Re-sorting rewrites the body and nothing else. The header cells survive, so the
    * explanation does not blink out from under the cursor that just clicked, and the
    * horizontal scroll position of a sixteen-column table is not thrown away. */
+  /* It used to carry a "Compare N strategies" button that navigated. There is nowhere
+   * to go now — the chart is on this page — so what is left is the count, a way back to
+   * the picture, and a way to empty it. The bar stays a floating bar rather than sitting
+   * inline: the ticking happens far down a thirty-row table and the chart is at the top,
+   * so "5 on the chart" has to be visible from wherever the reader is. */
   const syncCmpBar = () => {
     const bar = document.getElementById("cmp-bar");
     if (!bar) return;
     const n = (lbSel.cls === bf.cls && lbSel.tf === bf.tf) ? lbSel.rules.length : 0;
-    bar.hidden = !n;
+    // Hidden until the reader has actually touched the selection. The seeded five are the
+    // page's own opening position, and a bar floating over the ranking to announce a
+    // choice nobody made is noise on every single visit.
+    bar.hidden = !n || !lbSel.touched;
     if (n) {
-      bar.innerHTML = `<span>${n} selected${
+      bar.innerHTML = `<span>${n} on the chart${
         n >= LB_SEL_MAX ? " — six is the ceiling" : ""}</span>
-        <button id="cmp-go">Compare ${n} strateg${n === 1 ? "y" : "ies"}</button>
+        <button id="cmp-go">Show me</button>
         <button class="quiet" id="cmp-clear">Clear</button>`;
-      bar.querySelector("#cmp-go").onclick = () => { location.hash = "#/backtest/compare"; };
+      bar.querySelector("#cmp-go").onclick = () => {
+        const sec = document.getElementById("board-chart");
+        if (sec) sec.scrollIntoView({ behavior: "smooth", block: "center" });
+      };
       bar.querySelector("#cmp-clear").onclick = () => {
-        lbSel.rules = []; paintRows();
+        lbSel.rules = []; lbSel.slot = {}; paintRows(); paintBoardChart(bf.cls, bf.tf);
       };
     }
-    // The Research strip's Compare link carries the count too, and it lives outside the
-    // repainted region, so it is updated in place rather than redrawn.
-    const link = document.querySelector('a[href="#/backtest/compare"]');
-    if (link) link.textContent = lbSel.rules.length
-      ? `Compare (${lbSel.rules.length})` : "Compare";
   };
 
   const paintRows = () => {
@@ -2543,8 +2742,17 @@ function paintBacktest() {
           cols.map(c => c.cell(e.row, sh)).join("")}</tr>`).join("");
     // Ticking must not navigate: the row's own click opens the detail page, so the
     // checkbox stops the event before it reaches the row.
+    /* Ticking must not navigate: the row's own click opens the detail page, so the
+     * checkbox stops the event before it reaches the row. And it repaints the CHART
+     * rather than the sheet — the curve file is already in `curveCache` by then, so
+     * adding a line costs one `innerHTML` on a 300px SVG and nothing on the wire. */
     body.querySelectorAll(".cbx[data-sel]").forEach(el => {
-      el.onclick = e => { e.stopPropagation(); toggleSel(el.dataset.sel); paintRows(); };
+      el.onclick = e => {
+        e.stopPropagation();
+        toggleSel(el.dataset.sel);
+        paintRows();
+        paintBoardChart(bf.cls, bf.tf);
+      };
     });
     syncCmpBar();
     host.querySelectorAll("th[data-doc]").forEach(th => {
@@ -2577,6 +2785,7 @@ function paintBacktest() {
     bindGo(body);
   };
   paintRows();
+  paintBoardChart(bf.cls, bf.tf);
   bindGo(host);
   const search = host.querySelector("#lb-search");
   search.oninput = () => { lbQuery = search.value; paintRows(); };
@@ -2596,6 +2805,61 @@ function paintBacktest() {
       : lbSort.dir === first ? { i, dir: -first } : null;
     paintRows();
   });
+}
+
+/* The chart over the leaderboard, drawn from a file built for exactly this.
+ *
+ * `curves/<cls>_<tf>.json` — what the detail page fetches, and what the retired Compare
+ * view fetched — is 300–650 kB a sheet: full-resolution series plus `matched`, `metrics`
+ * and `bench_metrics` for every shipped rule. None of that is wanted here, and paying it
+ * on every visit to the board would have made the landing page slower to draw a picture
+ * that is one dashed line until somebody ticks something. `payload.board_curves` writes
+ * `curves/board_<cls>_<tf>.json` instead: the same books, downsampled onto shared
+ * indices and rounded, carrying `dates`, `bench` and `rules` and nothing else. Tens of
+ * kB, and the terminal point is deliberately preserved by the downsampler so the end of
+ * a line still agrees with the `$10k / book` column beside it.
+ *
+ * `loadCurves` memoises per key, so switching sheets and coming back is free and ticking
+ * a row never touches the network.
+ */
+async function paintBoardChart(cls, tf) {
+  const host = document.getElementById("board-chart");
+  if (!host) return;
+  const data = await loadCurves(`board_${cls}_${tf}`);
+  // Navigated away, or the sheet was switched while the fetch was in flight. Both leave a
+  // different node in place; the second also leaves `bf` pointing somewhere else.
+  if (document.getElementById("board-chart") !== host) return;
+  if (bf.cls !== cls || bf.tf !== tf) return;
+  const note = document.getElementById("bc-note");
+  if (!data || data.__error || !data.dates) {
+    host.innerHTML = `<p class="sec-note">No equity curves are published for this sheet${
+      data && data.__error ? ` (${esc(data.__error)})` : ""}, so the ranking below stands
+      on its own.</p>`;
+    if (note) note.textContent = "";
+    return;
+  }
+  const picked = (lbSel.cls === cls && lbSel.tf === tf) ? lbSel.rules : [];
+  const drawn = picked.filter(r => (data.rules || {})[r]);
+  const missing = picked.filter(r => !(data.rules || {})[r]);
+  const series = [];
+  if (data.bench && data.bench.length)
+    series.push(Object.assign({ label: "Buy & hold", values: data.bench }, BENCH_STYLE));
+  drawn.forEach(r => series.push({ label: stemName(r), values: data.rules[r],
+                                   color: selColor(r), w: 1.6 }));
+  host.innerHTML = pnlLines(series, data.dates) + `
+    <p class="sec-note">Growth of 100 on a log scale, each book <b>as traded</b> — not
+    risk-matched, so a line that simply stayed invested longer finishes higher for that
+    reason alone. <b>book vs B&amp;H</b> in the table below prices that exposure away, and
+    each strategy's own page draws the risk-matched version of this chart. Idle capital
+    earns nothing, on every line.${missing.length
+      ? ` No curve is stored for ${missing.map(r => `<b>${esc(stemName(r))}</b>`)
+          .join(", ")} on this sheet.` : ""}</p>`;
+  if (note) note.innerHTML = !drawn.length
+    ? "buy &amp; hold only — tick a strategy below to add its book"
+    : lbSel.touched
+    ? `${drawn.length} of ${LB_SEL_MAX} strategies · buy &amp; hold always drawn`
+    : `the top ${drawn.length} on this sheet · tick or untick below to change · buy
+       &amp; hold always drawn`;
 }
 
 /* ========================= THE CONVERTED-STRATEGY BOARD =========================
@@ -3118,145 +3382,47 @@ function bindColHeaders(host, ctx, onSort, cols = LB_COLS) {
   }, true);
 }
 
-/* ================================ COMPARE ================================
- * "Which of these is better?" — the selection made on Discover, transposed: one row per
- * leaderboard column, one column per strategy, plus buy-and-hold as its own column. The
- * cells are LB_COLS' own renderers, so a number here is coloured, blanked and captioned
- * exactly as it is on the leaderboard — a second implementation of any cell would be a
- * second definition of what it means.
- *
- * The selection is pinned to ONE sheet (see `toggleSel`): the columns share bars,
- * benchmark and cost grid, or the table would compare measurements. */
-const CMP_STYLES = [
-  { color: "var(--ink)", w: 1.7 },
-  { color: "var(--gain)", w: 1.4 },
-  { color: "var(--loss)", w: 1.4 },
-  { color: "var(--ink-2)", w: 1.4, dash: "6 3" },
-  { color: "var(--gain)", w: 1.4, dash: "6 3" },
-  { color: "var(--loss)", w: 1.4, dash: "6 3" },
-];
-const CMP_BENCH_STYLE = { color: "var(--muted)", w: 1, dash: "1.5 3" };
-
-function compareView() {
-  const { cls, tf } = lbSel;
-  const grp = cls && D.backtest[cls];
-  const sh = grp && sheetOf(cls, tf);
-  const rows = sh ? lbSel.rules
-    .map(rule => sh.rows.find(r => r.rule === rule)).filter(Boolean) : [];
-  const benchEdge = sh ? ((sh.rows.find(r => r.edge) || {}).edge ?? null) : null;
-
-  app.innerHTML = `
-  <div class="hero">
-    <h1>Compare</h1>
-    <p class="lede">Which of these is better? One sheet, the same bars and the same
-      benchmark under every column${sh ? ` — <b>${esc(grp.label)}</b> at <b>${esc(tf)}</b>`
-      : ""}. Colour means what it means on the leaderboard: measured against the same
-      universe held passively, except profit factor, which is scored against 1.00.</p>
-  </div>
-  <div class="filters">${researchNav("compare")}</div>
-  ${!rows.length ? `<div class="note">Nothing selected yet. Tick strategies on the
-    <a href="#/backtest">Discover</a> leaderboard — the checkbox in front of each name —
-    and the comparison builds itself. Up to ${LB_SEL_MAX}, all from one sheet.</div>` : `
-  <div class="chips" id="cmp-chips"></div>
-  <section class="sec">
-    <div class="sec-head"><h2>Metric by metric</h2>
-      <span class="sec-note">every leaderboard column, transposed — hover a metric name
-        for what it means, tap a strategy name for its page</span></div>
-    <div id="lb-doc" class="coldoc" hidden></div>
-    <div class="tbl-wrap"><table>
-      <thead><tr><th class="l">Metric</th>${rows.map(r =>
-        `<th data-go="#/backtest/${cls}/${tf}/${slug(r.rule)}" class="cmp-name">${
-          esc(stemName(r.rule))}${opLabel(r.op)
-            ? ` <span class="mut">${esc(opLabel(r.op))}</span>` : ""}</th>`).join("")
-      }<th>Buy &amp; hold</th></tr></thead>
-      <tbody>${LB_COLS.map((c, i) => i === 0 ? "" :
-        `<tr><th class="l"${c.doc || c.sv ? ` data-doc="${i}"` : ""}>${c.h}</th>${
-          rows.map(r => c.cell(r, sh)).join("")}${
-          c.bh ? c.bh(benchEdge, sh) : '<td class="flat">—</td>'}</tr>`).join("")}</tbody>
-      <caption>Rows are the leaderboard's columns, docs included — hold a metric name to
-      read what it measures and how it can mislead. An em-dash is a figure the sheet does
-      not have, never a zero.</caption>
-    </table></div>
-  </section>
-  <div id="cmp-curves"><p class="sec-note">Loading equity curves…</p></div>`}`;
-
-  if (!rows.length) return;
-
-  const chipsHost = document.getElementById("cmp-chips");
-  const avail = sh.rows.filter(r => !lbSel.rules.includes(r.rule));
-  chipsHost.innerHTML = rows.map((r, i) => {
-    const s = CMP_STYLES[i] || CMP_STYLES[0];
-    return `<button class="fchip" data-rm="${esc(r.rule)}" title="Remove from comparison">
-      <span class="key-line" style="border-top:2px ${s.dash ? "dashed" : "solid"} ${
-        s.color};"></span>${esc(stemName(r.rule))} <span class="x">×</span></button>`;
-  }).join("") + (rows.length < LB_SEL_MAX && avail.length ? `
-    <select class="fsel" id="cmp-add"><option value="">+ Add from this sheet…</option>${
-      avail.map(r => `<option value="${esc(r.rule)}">${esc(stemName(r.rule))}${
-        opLabel(r.op) ? ` (${esc(opLabel(r.op))})` : ""}</option>`).join("")}</select>` : "");
-  chipsHost.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
-    lbSel.rules = lbSel.rules.filter(x => x !== b.dataset.rm);
-    compareView(); bindGo(app);
-  });
-  const add = chipsHost.querySelector("#cmp-add");
-  if (add) add.onchange = () => {
-    if (add.value && lbSel.rules.length < LB_SEL_MAX) {
-      lbSel.rules.push(add.value);
-      compareView(); bindGo(app);
-    }
-  };
-
-  bindColHeaders(app, { sh, grp, bench: benchEdge?.bench_wealth ?? null }, () => {});
-  paintCompareCurves(cls, tf, rows);
-}
-
-async function paintCompareCurves(cls, tf, rows) {
-  const host = document.getElementById("cmp-curves");
-  if (!host) return;
-  const data = await loadCurves(`${cls}_${tf}`);
-  if (document.getElementById("cmp-curves") !== host) return;   // navigated away
-  if (!data || data.__error) {
-    host.innerHTML = `<p class="sec-note">Equity curves unavailable${
-      data && data.__error ? ` (${esc(data.__error)})` : ""} — the tables above stand on
-      their own.</p>`;
-    return;
-  }
-  const have = rows.filter(r => data[r.rule] && data[r.rule].curve);
-  const missing = rows.filter(r => !have.includes(r));
-  if (!have.length) {
-    host.innerHTML = `<p class="sec-note">No curves stored for this selection.</p>`;
-    return;
-  }
-  const first = data[have[0].rule];
-  const sets = have.map(r => data[r.rule].curve);
-  const styles = have.map((r, i) => CMP_STYLES[i] || CMP_STYLES[0]);
-  const labels = have.map(r => esc(stemName(r.rule)));
-  if (first.bench && first.bench.length) {
-    sets.push(first.bench); styles.push(CMP_BENCH_STYLE); labels.push("Held passively");
-  }
-  host.innerHTML = `
-  <section class="sec">
-    <div class="sec-head"><h2>Cumulative P&amp;L</h2>
-      <span class="sec-note">each book <b>as traded</b>, growth of 100, log scale</span></div>
-    <div class="panel">${equityChart(sets, labels, first.dates, 260, styles)}
-    <p class="sec-note">Every line is the whole account as it traded — <b>not</b>
-    risk-matched, so a line that simply stayed invested longer sits higher for that
-    reason alone. Read the finish against <i>book vs B&amp;H</i> in the table above,
-    which prices the exposure away; the risk-matched chart itself is on each strategy's
-    detail page.${missing.length ? ` No curve is stored for ${
-      missing.map(r => `<b>${esc(stemName(r.rule))}</b>`).join(", ")} — the sheet's curve
-    file predates ${missing.length === 1 ? "it" : "them"}.` : ""}</p></div>
-  </section>`;
-}
-
 /* ================================ ROBUSTNESS ================================
  * "Does it actually generalise?" — one rule across every (class, timeframe) the book
- * stage scored, weak cells included. The leaderboard structurally cannot answer this:
- * it shows a rule exactly where it ranked well, so its failures are invisible there.
- * `D.robust` is cut from the FULL book sheets by `payload.robustness_index` for exactly
- * that reason, and `ROB_FIELDS`-order arrays keep it small enough to inline.
+ * stage scored, weak cells included. The leaderboard structurally cannot answer this: it
+ * shows a rule exactly where it ranked well, so the environments it lost in are invisible
+ * there by construction.
+ *
+ * It is a SECTION ON THE STRATEGY'S OWN PAGE now, not a view of its own. As a third tab
+ * it asked the reader to pick a strategy twice — once on the leaderboard to find it,
+ * again from a dropdown over there to look at it — and the matrix it drew was about one
+ * rule while the page around it was about none. On the detail page the rule is already
+ * chosen, the page's own cell is marked, and every other scored cell is a link to that
+ * same rule's page in that environment, which is the navigation the matrix always
+ * implied and never had.
+ *
+ * The index is FETCHED, not inlined. It covers ~400 rules per sheet rather than the
+ * shipped thirty — a matrix built from shipped rows would answer the question with
+ * survivorship — and at that size it was the second largest thing in `data.js` while
+ * being read by exactly one view. `payload` publishes it as `robust.json` and this
+ * fetches it the first time a detail page needs it; the leaderboard's own `Robustness`
+ * column needs none of it, because `payload.robustness_index` already reduced it to a
+ * count on each shipped row.
  *
  * The tint is always the book's Sharpe against the same universe held passively,
- * whatever metric the cell displays — one meaning for colour on the whole page. */
+ * whatever metric the cell displays — one meaning for colour on the whole page.
+ */
+let ROB = null, robPending = null;
+
+function ensureRobust() {
+  if (ROB) return Promise.resolve(ROB);
+  const stub = D.robust || {};
+  // A payload written before the split inlined the whole index; a new one leaves a
+  // `{file}` stub. Reading both costs one line and keeps `dist/dashboard.html` builds
+  // from either vintage renderable.
+  if (!stub.file) return Promise.resolve((ROB = stub.envs ? stub : null));
+  if (!robPending) robPending = fetch(stub.file, { cache: "no-cache" })
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null)
+    .then(j => (ROB = j));
+  return robPending;
+}
+
 const ROB_METRICS = {
   sharpe: ["Sharpe", v => fmtNum(v, 2)],
   cm_excess_cagr: ["book vs B&H", v => v == null ? "—" : fmtPct(v * 100, 2)],
@@ -3269,39 +3435,44 @@ const ROB_METRICS = {
 };
 
 let robMetric = "sharpe";
-let robCell = null;          // env key of the drilled-into cell, or null
 
-/* WHICH FILL THE MATRIX IS DRAWN ON, and it is the one control on this view that changes
- * what the numbers mean rather than which of them is shown.
+/* WHICH FILL THE MATRIX IS DRAWN ON, and it is the one control here that changes what the
+ * numbers mean rather than which of them is shown.
  *
  * `close` is the published convention: the signal is computed from a bar's own high, low
  * and close and then transacted at that same close — a price nobody knew when the
- * decision was made. Every other page here treats that as an optimistic bound. On THIS
- * page it is worse than optimistic, because the bias is per-bar and the whole purpose of
- * the view is to compare timeframes: `ibs` on commodities reads 5.5%/yr at 1d over 6,511
- * bars and 1,970%/yr at 15m over 75,909, same instruments and same period. A matrix on
- * close fill alone says every reversion rule is more robust the finer you slice, which is
- * an artifact of counting, not a property of the rule.
+ * decision was made. Every other page here treats that as an optimistic bound. In a
+ * matrix it is worse than optimistic, because the bias is per-bar and comparing
+ * timeframes is the whole point of the view: `ibs` on commodities reads 5.5%/yr at 1d
+ * over 6,511 bars and 1,970%/yr at 15m over 75,909, same instruments and same period. A
+ * matrix on close fill alone says every reversion rule is more robust the finer you
+ * slice, which is an artifact of counting, not a property of the rule.
  *
  * `open` fills at the next bar's open instead. It is not the truth either — it charges a
  * full session of delay a market-on-close order would not pay — so the honest reading is
- * the RANGE, which is why the summary strip prints both counts side by side whatever this
- * is set to, and why the default is `open`: on a view about generalisation, the bound that
- * cannot be inflated by slicing is the safer thing to land on. */
+ * the RANGE, which is why the summary prints both counts side by side whatever this is
+ * set to, and why the default is `open`: on a question about generalisation, the bound
+ * that cannot be inflated by slicing is the safer one to land on. */
 let robFill = "open";
-const robSource = () => (robFill === "open" && D.robust && D.robust.open)
-  ? D.robust.open : (D.robust || {}).rules || {};
+const robSource = () => (robFill === "open" && ROB && ROB.open)
+  ? ROB.open : (ROB || {}).rules || {};
 /* The benchmark has to move with the fill: holding is filled a bar later too, and scoring
  * an open-fill rule against a close-fill benchmark charges the delay to one side only. */
 const robBench = e => (robFill === "open" && e.bench_open && e.bench_open.sharpe != null)
   ? e.bench_open.sharpe : (e.bench || {}).sharpe;
 
-/* The matrix both the Robustness view and each detail page draw. `mark` outlines one
- * cell as "you are here"; a cell whose rule is on that sheet's shipped board carries a
- * `data-mx-go` link to its detail page, and one that is not says so in its title rather
- * than dead-clicking. */
+/* The matrix. `mark` outlines one cell as "you are here".
+ *
+ * EVERY scored cell is a link now, and that is the change. It used to link only where the
+ * sheet's shipped board carried the rule, which on this repo means almost nowhere: three
+ * of the five timeframes have no ranking sheet at all, because `riskmatch_wf.py` has only
+ * ever been run at 1d and 4h, so clicking `ibs` at 1h did nothing whatsoever. A square
+ * that is drawn, tinted and titled and then swallows a click reads as a broken page, not
+ * as an absence. `backtestDetail` falls through to `offBoardDetail` for the cells no
+ * leaderboard carries, so every one of these now opens something real.
+ */
 function robMatrixTable(rule, metric, mark) {
-  const R = D.robust;
+  const R = ROB;
   const cells = robSource()[rule] || {};
   const iS = R.fields.indexOf("sharpe"), iT = R.fields.indexOf("n_trades"),
         iM = R.fields.indexOf(metric);
@@ -3313,12 +3484,11 @@ function robMatrixTable(rule, metric, mark) {
       title="no book run covers this cell — the class has no sheet at this timeframe">—</td>`;
     const a = cells[e.key];
     /* Two different absences, and saying "not scored" for both would hide the one the
-     * reader can act on. A cell scored at the OTHER fill is a gap in this pass, not a
-     * gap in the rule: `5m` was run at `open` only, so every 5m column is blank under
-     * `close` and switching the selector fills it in. */
+     * reader can act on. A cell scored at the OTHER fill is a gap in this pass, not a gap
+     * in the rule: `5m` was run at `open` only, so every 5m column is blank under `close`
+     * and switching the selector fills it in. */
     if (!a) {
-      const other = (robFill === "open" ? (D.robust || {}).rules : (D.robust || {}).open)
-        || {};
+      const other = (robFill === "open" ? (R || {}).rules : (R || {}).open) || {};
       const elsewhere = (other[rule] || {})[e.key];
       return `<td class="flat" title="${elsewhere
         ? "not scored at this fill — switch the fill selector to see it"
@@ -3326,18 +3496,21 @@ function robMatrixTable(rule, metric, mark) {
     }
     if (a[iT] === 0) return `<td class="flat"
       title="the book opened no positions here — there is nothing to score">0 trades</td>`;
-    const s = a[iS], bs = robBench(e);
-    const beat = s != null && bs != null && s > bs;
-    const mag = (s != null && bs != null) ? Math.min(Math.abs(s - bs) / 0.5, 1) : 0;
+    const sv = a[iS], bs = robBench(e);
+    const beat = sv != null && bs != null && sv > bs;
+    const mag = (sv != null && bs != null) ? Math.min(Math.abs(sv - bs) / 0.5, 1) : 0;
     const lvl = mag > 0.66 ? 3 : mag > 0.33 ? 2 : 1;
     const shipped = D.backtest[e.cls] && sheetOf(e.cls, e.tf)
       && sheetOf(e.cls, e.tf).rows.some(x => x.rule === rule);
     return `<td class="mx-cell tint-${beat ? "g" : "l"}${lvl}${
-        mark === e.key ? " mx-on" : ""}" data-mx="${e.key}"${
-        shipped ? ` data-mx-go="#/backtest/${e.cls}/${e.tf}/${slug(rule)}"` : ""}
-      title="${esc(CLASS_LABEL[e.cls] || e.cls)} ${e.tf} · Sharpe ${fmtNum(s, 2)} vs ${
+        mark === e.key ? " mx-on" : ""}"
+      data-mx-go="#/backtest/${e.cls}/${e.tf}/${slug(rule)}"
+      title="${esc(CLASS_LABEL[e.cls] || e.cls)} ${e.tf} · Sharpe ${fmtNum(sv, 2)} vs ${
         fmtNum(bs, 2)} held passively over ${fmtNum(e.years, 1)}y${
-        shipped ? "" : " · not on that sheet's shipped board"}">${fmt(a[iM])}</td>`;
+        mark === e.key ? " · this page"
+          : shipped ? " · open this environment"
+          : " · not on that sheet's ranked board — opens the book record"}">${
+      fmt(a[iM])}</td>`;
   };
   return `<div class="tbl-wrap"><table class="mx">
     <thead><tr><th class="l">${ROB_METRICS[metric][0]}</th>${
@@ -3348,66 +3521,62 @@ function robMatrixTable(rule, metric, mark) {
     <caption>Tinted on the book's <b>Sharpe against the same universe held passively</b>,
     whichever metric is displayed — green cleared it, red trailed it, deeper is further.
     Built from the full book sheets, ~400 rules per cell, so the weak environments are
-    here too; a leaderboard can only show where a rule ranked.</caption>
+    here too; a leaderboard can only show where a rule ranked. <b>Any tinted cell opens
+    that environment's page for this same rule.</b></caption>
   </table></div>`;
 }
 
-function robustView(ruleSlug) {
-  const R = D.robust;
-  const heroNav = `
-  <div class="hero">
-    <h1>Robustness</h1>
-    <p class="lede">Does it actually generalise, or does it work in one environment
-      only? One rule, every asset class and timeframe the book stage scored it on —
-      including the cells where it lost, which no leaderboard will ever show you.</p>
-    <p class="note">This is the <b>strategy perspective</b> — is one signal robust. The
-      <b>environment perspective</b> — what works on one sheet — is
-      <a href="#/backtest">Discover</a>, where asset class and timeframe are the
-      filters.</p>
-  </div>
-  <div class="filters">${researchNav("robust")}</div>`;
-  if (!R || !R.envs || !R.envs.length) {
-    app.innerHTML = heroNav + `<div class="note">The robustness index is not available
-      in this build.</div>`;
+/* The section, on the strategy's page. The markup goes in with the rest of the page and
+ * `paintRob` fills it once the index has arrived — so nothing else on the detail page
+ * waits on that fetch, and changing the fill or the metric costs one `innerHTML` on this
+ * container instead of a re-render of the whole page under the reader. */
+function robSection() {
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>Robustness</h2>
+      <span class="sec-note">does it generalise — the same rule on every sheet the book
+        stage scored, including the ones it lost on</span></div>
+    <div id="rob-host"><p class="sec-note">Loading the robustness index…</p></div>
+  </section>`;
+}
+
+async function paintRob(rule, cls, tf) {
+  const host = document.getElementById("rob-host");
+  if (!host) return;
+  await ensureRobust();
+  if (document.getElementById("rob-host") !== host) return;   // navigated away
+  const R = ROB;
+  const known = R && R.envs && R.envs.length
+    && (((R.rules || {})[rule]) || ((R.open || {})[rule]));
+  if (!known) {
+    host.innerHTML = `<p class="sec-note">The robustness index does not cover
+      ${esc(stemName(rule))}${R ? "" : " — it could not be loaded"}.</p>`;
     return;
-  }
-  const names = Object.keys(R.rules).sort((a, b) => a.localeCompare(b));
-  let rule = null;
-  if (ruleSlug) {
-    const dec = decodeURIComponent(ruleSlug);
-    rule = names.find(n => slug(n) === dec) || null;
-  }
-  if (!rule) {
-    const sh0 = D.backtest[bf.cls] && sheetOf(bf.cls, bf.tf);
-    const guess = lbSel.rules[0] || (sh0 && sh0.rows[0] && sh0.rows[0].rule);
-    rule = names.includes(guess) ? guess : names[0];
-    robCell = null;
   }
   const cells = robSource()[rule] || {};
   const iS = R.fields.indexOf("sharpe"), iT = R.fields.indexOf("n_trades");
   const scored = R.envs.filter(e => cells[e.key]);
   const active = scored.filter(e => cells[e.key][iT] !== 0);
   const envName = e => `${CLASS_LABEL[e.cls] || e.cls} ${e.tf}`;
-  const sharpes = active
-    .map(e => ({ e, s: cells[e.key][iS] })).filter(x => x.s != null)
+  const sharpes = active.map(e => ({ e, s: cells[e.key][iS] })).filter(x => x.s != null)
     .sort((a, b) => a.s - b.s);
   const beat = active.filter(e => {
-    const s = cells[e.key][iS], bs = robBench(e);
-    return s != null && bs != null && s > bs;
+    const v = cells[e.key][iS], bs = robBench(e);
+    return v != null && bs != null && v > bs;
   });
   /* Counted on BOTH fills whatever the matrix is showing, because the gap between them is
    * the finding on several rules rather than a footnote to it: `ibs` clears holding in 8
-   * of 20 environments at the published fill and 5 of 20 once it can no longer transact at
-   * a close it peeked at. Printing one number would mean printing it without the other. */
+   * of 20 environments at the published fill and 5 of 20 once it can no longer transact
+   * at a close it peeked at. Printing one would mean printing it without the other. */
   const countOn = src => {
     const c = (src || {})[rule] || {};
     const envs = R.envs.filter(e => c[e.key] && c[e.key][iT] !== 0);
     const isOpen = src === (R.open || null);
     const n = envs.filter(e => {
-      const s = c[e.key][iS];
+      const v = c[e.key][iS];
       const bs = isOpen && e.bench_open && e.bench_open.sharpe != null
         ? e.bench_open.sharpe : (e.bench || {}).sharpe;
-      return s != null && bs != null && s > bs;
+      return v != null && bs != null && v > bs;
     }).length;
     return { n, total: envs.length };
   };
@@ -3419,61 +3588,8 @@ function robustView(ruleSlug) {
     : null;
   const worst = sharpes[0], best = sharpes[sharpes.length - 1];
 
-  const drill = (() => {
-    if (!robCell) return "";
-    const e = R.envs.find(x => x.key === robCell);
-    const a = e && cells[e.key];
-    if (!a) return "";
-    const g = f => a[R.fields.indexOf(f)];
-    const bench = e.bench || {};
-    const shRows = D.backtest[e.cls] && sheetOf(e.cls, e.tf);
-    const shipped = shRows && shRows.rows.some(x => x.rule === rule);
-    return `
-  <section class="sec">
-    <div class="sec-head"><h2>${esc(stemName(rule))} · ${esc(envName(e))}</h2>
-      <span class="sec-note">one cell of the matrix, in full — ${
-        fmtNum(e.years, 1)}y, ${e.n_names} names as one book</span></div>
-    <div class="strip">
-      <div class="stat"><span class="k">Sharpe</span>
-        <span class="v ${g("sharpe") != null && bench.sharpe != null
-          ? (g("sharpe") > bench.sharpe ? "gain" : "loss") : ""}">${fmtNum(g("sharpe"), 2)}</span>
-        <span class="s">held passively: ${fmtNum(bench.sharpe, 2)}</span></div>
-      <div class="stat"><span class="k">book vs B&amp;H</span>
-        <span class="v ${sign(g("cm_excess_cagr"))}">${g("cm_excess_cagr") == null
-          ? "—" : fmtPct(g("cm_excess_cagr") * 100, 2)}</span>
-        <span class="s">per year, at equal risk</span></div>
-      <div class="stat"><span class="k">ROI/yr</span>
-        <span class="v">${g("cagr") == null ? "—" : fmtCagr(g("cagr") * 100)}</span>
-        <span class="s">holding made ${bench.cagr == null ? "—"
-          : fmtCagr(bench.cagr * 100)}</span></div>
-      <div class="stat"><span class="k">Max drawdown</span>
-        <span class="v ${g("dd") == null ? "" : "loss"}">${g("dd") == null ? "—"
-          : fmtNum(g("dd"), 1) + "%"}</span>
-        <span class="s">holding fell ${bench.dd == null ? "—"
-          : fmtNum(bench.dd, 1) + "%"}</span></div>
-      <div class="stat"><span class="k">Long %</span>
-        <span class="v">${pctOr(g("exposure"))}</span>
-        <span class="s">of bars — read this first</span></div>
-      <div class="stat"><span class="k">Trades</span>
-        <span class="v">${g("n_trades") == null ? "—" : g("n_trades")}</span>
-        <span class="s">profit factor ${fmtNum(g("profit_factor"), 2)} · win ${
-          g("win_rate") == null ? "—" : fmtNum(g("win_rate") * 100, 1) + "%"}</span></div>
-    </div>
-    ${shipped
-      ? `<p class="sec-note"><a class="btn" href="#/backtest/${e.cls}/${e.tf}/${
-          slug(rule)}">Open the full detail page &rarr;</a></p>`
-      : `<p class="sec-note">This rule is not among the ${shRows
-            ? shRows.rows.length : "top"} rows this sheet publishes, so it has no detail
-          page; the figures above are its full record for this cell.</p>`}
-  </section>`;
-  })();
-
-  app.innerHTML = heroNav + `
+  host.innerHTML = `
   <div class="filters">
-    <span class="f-group"><span class="f-label">Strategy</span>
-      <select class="fsel" id="rob-rule">${names.map(n =>
-        `<option value="${esc(n)}"${n === rule ? " selected" : ""}>${esc(n)}</option>`)
-        .join("")}</select></span>
     <span class="f-group"><span class="f-label">Fill</span>
       <select class="fsel" id="rob-fill">
         <option value="open"${robFill === "open" ? " selected" : ""}>Open (pessimistic)</option>
@@ -3509,43 +3625,19 @@ function robustView(ruleSlug) {
         : "—"}</span></div>
   </div>
 
-  <section class="sec">
-    <div class="sec-head"><h2>${esc(rule)} &times; every environment</h2>
-      <span class="sec-note">click a cell for its record</span></div>
-    ${robMatrixTable(rule, robMetric, robCell)}
-  </section>
-  ${drill}`;
+  ${robMatrixTable(rule, robMetric, `${cls}_${tf}`)}`;
 
-  const repaint = () => { robustView(slug(rule)); bindGo(app); window.scrollTo(0, 0); };
-  document.getElementById("rob-rule").onchange = function () {
-    robCell = null;
-    location.hash = `#/backtest/robust/${slug(this.value)}`;
-  };
-  const fillSel = document.getElementById("rob-fill");
-  if (fillSel) fillSel.onchange = function () { robFill = this.value; repaint(); };
-  document.getElementById("rob-metric").onchange = function () {
-    robMetric = this.value; repaint();
-  };
-  app.querySelectorAll("[data-mx]").forEach(td => td.onclick = () => {
-    robCell = td.dataset.mx; repaint();
-  });
-}
-
-/* The detail page's robustness section: the same matrix, marked at the page's own cell,
- * with shipped cells linking straight to their detail pages. */
-function robSection(r, cls, tf) {
-  const R = D.robust;
-  if (!R || !R.rules || !R.rules[r.rule]) return "";
-  return `
-  <section class="sec">
-    <div class="sec-head"><h2>Robustness</h2>
-      <span class="sec-note">${r.rob ? `beats holding in ${r.rob.n} of ${r.rob.total}
-        environments · ` : ""}the same rule on every sheet the book stage scored</span></div>
-    ${robMatrixTable(r.rule, "sharpe", `${cls}_${tf}`)}
-    <p class="sec-note">A tinted cell opens that environment's own detail page where the
-    sheet ships the row. The <a href="#/backtest/robust/${slug(r.rule)}">full robustness
-    view</a> adds the metric selector and each cell's record.</p>
-  </section>`;
+  const again = () => paintRob(rule, cls, tf);
+  const fill = host.querySelector("#rob-fill");
+  if (fill) fill.onchange = function () { robFill = this.value; again(); };
+  const met = host.querySelector("#rob-metric");
+  if (met) met.onchange = function () { robMetric = this.value; again(); };
+  host.querySelectorAll("[data-mx-go]").forEach(td =>
+    td.onclick = () => { location.hash = td.dataset.mxGo; });
+  // The matrix is nine columns wide and arrives after `render` has already run its pass,
+  // so it needs `enhanceTables` again or it is a table that scrolls with no sign that it
+  // does — which on a trackpad reads as columns that are not there.
+  bindGo(host);
 }
 
 /* ---------- curve loading ----------
@@ -3936,7 +4028,10 @@ function bindBookSwitch() {
 function backtestDetail(cls, tf, ruleSlug) {
   const grp = D.backtest[cls], sh = sheetOf(cls, tf);
   const r = sh && sh.rows.find(x => slug(x.rule) === ruleSlug);
-  if (!r) return (location.hash = "#/backtest");
+  /* Not on this sheet's ranked board. That is now a page rather than a bounce: every
+   * tinted square in a robustness matrix links here, and most of them name a cell no
+   * leaderboard carries. See `offBoardDetail`. */
+  if (!r) return offBoardDetail(cls, tf, ruleSlug);
   /* A pair has no asset-by-asset rows — `combo_wf.py` records leg-correlation diagnostics
    * instead — so breadth is the only per-asset figure it can show, and it comes off the
    * leaderboard row rather than off a table that does not exist. */
@@ -4046,6 +4141,20 @@ function backtestDetail(cls, tf, ruleSlug) {
       * per-asset table below, and that is a different fact with its own note. */""}
   <div id="curve-host"><p class="sec-note">Loading equity curves…</p></div>
 
+  ${/* Robustness sits ABOVE the per-name table, and the order is the argument.
+      *
+      * Both sections answer "where else does this hold up" and answer it on different
+      * axes: the matrix across asset classes and timeframes, the table across the names
+      * inside this one sheet. The matrix is the wider question and by far the cheaper
+      * read — twenty-five squares against several hundred rows — so a reader who stops
+      * after one section should have stopped after that one. Below the table it sat past
+      * a scroll nobody makes twice.
+      *
+      * It is also the only section on this page that navigates anywhere. Leaving the
+      * page's exits underneath its longest table made the way out the hardest thing on
+      * it to find. */""}
+  ${robSection()}
+
   ${isPair ? `<div class="note"><b>Pairs have no asset-by-asset page.</b> The pair sweep
   records leg-correlation diagnostics rather than per-symbol rows, so the breadth figure above
   — ${pctOr(r.ir_hit_rate)} of ${grp.n} assets positive — is the whole of what this sheet knows
@@ -4093,28 +4202,30 @@ function backtestDetail(cls, tf, ruleSlug) {
       “beat” for taking much less risk to get there. Positions are unlevered — 1x, cash
       when flat — so the money columns are what the capital itself earned.</caption>
     </table></div>
-  </section>`}
-
-  ${robSection(r, cls, tf)}`;
+  </section>`}`;
 
   paintCurves(cls, tf, r);
-  app.querySelectorAll("[data-mx-go]").forEach(td =>
-    td.onclick = () => { location.hash = td.dataset.mxGo; });
+  paintRob(r.rule, cls, tf);
 
-  /* Joins this rule to the compare selection. Selecting from a different sheet starts a
-   * fresh selection — the comparison is only honest inside one sheet (see `toggleSel`). */
+  /* Puts this rule on the leaderboard's chart. Selecting from a different sheet starts a
+   * fresh selection — several books on one axis is only honest inside one sheet, which
+   * shares their bars, benchmark and cost grid (see `toggleSel`). The button goes through
+   * `toggleSel` rather than splicing the list itself, so the colour slot is assigned by
+   * the one function that owns them. */
   const ct = document.getElementById("cmp-toggle");
   const ctSync = () => {
-    const inSel = lbSel.cls === cls && lbSel.tf === tf && lbSel.rules.includes(r.rule);
-    ct.textContent = inSel ? "✓ in comparison"
-      : lbSel.rules.length ? `Add to Compare (${lbSel.rules.length})` : "Add to Compare";
+    const on = lbSel.cls === cls && lbSel.tf === tf && lbSel.rules.includes(r.rule);
+    ct.textContent = on ? "✓ on the research chart"
+      : lbSel.rules.length >= LB_SEL_MAX && lbSel.cls === cls && lbSel.tf === tf
+      ? `Chart is full (${LB_SEL_MAX})` : "Add to the research chart";
+    ct.style.borderColor = on ? selColor(r.rule) : "";
   };
   ctSync();
   ct.onclick = () => {
-    if (lbSel.cls !== cls || lbSel.tf !== tf) lbSel = { cls, tf, rules: [] };
-    const i = lbSel.rules.indexOf(r.rule);
-    if (i >= 0) lbSel.rules.splice(i, 1);
-    else if (lbSel.rules.length < LB_SEL_MAX) lbSel.rules.push(r.rule);
+    // `toggleSel` reads `bf`, which is where the leaderboard's own filters live, so the
+    // sheet this page belongs to has to be the selected one before it is called.
+    bf.cls = cls; bf.tf = tf;
+    toggleSel(r.rule);
     ctSync();
   };
 }
@@ -4146,7 +4257,15 @@ async function paintCurves(cls, tf, r) {
   const idxs = curveIndexes(c);
   const drawn = idxs.filter(i => i && i.curve && i.curve.length).slice(0, CHART_INDEXES);
   const names = drawn.map(i => esc(i.symbol || "index"));
-  const eq = equitySection(c, r, drawn, names);
+  /* `offBoard` marks the synthetic row `offBoardDetail` builds. Without a tail of its
+   * own it would inherit the PAIR wording — an apology about leg diagnostics — because
+   * both cases arrive here with an empty `per_asset`, and that sentence is untrue of a
+   * single rule the standard simply never scored on this sheet. Two absences, two
+   * reasons, two sentences. */
+  const eq = equitySection(c, r, drawn, names, !r.offBoard ? undefined
+    : ` This rule is not on this sheet's ranked board, so there is no per-name table
+      below: the book stage records the account and its curve, and the per-symbol
+      backtests come from a stage that was never run here.`);
 
   host.innerHTML = `
   <section class="sec">
@@ -4167,6 +4286,116 @@ async function paintCurves(cls, tf, r) {
   </section>
 
   ${metricsSection(c.metrics, eq.all, r)}`;
+}
+
+/* ----------------------------------------------------- a cell no leaderboard carries
+ *
+ * Every tinted square in a robustness matrix is a real measurement — the book stage
+ * scored ~400 rules on that sheet — but a leaderboard ships thirty of them, and three of
+ * the five timeframes have no ranking sheet at all, because `riskmatch_wf.py` has only
+ * ever been run at 1d and 4h. So most of the matrix used to point at nothing: the cells
+ * were drawn, tinted and titled, and a click on them did precisely nothing, which reads
+ * as a broken page rather than as an absence.
+ *
+ * This is what those cells open. It is deliberately smaller than the ranked page and it
+ * says so at the top. What it has is the book's own record for that cell, the same matrix
+ * again so a reader can keep walking, and the equity curve where the sheet published one.
+ * What it cannot have is the six-criteria verdict, the fold statistics or the per-asset
+ * table: none of those is computed for a rule the standard never scored, and rendering an
+ * empty one would imply the measurement exists somewhere.
+ *
+ * It reads the SAME `robFill` the matrix does, so a reader who switched to the published
+ * fill and then clicked through is looking at the fill they chose rather than silently
+ * back on the default.
+ */
+function offBoardDetail(cls, tf, ruleSlug) {
+  const grp = D.backtest[cls];
+  const label = (grp && grp.label) || CLASS_LABEL[cls] || cls;
+  app.innerHTML = `
+  <a class="back" href="#/backtest">← research</a>
+  <div class="hero"><div class="d-head"><span class="d-name">${esc(ruleSlug)}</span>
+    <span class="chip mut">${esc(tf)}</span><span class="chip mut">${esc(label)}</span></div>
+    <p class="lede">Loading the book record…</p></div>`;
+  const want = location.hash;
+  ensureRobust().then(() => {
+    if (location.hash !== want) return;              // navigated while it was in flight
+    const R = ROB || {};
+    const key = `${cls}_${tf}`;
+    const rule = [...Object.keys(R.rules || {}), ...Object.keys(R.open || {})]
+      .find(n => slug(n) === ruleSlug);
+    const env = rule && (R.envs || []).find(e => e.key === key);
+    const rec = rule && (robSource()[rule] || {})[key];
+    if (!rule || !env || !rec) {
+      app.innerHTML = `
+      <a class="back" href="#/backtest">← research</a>
+      <div class="hero"><h1>${esc(ruleSlug)}</h1>
+        <p class="lede">Nothing on this sheet answers to that name. It is not among the
+        rows <b>${esc(label)} at ${esc(tf)}</b> ranks, and the book stage has no record of
+        it there either${rule && !rec
+          ? ` at the ${robFill === "open" ? "pessimistic" : "published"} fill` : ""}.</p>
+      </div>
+      <div class="note">Go back to the <a href="#/backtest">leaderboard</a> and pick a row,
+        or open a strategy that is on it and use the robustness matrix at the bottom of its
+        page to reach the other environments.</div>`;
+      bindGo(app);
+      return;
+    }
+    const g = f => rec[R.fields.indexOf(f)];
+    const bench = env.bench || {};
+    const bs = robBench(env);
+    // A synthetic row, so the chart and the metrics table below can be the SAME two
+    // functions the ranked page uses. It carries no per-asset rows and no book columns
+    // on purpose — `equitySection` takes a `tail` for exactly this case, and without it
+    // the section inherits an apology about pair diagnostics that is not true here.
+    const synth = { rule, op: null, kind: "single", per_asset: [], offBoard: true };
+    app.innerHTML = `
+    <a class="back" href="#/backtest">← research</a>
+    <div class="hero">
+      <div class="d-head"><span class="d-name">${esc(stemName(rule))}</span>
+        <span class="chip mut">${esc(tf)}</span>
+        <span class="chip mut">${esc(label)}</span></div>
+      <p class="lede">The book stage scored this rule here — ${fmtNum(env.years, 1)}
+        out-of-sample years, ${env.n_names} names held as one account, filled at
+        <b>${robFill === "open" ? "the next bar's open" : "the bar's own close"}</b>.
+        It is <b>not on this sheet's ranked board</b>, so there is no six-criteria verdict
+        and no asset-by-asset table: those come from stages that were never run on it.</p>
+    </div>
+
+    <div class="strip">
+      <div class="stat"><span class="k">Sharpe</span>
+        <span class="v ${g("sharpe") != null && bs != null
+          ? (g("sharpe") > bs ? "gain" : "loss") : ""}">${fmtNum(g("sharpe"), 2)}</span>
+        <span class="s">held passively: ${fmtNum(bs, 2)}</span></div>
+      <div class="stat"><span class="k">book vs B&amp;H</span>
+        <span class="v ${sign(g("cm_excess_cagr"))}">${g("cm_excess_cagr") == null
+          ? "—" : fmtPct(g("cm_excess_cagr") * 100, 2)}</span>
+        <span class="s">per year, at equal risk</span></div>
+      <div class="stat"><span class="k">ROI/yr</span>
+        <span class="v">${g("cagr") == null ? "—" : fmtCagr(g("cagr") * 100)}</span>
+        <span class="s">holding made ${bench.cagr == null ? "—"
+          : fmtCagr(bench.cagr * 100)}</span></div>
+      <div class="stat"><span class="k">Max drawdown</span>
+        <span class="v ${g("dd") == null ? "" : "loss"}">${g("dd") == null ? "—"
+          : fmtNum(g("dd"), 1) + "%"}</span>
+        <span class="s">holding fell ${bench.dd == null ? "—"
+          : fmtNum(bench.dd, 1) + "%"}</span></div>
+      <div class="stat"><span class="k">Long %</span>
+        <span class="v">${pctOr(g("exposure"))}</span>
+        <span class="s">of bars — read this first</span></div>
+      <div class="stat"><span class="k">Trades</span>
+        <span class="v">${g("n_trades") == null ? "—" : g("n_trades")}</span>
+        <span class="s">profit factor ${fmtNum(g("profit_factor"), 2)} · win ${
+          g("win_rate") == null ? "—" : fmtNum(g("win_rate") * 100, 1) + "%"}</span></div>
+    </div>
+
+    <div id="curve-host"><p class="sec-note">Loading equity curves…</p></div>
+
+    ${robSection()}`;
+
+    paintCurves(cls, tf, synth);
+    paintRob(rule, cls, tf);
+    bindGo(app);
+  });
 }
 
 /* ---------------------------------------------------------------- one converted rule
@@ -4576,11 +4805,20 @@ function render() {
   // the converted board is a state of the backtest page, not a page of its own, so it sets
   // the switch and falls through to the same master.
   else if (h === "#/backtest/conversions") { bf.board = "conv"; backtestMaster(); }
-  // The two research views. Before the generic three-segment detail pattern out of the
-  // same caution as `conv/` above — neither ever carries three segments today, but a
-  // route that depends on that staying true is a route waiting to break.
-  else if (h === "#/backtest/compare") compareView();
-  else if ((m = h.match(/^#\/backtest\/robust(?:\/(.+))?$/))) robustView(m[1]);
+  /* The two retired research views, kept as redirects rather than deleted.
+   *
+   * Both were bookmarkable by design and both were linked from the leaderboard, from
+   * detail pages and from at least one empty state, so their URLs are out in the world.
+   * A hash route that matches nothing falls through to `paperMaster`, which would answer
+   * "compare these strategies" with the paper desk — worse than either the old page or a
+   * 404. Compare goes back to the board it was built from; a robustness link carries the
+   * rule it was about, so it opens that rule on the sheet currently selected, where the
+   * section it became is waiting. */
+  else if (h === "#/backtest/compare") { location.hash = "#/backtest"; return; }
+  else if ((m = h.match(/^#\/backtest\/robust(?:\/(.+))?$/))) {
+    location.hash = m[1] ? `#/backtest/${bf.cls}/${bf.tf}/${m[1]}` : "#/backtest";
+    return;
+  }
   // Ahead of the generic three-segment detail pattern, which would otherwise match
   // `conv/<cls>/<tf>` and hand `backtestDetail` a class that does not exist.
   else if ((m = h.match(/^#\/backtest\/conv\/([^/]+)\/([^/]+)\/(.+)$/)))
@@ -4640,8 +4878,37 @@ async function loadLiveBoard() {
                           { cache: "no-store", credentials: "same-origin" });
     if (!r.ok) return;
     const board = await r.json();
-    if (board && Object.keys(board).length) D.backtest = board;
+    if (board && Object.keys(board).length) D.backtest = carryRob(D.backtest, board);
   } catch (e) { /* offline, or a build with no API in front of it */ }
+}
+
+/* Carry the `Robustness` count across the swap.
+ *
+ * `board_rank.build_sheet` ranks; it does not know about the robustness index, and it
+ * must not — it imports pandas and `stockhunt.resultsdb` and nothing else from this repo,
+ * which is what lets the HTTP layer start without a TA-Lib build. `rob` is attached one
+ * level up, by `payload.robustness_index`, from the FULL book sheets. So the served board
+ * has never carried it and the column printed an em-dash on every row of every
+ * server-backed page — visible only on `dist/dashboard.html`, which never makes this
+ * fetch, so it looked like a column that worked.
+ *
+ * The same shape as `applyLive` carrying `group` across a live refresh: a field the
+ * second source does not compute is copied from the first by identity rather than
+ * dropped. A rule that reached the board after the last build has no baked count and
+ * still prints an em-dash, which is the honest answer for it — the index has not seen it.
+ */
+function carryRob(baked, board) {
+  const was = {};
+  Object.entries(baked || {}).forEach(([cls, g]) =>
+    (g.sheets || []).forEach(sh => (sh.rows || []).forEach(r => {
+      if (r.rob) was[`${cls}|${sh.timeframe}|${r.rule}`] = r.rob;
+    })));
+  Object.entries(board).forEach(([cls, g]) =>
+    (g.sheets || []).forEach(sh => (sh.rows || []).forEach(r => {
+      const hit = was[`${cls}|${sh.timeframe}|${r.rule}`];
+      if (hit && !r.rob) r.rob = hit;
+    })));
+  return board;
 }
 
 loadLiveBoard().finally(() => {
