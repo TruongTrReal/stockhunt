@@ -45,11 +45,28 @@ from td_loader import cache_dir, safe_symbol
 TOL = 0.05
 
 
-def _extremes(df: pd.DataFrame, day: pd.Timestamp) -> tuple[float, float] | None:
-    w = df.loc[str(day.date()):str((day + pd.Timedelta(days=1)).date())]
+def _extremes(df: pd.DataFrame, day: pd.Timestamp,
+              back_hours: int = 0) -> tuple[float, float] | None:
+    lo_edge = day - pd.Timedelta(hours=back_hours)
+    w = df.loc[str(lo_edge):str((day + pd.Timedelta(days=1)).date())]
     if not len(w):
         return None
     return float(w["Low"].min()), float(w["High"].max())
+
+
+# How far back a session may reach before the date its DAILY bar is stamped with.
+#
+# **A CME session opens the previous evening, and the daily bar carries the whole of it.**
+# CL's daily bar for 2020-03-16 has a High of 32.9267 — which is in the intraday bars
+# stamped 2020-03-15 22:00 and 23:00 UTC, the Sunday-evening open. Comparing UTC calendar
+# day to UTC calendar day therefore reports the crash-day High as 6% missing on three roots
+# at once, and it is not missing: the two UTC days together reproduce the daily High and Low
+# EXACTLY. Twelve Data's crypto and commodities are stamped on the same UTC day the daily
+# bar is, so they need none of this; equities are exchange-local and intraday, likewise.
+#
+# This is a reporting distinction, not a relaxation — a series that reconciles only once the
+# previous evening is included is counted and named separately, never folded into "ok".
+SESSION_BACK_HOURS = {"cme_futures": 6}
 
 
 def scan(intr: Path, asset_class: str, dates: list[pd.Timestamp], live: set[str]) -> dict:
@@ -60,7 +77,8 @@ def scan(intr: Path, asset_class: str, dates: list[pd.Timestamp], live: set[str]
     "short", and the whole value here is that the comparison is like for like.
     """
     daily = cache_dir(asset_class, "1d")
-    out: dict = {"short": [], "ok": 0, "stale": [], "nodata": 0}
+    back = SESSION_BACK_HOURS.get(asset_class, 0)
+    out: dict = {"short": [], "ok": 0, "stale": [], "nodata": 0, "session": []}
     if not intr.exists():
         return out
     for f in sorted(intr.glob("*.parquet")):
@@ -71,22 +89,44 @@ def scan(intr: Path, asset_class: str, dates: list[pd.Timestamp], live: set[str]
         d, n = pd.read_parquet(dpath), pd.read_parquet(f)
         in_universe = any(safe_symbol(s) == f.stem for s in live)
         worst = None
+        session_only = False
         for day in dates:
             de, ne = _extremes(d, day), _extremes(n, day)
             if de is None or ne is None:
                 continue
             # Only "did not reach". Overshoot is a different session boundary, not lost
             # data, and flagging it would bury the failure that matters in noise.
-            gap = max((ne[0] - de[0]) / de[0] if de[0] else 0.0,
-                      (de[1] - ne[1]) / de[1] if de[1] else 0.0)
-            if gap > TOL and (worst is None or gap > worst[1]):
-                worst = (day, gap, de[0], ne[0])
-        if worst is None:
-            out["ok"] += 1
-        elif in_universe:
+            #
+            # WHICH SIDE FAILED IS PART OF THE FINDING, not a detail. Taking the max of the
+            # two gaps and then printing the LOW pair regardless produced lines reading
+            # "daily low 0.3091 vs intraday 0.3091 (10% short)" — identical numbers under a
+            # 10% gap — because the gap was on the High. That is unreadable, and worse, it
+            # points an investigation at the wrong end of the bar.
+            gap_lo = (ne[0] - de[0]) / de[0] if de[0] else 0.0
+            gap_hi = (de[1] - ne[1]) / de[1] if de[1] else 0.0
+            side, gap, dv, nv = (("Low", gap_lo, de[0], ne[0]) if gap_lo >= gap_hi
+                                 else ("High", gap_hi, de[1], ne[1]))
+            if gap <= TOL:
+                continue
+            # Before calling it lost, allow the session to have opened the previous evening.
+            if back:
+                we = _extremes(n, day, back_hours=back)
+                if we is not None:
+                    g2 = max((we[0] - de[0]) / de[0] if de[0] else 0.0,
+                             (de[1] - we[1]) / de[1] if de[1] else 0.0)
+                    if g2 <= TOL:
+                        session_only = True
+                        continue
+            if worst is None or gap > worst[1]:
+                worst = (day, gap, dv, nv, side)
+        if worst is not None and in_universe:
             out["short"].append((f.stem, *worst))
-        else:
+        elif worst is not None:
             out["stale"].append(f.stem)
+        elif session_only:
+            out["session"].append(f.stem)
+        else:
+            out["ok"] += 1
     return out
 
 
@@ -126,12 +166,14 @@ def main() -> int:
         if a.against:
             was = scan(Path(a.against) / tf, a.asset_class, dates, live)
             line += f"   (was: {len(was['short'])} short / {was['ok']} ok)"
+        if now.get("session"):
+            line += f"   [{len(now['session'])} reconcile only with the prior evening]"
         if now["stale"]:
             line += f"  [+{len(now['stale'])} stale, outside universe]"
         print(line)
-        for sym, day, gap, dlo, nlo in sorted(now["short"], key=lambda x: -x[2])[:8]:
-            print(f"        {sym:10s} {str(day.date())}  daily low {dlo:.4f} vs "
-                  f"intraday {nlo:.4f}  ({gap:.0%} short)")
+        for sym, day, gap, dv, nv, side in sorted(now["short"], key=lambda x: -x[2])[:8]:
+            print(f"        {sym:10s} {str(day.date())}  daily {side} {dv:.4f} vs "
+                  f"intraday {nv:.4f}  ({gap:.0%} short)")
         bad_total += len(now["short"])
     print()
     print("OK — every live series reaches its own daily extremes" if not bad_total

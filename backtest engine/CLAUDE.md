@@ -268,6 +268,28 @@ once; adding a third caller means feeding it the same six inputs, never re-deriv
   already wrote to `data/reference/futures_rolls.csv` rather than re-deriving them from a
   second contract rank: half the requests, and one definition of the adjustment instead
   of two that can drift.
+- **A ticker's INTRADAY history can be a different company than its DAILY history, in the
+  same cache, under the same symbol.** This is the ticker-recycling family one level down,
+  and neither `--probe-listing` nor `check_data` can see it: the probe asks whether a symbol
+  has a US listing *today*, which it does, and every bar in both series is well formed.
+  Found 2026-08-26 by `verify_intraday_vs_daily.py`, 4 of 216 `us_stocks` names:
+
+      GEN   daily/intraday close ratio 16.9 (2019) -> 85.4 (2021) -> 1.004 from 2022
+      BNY   3.5 -> 9.6 across 2019-2025; intraday is a continuous ~$10 instrument
+      APC   intraday exists only from 2026-02, for a company acquired in 2019
+      GE    a CONSTANT 0.798 through 2019-2023, then exactly 1.0 -- adjustment, not identity
+
+  The first three are renamed or recycled tickers where the daily fetch resolved the
+  company and the intraday fetch resolved whoever held the symbol at the time; `GEN` snaps
+  to 1.004 exactly when NortonLifeLock took the ticker in late 2022. **A drifting ratio
+  means a different instrument; a constant one means an adjustment basis** — `GE`'s 0.798
+  is its spin-offs, adjusted into the daily series and not the intraday one.
+
+  The daily cache is the sound half in every case, which is what makes the check possible:
+  compare each symbol's daily close against the last intraday close of the same day and
+  look at the ratio BY YEAR. A single median hides it — `GEN`'s whole-overlap median is
+  ~1.0 because only its first three years are wrong.
+
 - **Run `check_data.py --fix` after any fetch, before sweeping.** A scoped
   `--class X --tf Y` merges into `quarantine.csv` rather than rewriting it; rows outside the
   scanned scope are preserved, rows inside are re-derived so a repaired symbol can leave.
