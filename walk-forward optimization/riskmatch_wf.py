@@ -705,10 +705,30 @@ _WORKER: dict = {}
 
 
 def _worker_count(n_tasks: int) -> int:
-    """Workers to use: never more than tasks, never the whole machine."""
+    """Workers to use: never more than tasks, never the whole machine.
+
+    **`STOCKHUNT_WORKERS` caps this, and on the big cells it is not optional.** The core
+    count is the wrong budget here because the binding resource is MEMORY, not CPU: each
+    worker holds its own copy of the cell's bars, so a wide default is a multiplier on the
+    largest thing in the process. `cme_futures 15m` — 16 roots at 251,082 bars each — put
+    ten workers on a box with other projects running, exhausted 32 GB, and the pool died:
+
+        parallel pool failed (MemoryError: Unable to allocate 1.88 MiB for an array
+        with shape (246012,)); falling back to serial
+
+    The fallback below is what makes that expensive rather than fatal, and expensive is
+    the worse failure of the two. It kept going on ONE core, so a cell estimated at ~17
+    hours with the pool was on track for about a week, at 52% CPU because the box was
+    paging — a job that is neither finished nor failed and looks from the outside exactly
+    like a slow one. The env var is the same name and the same meaning it has in
+    `stockhunt.parallel`, so `STOCKHUNT_WORKERS=4` means four here too.
+    """
     import os
     if n_tasks <= 1:
         return 1
+    env = os.environ.get("STOCKHUNT_WORKERS", "").strip()
+    if env.isdigit() and int(env) > 0:
+        return max(1, min(n_tasks, int(env)))
     # Leave two cores so the box stays usable and so another project's jobs are not
     # starved — this machine has been shared all session.
     return max(1, min(n_tasks, (os.cpu_count() or 2) - 2))
@@ -753,8 +773,24 @@ def _run_rules_parallel(rules: list, ctx: dict, workers: int) -> list:
             for out in ex.map(_score_rule_worker, rules, chunksize=1):
                 rows.extend(out)
     except Exception as exc:
-        print(f"  parallel pool failed ({type(exc).__name__}: {exc}); "
-              f"falling back to serial")
+        # LOUD, because the cost of this is invisible otherwise. Every stage here emits
+        # numpy RuntimeWarnings on a normal run — `cme_futures 15m` wrote 191 KB of them —
+        # so one unmarked line about losing ten-way parallelism scrolls past unread, and
+        # what is left behind is a job that is neither finished nor failed. It looks
+        # exactly like a slow one from the outside, which is the hardest state to notice.
+        # A serial retry of a cell sized for a pool is not a degraded run, it is a
+        # different order of magnitude: ~17 hours became about a week.
+        import sys
+        banner = ("!!! PARALLEL POOL DIED — CONTINUING ON ONE CORE. This will take roughly "
+                  f"{workers}x longer than planned.\n"
+                  f"!!! {type(exc).__name__}: {exc}\n"
+                  "!!! A MemoryError here means the pool was too wide for this box, not "
+                  "that the cell is too big:\n"
+                  "!!!   each worker holds its own copy of the bars. Re-run with "
+                  "STOCKHUNT_WORKERS=4 (or fewer) instead of\n"
+                  "!!!   sitting through the serial pass.")
+        print("\n" + "!" * 78 + f"\n{banner}\n" + "!" * 78 + "\n", flush=True)
+        print(banner, file=sys.stderr, flush=True)
         rows = []
         for name in rules:
             rows.extend(_score_rule(name, ctx))
