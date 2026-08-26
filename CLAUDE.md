@@ -114,6 +114,11 @@ AI generated strategies/    empty
 `test research/` and `top 20 stocks/` are **frozen** — `.claude/settings.json` denies writes
 to both. Read `LOCKED.md` before trying to change anything there.
 
+The layout above is *almost* the partition for **working from more than one session at
+once** — the real one is the file set. What two sessions may share, what has to be a
+worktree, and why pushing to `master` is a deploy rather than a private act: `PARALLEL.md`
+is that guide. Read it before starting a second session against this checkout.
+
 ## Environments
 
 | venv | used by |
