@@ -138,10 +138,21 @@ def test_fractional_exposure_is_not_rounded_to_flat(sheet):
     np.testing.assert_allclose(got, pos, rtol=1e-6)
 
 
-def test_int8_packing_is_used_only_where_it_is_lossless(sheet, tmp_path):
-    with sheet.rule("SMA_50") as rc:
+def test_narrowing_happens_only_where_it_is_lossless(sheet, tmp_path):
+    """Three dtypes, and which one is picked is decided by an exact round trip.
+
+    `put` walks int8 then float32 and keeps the first that survives
+    `astype(dt).astype("float64") == arr`, falling back to float64 when neither does.
+    Asserting float32 for ANY fractional exposure was the older, UNCONDITIONAL rule, and
+    it outlived the check that replaced it: 0.35 is not representable in float32, so the
+    array below stores as float64 and this assertion had been failing ever since. The
+    lossless case needs values float32 holds exactly, which is what `halves` is.
+    """
+    with sheet.rule("SMA_50") as rc:                       # -1/0/1 -> int8
         rc.put("AAPL", np.array([1.0, 0.0, -1.0] * 100))
-    with sheet.rule("volmanaged") as rc:
+    with sheet.rule("halves") as rc:                       # exact binary fractions
+        rc.put("AAPL", np.array([0.5, 0.25, -0.75] * 100))
+    with sheet.rule("volmanaged") as rc:                   # 0.35 -> nothing narrower fits
         rc.put("AAPL", np.array([0.35, 0.5, -0.25] * 100))
 
     def stored_dtype(rule):
@@ -150,7 +161,8 @@ def test_int8_packing_is_used_only_where_it_is_lossless(sheet, tmp_path):
             return z["p:AAPL"].dtype
 
     assert stored_dtype("SMA_50") == np.int8
-    assert stored_dtype("volmanaged") == np.float32
+    assert stored_dtype("halves") == np.float32
+    assert stored_dtype("volmanaged") == np.float64
 
 
 def test_symbols_are_isolated_within_one_rule_file(sheet):

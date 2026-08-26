@@ -58,7 +58,7 @@ data/                       every price bar, shared. stocks/ crypto/ etfs/ commo
    |                        reference/ sp500 membership, Fama-French factors, quarantine,
    |                        trials ledger, futures roll ledger
 strategies/                 talib_signals.py (231 rules, ONE dispatcher) +
-   |                        published/ ONE FILE PER STRATEGY (174), discovered by
+   |                        published/ ONE FILE PER STRATEGY (175), discovered by
    |                        registry.py. tests/test_causality.py gates them all
    |                        overlays/ wrap any base label and compose: regime
    |                        (trailing vol), heikin (`ha:`, synthetic candles for the
@@ -105,6 +105,11 @@ Stockhunt Dashboard/        the monitor. one builder, two outputs (served SPA + 
    |                        measurements and the ranking, over `results.db`. Shared by
    |                        the builder and by `paper api`, so there is one ranking
 
+ML/                         every machine-learning study. It owns no scorer: a model's
+   |                        output becomes a POSITION PANEL and is judged by
+   |                        riskmatch_wf/portfolio_wf like anything else, the way
+   |                        alpha101 already is. Its own venv (`.venv-ml`), because
+   |                        `.venv` runs the live desk
 engine-bakeoff/             reference vs nautilus vs manifoldbt; yfinance vs Twelve Data
 test research/              LOCKED - study 1, S&P-wide daily
 top 20 stocks/              LOCKED - study 2, 20 mega-caps at 1d/1h/5m
@@ -125,6 +130,7 @@ is that guide. Read it before starting a second session against this checkout.
 |---|---|
 | `.venv` | everything, including the paper desk (it has `nautilus_trader` and `websockets`) |
 | `.venv-bakeoff`, `.venv-nautilus` | `engine-bakeoff/` only, one per engine under test |
+| `.venv-ml` | `ML/` only. The solver stack (scipy, scikit-learn, lightgbm) stays out of `.venv`, which is what the live desk runs on |
 
 TA-Lib's Python wrapper needs the compiled TA-Lib C library on the system. The Twelve Data
 key comes from `TWELVEDATA_API_KEY`, falling back to `.env.local` at the repo root.

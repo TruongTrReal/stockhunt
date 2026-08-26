@@ -434,3 +434,46 @@ fills — without it, a good HA number could not be told apart from a timeframe 
 reversing rule trades hundreds of thousands of times, and the fee schedules are real
 (`retail` for equities, Binance spot taker for crypto). Cost drag on the order of the
 whole return is expected here, not a bug — it is most of what the study is measuring.
+
+## The SP100 Momentum Stockpicker (1), added 2026-08-26
+
+Source: `sp100_momentum_strategy.py`, a NautilusTrader implementation of StrategyQuant's
+*SP100 Momentum* (an AlgoCloud Stockpicker template), supplied 2026-08-26. Unlike the
+thirteen above it arrived as **working code against a real engine**, so nothing had to be
+guessed at — which makes what could not come across easier to state exactly.
+
+It is the fourth row of the contract table and the third at the same time. The script is
+a **Stockpicker**: on every bar it evaluates the whole SP100 at once, scores each
+candidate by `ROC(close,20)[1]`, and fills the free slots of a ten-position book
+best-first. Four things therefore have no expression in `fn(df, close, bpy) -> exposure`:
+
+| dropped | why |
+|---|---|
+| the position score, `ROC(close,20)[1]` | it only ranks candidates *against each other*, and the strategy layer sees one symbol |
+| `max_positions = 10` | the cap the ranking competes for. Without the panel there is nothing to cap |
+| risk-percent sizing | `qty = equity * risk_pct / (entry * stop_pct)`. A -1..1 exposure has no stake to set |
+| the SPY market filter | `SPY.Close[0] > SPY.SMA(200)[1]`, on **both** the entry gate and the exit. Cross-asset |
+
+**What is left is the per-symbol entry and exit, taken every time it fires**, which is a
+breadth rule where the source is a concentrated book. That difference is not a detail: the
+original holds ten names and this holds every name that qualifies, so their exposure
+profiles are not the same measurement and their drawdowns cannot be compared.
+
+**One substitution, and it is named in the file.** The market filter becomes the
+**symbol's own** close against its own `SMA200[1]`. That is an analogue in exactly the
+sense `ema_fan_align`'s `rsi > rsi_1h` is one, and it is weaker in a specific way: on a
+single name the own-200 test is much noisier than an index-level regime read, and it
+overlaps the 50/200 cross the rule already carries. `regime=0` is in the grid so the
+cost of the substitution is a column on the sheet rather than an argument.
+
+**One deviation.** The 20% stop is measured on the **close**; the source submits a
+`stop_market` order that fills intrabar. Same deviation, same reason, as `sma_fan_dip`.
+
+**One property reproduced rather than smoothed.** StrategyQuant indexes `[0]` as the bar
+that just closed and `[1]` as the one before it, and the script snapshots each indicator
+*before* feeding it the new bar. So `SMA50`, `SMA200` and `ATR14` are read one bar late
+while `Close` and `RSI(2)` are read on the current bar. That is stricter than this repo's
+default and it is kept.
+
+36 cells (4 grid cells x 9 scopes) were registered in `data/reference/trials.csv` before
+anything was scored, and it passes `strategies/tests/test_causality.py` by truncation.

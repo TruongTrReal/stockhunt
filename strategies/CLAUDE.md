@@ -12,7 +12,7 @@ dependency on the rest of the repo — numpy, pandas and talib only.
 talib_signals.py     the 231-variant TA-Lib rule table. name -> position series
                      ONE dispatcher, not 231 files: the "rules" are TA-Lib's own
                      function list enumerated at runtime, so there is no per-rule code
-published/           ONE FILE PER PUBLISHED STRATEGY (174). Each declares position(),
+published/           ONE FILE PER PUBLISHED STRATEGY (175). Each declares position(),
                      GRID, RULE, SOURCE, FAMILY, ANCHOR, CLASSES, NOTE
                      130 of them are the `mc_*` batch: price FORECASTERS scraped
                      from a public browser, one-cell grids, sharing _forecast.py
