@@ -37,11 +37,21 @@ portfolio_wf.py  stage 1h: the BOOK, not the median of its parts. PIT membership
    |             strategy to buy-and-hold before quoting anything this stage emits
    |             --rules-file takes a label per line, because every pair label is
    |             'LEG_A~LEG_B|operator' and 872 of them would need shell quoting
+run_promote_conversions.sh / run_promote_riskmatch.sh / run_promote_books.sh
+   |             the 2026-08-26 promotion: strat_wf, then the verdict ONE CLASS AT A TIME
+   |             into results/edge_cells/ (--tf is not in riskmatch_wf's scoping rule, so
+   |             every class at once would delete 1h and 15m from edge_standard.csv), then
+   |             merge_edge_standard.py, then the 1d/4h books only. What it promoted: the
+   |             13 conversions, the 130 megacellar forecasters and sp100_momentum, none
+   |             of which had an edge_standard row at 1d or 4h -- and board_rank DROPS a
+   |             row that has none
 make_book_rules.py   writes book_rules/<class>_<tf>.txt -- every rule on
    |             edge_standard.csv, baseline first -- plus book_rules/starts.csv, the
    |             --start each sheet needs. Regenerate both together
-run_convert_curves.sh  the converted strategies' sheets, re-scored WITH --curves so
-   |             the dashboard's second board has a detail page. Reads its rule list back
+run_convert_curves.sh  the converted strategies' sheets, re-scored WITH --curves.
+   |             It fed the dashboard's SECOND BOARD, retired 2026-08-26 when those rules
+   |             were promoted onto the house one; the sheets it wrote are still on disk.
+   |             Reads its rule list back
    |             OUT of the sheets that already exist rather than restating it, and
    |             collapses a cell that was scored by several runs into one -- `--curves`
    |             writes one JSON per sheet, so three runs over `us_stocks 1d` would each
@@ -183,6 +193,12 @@ under 1 bp/day on their overlap, which is what stops the second source becoming 
 run — 1m/2m/3m bars, Pine bar-count windows, most of them on Heikin-Ashi candles — as
 opposed to the 1d real-candle sheets the August batch produced. 384 cells, all
 pre-registered in `data/reference/trials.csv` before anything was scored.
+
+**Nothing renders these sheets any more.** They were the converted-strategy board's
+1m/2m/3m tabs, and that board was retired on 2026-08-26 when the conversions were promoted
+into the ordinary catalogue — which runs 1d/4h/1h/15m and has no minute axis and no facet
+chips. The CSVs and their curves are untouched in `results/`; showing them again is a
+dashboard job, not a re-run.
 
 Two overlays carry it, both defined in `strategies/overlays/` and documented there:
 `chart:` forces Pine's bar-count window semantics, `ha:` computes the signal on synthetic
@@ -436,7 +452,7 @@ on the same cell write the same path. `run_book.sh` owns `book_curves_us_stocks_
 the whole leaderboard's ~409 rules — and a scoped `--curves` run would have replaced it
 with its own handful, taking every house detail page's chart with it. The failure is
 silent: the file exists, it is valid JSON, and the rules it lost simply stop having
-charts. The converted-strategy board writes `convert_curves_*` for this reason.
+charts. `run_convert_curves.sh` writes `convert_curves_*` for this reason.
 
 ## The standard and the book measure different things, on different spans
 
