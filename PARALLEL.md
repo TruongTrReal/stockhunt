@@ -55,14 +55,17 @@ changes from "one folder each" to "one file set each" — see §7.
 The cost is one index and one working tree for all of them — see §4, which is the part
 that bites.
 
-### Lane B — a worktree. For the shared core only.
+### Lane B — a worktree. For the shared core, and for anything not ready to ship.
 
-Use it when the work touches shared state or might be thrown away:
+Use it when the work touches shared state, might be thrown away, or is not finished:
 
 * editing `stockhunt/` or `strategies/**` (invalidates everyone's cache)
 * a refactor you may abandon
 * anything gated on `tools/golden.py capture` -> change -> `verify`, which is meaningless
   if another session is writing sheets underneath it
+* **anything on the web or API lane that is not ready to deploy.** A scoped commit on
+  `master` still ships on the next session's push — see §4. Touching only your own files
+  is not enough to make it safe
 
 A worktree is **not free here**: after junctioning `data/` and `.cache/` it is still
 ~3 GB of checkout, because the result CSVs are tracked research record, not build output.
@@ -144,9 +147,18 @@ fails to start.
 
 So:
 
-* **committing is private.** Any number of sessions, any order, no interference.
-* **pushing to master is outward-facing and shared.** Half-finished web or API work on
-  master is live within five minutes.
+* **a commit does not touch anyone else's files.** Any number of sessions, any order, no
+  interference in the working tree.
+* **but a commit on `master` is not private**, and this is the part that catches people.
+  You do not control *when* it ships. The next session to push takes everything under
+  their commit along, yours included — they need not know it is there, and `git push`
+  gives them no sign of it.
+* **pushing to master is a deploy.** Half-finished web or API work on master is live
+  within five minutes, whoever pushed it.
+
+Observed, not theorised: this document's own commit went public because an unrelated
+session pushed a futures fix on top of it four minutes later. It was documentation, so it
+cost nothing. The same sequence with a half-finished API change deploys it.
 
 The desk is deliberately excluded: `autodeploy.sh` never restarts `stockhunt-desk`,
 because that flattens every book and re-warms 1,500 bars. It writes a
@@ -155,8 +167,20 @@ because that flattens every book and re-warms 1,500 bars. It writes a
 `walk-forward optimization/results/`, pushing it does **not** put it live — someone must
 restart the desk on purpose.
 
-Practical rule: **each session commits whenever it likes; one session pushes, and pushes
-a coherent state.** If two lanes must land together, push once.
+Practical rule, and it is narrower than it looks: **committing to `master` is a decision
+to ship, on somebody else's schedule.** Only commit there what you would be content to
+see deployed without being asked again.
+
+Work that is not ready to deploy does not belong in a scoped commit on `master`. Put it
+on a branch or in a worktree (§3) and merge when it is done — that is what Lane B is
+actually for, and "I am only touching my own files" is not a reason to skip it.
+
+This applies with full force to the web and API lanes, which autodeploy carries. It is
+softer for `paper trading engine/`, `stockhunt/`, `strategies/`, `backtest engine/` and
+`walk-forward optimization/results/`, which reach `master` without going live — but a
+human restarting the desk later will ship whatever is sitting there by then.
+
+If two lanes must land together, push once.
 
 Merge order for Lane B branches: **core first**, features after. A `stockhunt/stats.py`
 change buried under a feature diff is a conflict nobody enjoys.
