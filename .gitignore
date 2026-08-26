@@ -34,7 +34,18 @@ scratchpad/
 .DS_Store
 
 # --- price data: regenerable, ~1.7 GB ---
-/data/
+# `/data/*` and not `/data/`, because git CANNOT re-include a path whose parent
+# directory is excluded -- with `/data/` the negation below is silently inert.
+/data/*
+# ...except the reference tier, which is NOT regenerable and is 13 MB of text.
+# `trials.csv` is the pre-registration ledger every `dsr` on the board deflates
+# against; it is this project's only evidence that a claim was made BEFORE the result
+# was seen, and that is the one thing which cannot be reconstructed after the fact.
+# `quarantine.csv`, `us_listing_probe.csv`, `spike_repairs.csv`, `futures_rolls.csv`
+# and the membership tables are the same shape of thing: decisions and findings about
+# the bars, not the bars. The bars themselves stay ignored -- they come back from the
+# vendor, these do not.
+!/data/reference/
 test research/data/
 top 20 stocks/data/
 backtest master/data/

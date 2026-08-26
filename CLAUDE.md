@@ -56,7 +56,10 @@ data/                       every price bar, shared. stocks/ crypto/ etfs/ commo
    |                        no such interval, so they are derived, never fetched
    |                        rates/ DTB3 T-bill path
    |                        reference/ sp500 membership, Fama-French factors, quarantine,
-   |                        trials ledger, futures roll ledger
+   |                        trials ledger, futures roll ledger. THE ONE PART OF data/
+   |                        THAT IS IN GIT: the bars come back from the vendor, these
+   |                        do not. `trials.csv` in particular is the only evidence a
+   |                        claim was pre-registered, which no re-run reconstructs
 strategies/                 talib_signals.py (231 rules, ONE dispatcher) +
    |                        published/ ONE FILE PER STRATEGY (175), discovered by
    |                        registry.py. tests/test_causality.py gates them all

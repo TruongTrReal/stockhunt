@@ -1,0 +1,888 @@
+symbol,start,end,reason_in,start_known
+A,1976-07-01,,pre-changelog,False
+AA,1976-07-01,2016-11-01,pre-changelog,False
+AAL,2015-03-23,2024-09-23,Allergan acquired by Actavis (and changed name to Allergan).[181],True
+AAP,2015-07-08,2023-08-25,Family Dollar acquired.[174],True
+AAPL,1976-07-01,,pre-changelog,False
+ABBV,2013-01-02,,ABBV spun off from Abbott Labs (ABT)[215],True
+ABK,2000-12-05,2008-06-10,Market Cap changes.,True
+ABMD,2018-05-31,2022-12-22,Wyndham Worldwide spun off Wyndham Hotels & Resorts (NYSE:WH).[116],True
+ABNB,2023-09-18,,Market capitalization change.[40],True
+ABS,1976-07-01,2006-06-02,pre-changelog,False
+ABT,1976-07-01,,pre-changelog,False
+ACAS,1976-07-01,2009-03-03,pre-changelog,False
+ACE,1976-07-01,2016-01-19,pre-changelog,False
+ACGL,2022-11-01,,Elon Musk acquired Twitter.[50],True
+ACN,2011-07-05,,Marshall & Iisley is being bought by Bank of Montreal[239],True
+ADBE,1976-07-01,,pre-changelog,False
+ADCT,1976-07-01,2007-07-02,pre-changelog,False
+ADI,1976-07-01,,pre-changelog,False
+ADM,1976-07-01,,pre-changelog,False
+ADP,1976-07-01,,pre-changelog,False
+ADS,2013-12-23,2020-06-22,Market capitalization changes.[200],True
+ADSK,1976-07-01,,pre-changelog,False
+ADT,2012-10-01,2016-05-03,Tyco spun off ADT,True
+AEE,1976-07-01,,pre-changelog,False
+AEP,1976-07-01,,pre-changelog,False
+AES,1976-07-01,,pre-changelog,False
+AET,1976-07-01,2018-12-03,pre-changelog,False
+AFL,1976-07-01,,pre-changelog,False
+AGN,2015-03-23,2020-05-12,re-entry,True
+AGN,1976-07-01,2015-03-23,pre-changelog,False
+AIG,1976-07-01,,pre-changelog,False
+AIV,1976-07-01,2020-12-21,pre-changelog,False
+AIZ,1976-07-01,,pre-changelog,False
+AJG,2016-05-31,,CCE merging with European bottlers[148],True
+AKAM,1976-07-01,,pre-changelog,False
+AKS,2008-07-01,2011-12-16,Ak Steel replaced Countrywide Financial.[264],True
+ALB,2016-07-01,,TE acquired by EMA[144],True
+ALGN,2017-06-19,,Market capitalization changes.[128],True
+ALK,2016-05-13,2023-12-18,SNDK acquired by WDC[151],True
+ALL,1976-07-01,,pre-changelog,False
+ALLE,2013-12-02,,Allegion spun off by Ingersoll Rand.[202],True
+ALTR,1976-07-01,2015-12-29,pre-changelog,False
+ALXN,2012-05-21,2021-07-21,Acquired by Google (GOOG)[226],True
+AMAT,1976-07-01,,pre-changelog,False
+AMCR,2019-06-11,,BMS changed to AMCR post merger with Amcor;[94] subsequently renamed to Amcor[95],True
+AMD,2017-03-20,,Market capitalization change.[134],True
+AMD,1976-07-01,2013-09-20,pre-changelog,False
+AME,2013-09-20,,Market capitalization change.[205],True
+AMG,2014-07-01,2019-12-23,Actavis acquires Forest Laboratories[192],True
+AMGN,1976-07-01,,pre-changelog,False
+AMP,1976-07-01,,pre-changelog,False
+AMT,1976-07-01,,pre-changelog,False
+AMTM,2024-09-30,2024-12-23,"S&P 500 constituent Jacobs Solutions spun off its Critical Mission Solutions and Cyber Intelligence business, which merged with private Amentum to create newly publicly traded Amentum Holdings.[29]",True
+AMZN,2005-11-18,,AT&T Corp. acquired by SBC Communications[275],True
+AN,1998-12-11,2017-08-08,re-entry,True
+AN,1976-07-01,1998-12-11,pre-changelog,False
+ANDV,1976-07-01,2018-10-01,pre-changelog,False
+ANET,2018-08-28,,GGP acquired by Brookfield Property Partners.[110],True
+ANF,1976-07-01,2013-12-23,pre-changelog,False
+ANR,2011-06-01,2012-10-02,Alpha Natural Resources acquired Massey Energy.[241],True
+ANSS,2017-06-19,2025-07-18,Market capitalization changes.[128],True
+AON,1976-07-01,,pre-changelog,False
+AOS,2017-07-26,,Market capitalization change.[126],True
+APA,1976-07-01,,pre-changelog,False
+APC,1976-07-01,2019-08-09,pre-changelog,False
+APD,1976-07-01,,pre-changelog,False
+APH,1976-07-01,,pre-changelog,False
+APO,2024-12-23,,Market capitalization change.[26],True
+APOL,1976-07-01,2013-07-01,pre-changelog,False
+APP,2025-09-22,,Market capitalization change.[19],True
+APTV,1976-07-01,,pre-changelog,False
+ARE,2017-03-20,,Market capitalization change.[134],True
+ARES,2025-12-11,,Mars Inc. acquired Kellanova.[15],True
+ARG,2009-09-28,2016-05-23,Redomesticated to Ireland[256],True
+ARNC,2016-11-01,2020-04-01,AA spins off ARNC,True
+ATI,1976-07-01,2015-07-02,pre-changelog,False
+ATO,2019-02-15,,ECA acquired NFX[100],True
+ATVI,2015-08-28,2023-10-18,Pall taken over[171],True
+AV,1976-07-01,2007-10-26,pre-changelog,False
+AVB,2007-01-10,,Acquired by Motorola[273],True
+AVGO,2014-05-08,,Avago acquires LSI[194],True
+AVP,1976-07-01,2015-03-23,pre-changelog,False
+AVY,1976-07-01,,pre-changelog,False
+AWK,2016-03-04,,AWK replaces CNX[158],True
+AXON,2023-05-04,,The Federal Deposit Insurance Corporation (FDIC) placed First Republic Bank into FDIC Receivership.[43],True
+AXP,1976-07-01,,pre-changelog,False
+AYE,2000-12-05,2011-02-25,Market Cap changes.,True
+AYE,1976-07-01,1976-07-01,pre-changelog,False
+AYI,2016-05-03,2018-06-18,ADT acquired by APO[152],True
+AZO,1976-07-01,,pre-changelog,False
+BA,1976-07-01,,pre-changelog,False
+BAC,1976-07-01,,pre-changelog,False
+BALL,1976-07-01,,pre-changelog,False
+BAX,1976-07-01,,pre-changelog,False
+BBBY,1976-07-01,2017-07-26,pre-changelog,False
+BBWI,1976-07-01,2024-10-01,pre-changelog,False
+BBY,1976-07-01,,pre-changelog,False
+BC,1976-07-01,2008-06-23,pre-changelog,False
+BCR,1976-07-01,2018-01-03,pre-changelog,False
+BDX,1976-07-01,,pre-changelog,False
+BEAM,1976-07-01,2014-05-01,pre-changelog,False
+BEN,1976-07-01,,pre-changelog,False
+BF.B,1976-07-01,,pre-changelog,False
+BG,2023-03-15,,The FDIC placed Signature Bank into FDIC Receivership.[45],True
+BHF,2017-08-08,2019-04-02,"BHF replaced AN,[125] MET spun off BHF[125]",True
+BHI,1976-07-01,2017-07-07,pre-changelog,False
+BIG,1976-07-01,2013-02-15,pre-changelog,False
+BIIB,1976-07-01,,pre-changelog,False
+BIO,2020-06-22,2024-09-23,Market capitalization change.[76],True
+BJS,1976-07-01,2010-04-29,pre-changelog,False
+BKNG,1976-07-01,,pre-changelog,False
+BKR,2017-07-07,,Baker Hughes merged with GE Oil & Gas to form new company.[127],True
+BLDR,2023-12-18,,Market capitalization change.[37],True
+BLK,2011-04-01,,Acquired by Sanofi Aventis (SNY)[243],True
+BMC,1976-07-01,2013-09-10,pre-changelog,False
+BMS,2019-06-07,2019-06-11,Pending merger of Bemis and Amcor; Bemis treated as the surviving entity.[95],True
+BMS,1976-07-01,2014-12-05,pre-changelog,False
+BMY,1976-07-01,,pre-changelog,False
+BNY,1976-07-01,,pre-changelog,False
+BR,2018-06-18,,Market capitalization change.[113],True
+BRCM,1976-07-01,2016-02-01,pre-changelog,False
+BRK.B,1976-07-01,,pre-changelog,False
+BRO,2021-09-20,,Market capitalization change.[63],True
+BS,1976-07-01,2000-12-05,pre-changelog,False
+BSX,1976-07-01,,pre-changelog,False
+BTU,1976-07-01,2014-09-20,pre-changelog,False
+BWA,2011-12-16,2025-03-24,Market capitalization changes[233],True
+BX,2023-09-18,,Market capitalization change.[40],True
+BXLT,2015-07-01,2016-06-03,Baxalta spun off by Baxter.[178],True
+BXP,1976-07-01,,pre-changelog,False
+C,1976-07-01,,pre-changelog,False
+CA,1976-07-01,2018-11-06,pre-changelog,False
+CAG,1976-07-01,2026-06-30,pre-changelog,False
+CAH,1976-07-01,,pre-changelog,False
+CAM,1976-07-01,2016-04-04,pre-changelog,False
+CARR,2020-04-03,,United Technologies spun off Otis and Carrier and acquired Raytheon Company.[79],True
+CASY,2026-04-09,,Blackstone Inc. and TPG Inc. acquired Hologic.[11],True
+CAT,1976-07-01,,pre-changelog,False
+CB,2010-07-14,,Acquired by Merck KGaA (MKGAY)[251],True
+CBE,2011-11-18,2012-12-03,Janus Capital Group's market capitalization is less than $1.2 billion  and is no longer representative of the large cap market space.[235],True
+CBE,1976-07-01,2009-09-28,pre-changelog,False
+CBOE,2017-03-01,,CBOE acquires BATS[137],True
+CBRE,1976-07-01,,pre-changelog,False
+CCE,1976-07-01,2016-05-31,pre-changelog,False
+CCI,2012-03-13,,Acquired by Exelon Corp. (EXC)[230],True
+CCK,1976-07-01,2000-12-05,pre-changelog,False
+CCL,1998-12-11,,Berkshire Hathaway purchased General Re.[281],True
+CDAY,2021-09-20,2024-02-01,Market capitalization change.[63],True
+CDNS,2017-09-18,,Sycamore Partners acquired Staples.[123],True
+CDW,2019-09-23,,S&P 500 constituent Global Payments (NYSE: GPN) acquired TSS.[90],True
+CE,2018-12-24,2025-03-24,S&P 500 constituent Cigna (NYSE: CI) acquired ESRX[103],True
+CEG,2022-02-02,,S&P 500 and 100 constituent Exelon Corp. spun off Constellation Energy.[59],True
+CEG,1976-07-01,2012-03-13,pre-changelog,False
+CELG,1976-07-01,2019-11-21,pre-changelog,False
+CEPH,1976-07-01,2011-10-14,pre-changelog,False
+CERN,2010-04-29,2022-06-08,Acquired by Baker Hughes[254],True
+CF,1976-07-01,,pre-changelog,False
+CFC,1976-07-01,2008-07-01,pre-changelog,False
+CFG,2016-02-01,,CFG replaces PCP[160],True
+CFN,1976-07-01,2015-03-18,pre-changelog,False
+CHD,2015-12-29,,ALTR taken over by INTC[164],True
+CHK,1976-07-01,2018-03-19,pre-changelog,False
+CHRW,1976-07-01,,pre-changelog,False
+CHTR,2016-09-08,,Dell acquires EMC[142],True
+CI,1976-07-01,,pre-changelog,False
+CIEN,2026-02-09,,Thoma Bravo L.P. acquired Dayforce.[13],True
+CIEN,1976-07-01,2009-12-18,pre-changelog,False
+CINF,1976-07-01,,pre-changelog,False
+CL,1976-07-01,,pre-changelog,False
+CLF,2009-12-18,2014-04-02,Market capitalization change.[citation needed],True
+CLX,1976-07-01,,pre-changelog,False
+CMA,1976-07-01,2024-06-24,pre-changelog,False
+CMCSA,1976-07-01,,pre-changelog,False
+CMCSK,2015-09-18,2015-12-15,Share class methodology change[1],True
+CME,1976-07-01,,pre-changelog,False
+CMG,2011-04-27,,Acquired by private equity firms.[242],True
+CMI,1976-07-01,,pre-changelog,False
+CMS,1976-07-01,,pre-changelog,False
+CNC,2016-03-30,,Centene acquired Health Net.[156],True
+CNP,1976-07-01,,pre-changelog,False
+CNX,1976-07-01,2016-03-04,pre-changelog,False
+COF,1976-07-01,,pre-changelog,False
+COHR,2026-03-23,,Market capitalization change.[12],True
+COIN,2025-05-19,,S&P 500 constituent Capital One Financial Corp. acquired Discover Financial Services.[24],True
+COL,1976-07-01,2018-12-03,pre-changelog,False
+COO,2016-09-22,,MAR acquires HOT[141],True
+COP,1976-07-01,,pre-changelog,False
+COR,1976-07-01,,pre-changelog,False
+COST,1976-07-01,,pre-changelog,False
+COTY,2016-09-30,2020-09-21,COTY replaces DO[140],True
+COV,2011-02-28,2015-01-27,Acquired by Intel[245],True
+COV,1976-07-01,2009-06-05,pre-changelog,False
+CPAY,2024-03-25,,FLEETCOR Technologies changed its name to Corpay and ticker symbol from FLT to CPAY.[34],True
+CPB,1976-07-01,2026-06-22,pre-changelog,False
+CPGX,2015-07-02,2016-07-05,Spin off of Columbia Pipeline.[176],True
+CPRI,1976-07-01,2020-05-12,pre-changelog,False
+CPRT,2018-07-02,,DPS acquired by Keurig Green Mountain.[111],True
+CPT,2022-04-04,,S&P 500 constituent M&T Bank Corp. acquired People's United Financial.[56],True
+CPWR,1998-12-11,2011-12-31,AIG purchased SunAmerica.[281],True
+CRH,2025-12-22,,Market capitalization change.[14],True
+CRL,2021-05-14,,S&P 500 constituent Teledyne Technologies acquired FLIR Systems.[66],True
+CRM,2008-09-12,,Capitalization rebalance.[263],True
+CRWD,2024-06-24,,Market capitalization change.[31],True
+CSC,1976-07-01,2015-12-01,pre-changelog,False
+CSCO,1976-07-01,,pre-changelog,False
+CSGP,2022-09-19,,Market capitalization change.[53],True
+CSRA,2015-12-01,2018-04-04,CSC spins off CSRA[166],True
+CSX,1976-07-01,,pre-changelog,False
+CTAS,1976-07-01,,pre-changelog,False
+CTLT,2020-09-21,2024-12-23,Market capitalization change.[75],True
+CTRA,1976-07-01,2026-05-07,pre-changelog,False
+CTSH,1976-07-01,,pre-changelog,False
+CTVA,2019-06-03,,CTVA spun off from DWDP (which then changed symbol to DD)[96],True
+CTX,1976-07-01,2009-08-19,pre-changelog,False
+CTXS,1976-07-01,2022-10-03,pre-changelog,False
+CVC,2010-12-17,2016-06-22,Acquired by Pfizer.[248],True
+CVG,2000-06-12,2009-12-18,Tribune Co. acquired Times Mirror.[278],True
+CVH,1976-07-01,2013-05-08,pre-changelog,False
+CVNA,2025-12-22,,Market capitalization change.[14],True
+CVS,1976-07-01,,pre-changelog,False
+CVX,1976-07-01,,pre-changelog,False
+CXO,2016-02-22,2021-01-21,PCL taken over by WY[159],True
+CZR,2021-03-22,2025-09-22,Market capitalization change.[68],True
+D,1976-07-01,,pre-changelog,False
+DAL,2013-09-10,,BMC taken private by consortium[206],True
+DASH,2025-03-24,,Market capitalization change.[25],True
+DAY,2024-02-01,2026-02-09,Ceridian changed its ticker symbol from CDAY to DAY.[36],True
+DD,2019-06-03,,DWDP changed to DD after spinning off Corteva.[96],True
+DD,1976-07-01,2017-09-01,pre-changelog,False
+DDOG,2025-07-09,,S&P 500 constituent Hewlett Packard Enterprise Co. acquired Juniper Networks.[23],True
+DE,1976-07-01,,pre-changelog,False
+DECK,2024-03-18,,Market capitalization change.[35],True
+DELL,2024-09-23,,Market capitalization change.[30],True
+DELL,1976-07-01,2013-10-29,pre-changelog,False
+DF,1976-07-01,2013-05-23,pre-changelog,False
+DFS,2007-07-02,2025-05-19,Discover Financial Services debuts on New York Stock Exchange.[271],True
+DG,2012-12-03,,Acquired by Eaton Corp. (ETN)[218],True
+DGX,1976-07-01,,pre-changelog,False
+DHI,1976-07-01,,pre-changelog,False
+DHR,1976-07-01,,pre-changelog,False
+DIS,1976-07-01,,"Major restructuring of S&P 500 to have fewer industrials and utilities, and more financial companies to add ""new strength and breadth""[284]",True
+DISCA,1976-07-01,2022-04-11,pre-changelog,False
+DISCK,2014-08-06,2022-04-11,Class C share distribution[190],True
+DISH,2017-03-13,2023-06-20,S&P 500 constituent Analog Devices (NASD:ADI) acquired Linear Technology.[136],True
+DJ,1976-07-01,2007-12-13,pre-changelog,False
+DLR,2016-05-18,,TWC acquired by CHTR[150],True
+DLTR,2011-12-16,,Market capitalization changes,True
+DNB,1976-07-01,2017-04-05,pre-changelog,False
+DNR,1976-07-01,2015-03-23,pre-changelog,False
+DO,1976-07-01,2016-09-30,pre-changelog,False
+DOC,1976-07-01,,pre-changelog,False
+DOV,1976-07-01,,pre-changelog,False
+DOW,2019-04-02,,DOW spun off from DWDP[97],True
+DOW,1976-07-01,2017-09-01,pre-changelog,False
+DPS,1976-07-01,2018-07-02,pre-changelog,False
+DPZ,2020-05-12,,Market capitalization change.[78],True
+DRE,2017-07-26,2022-10-03,Market capitalization change.[126],True
+DRI,1976-07-01,,pre-changelog,False
+DTE,1976-07-01,,pre-changelog,False
+DTV,1976-07-01,2015-07-29,pre-changelog,False
+DUK,1976-07-01,,pre-changelog,False
+DV,1976-07-01,2012-10-01,pre-changelog,False
+DVA,1976-07-01,,pre-changelog,False
+DVN,1976-07-01,,pre-changelog,False
+DWDP,2017-09-01,2019-06-03,The Dow Chemical Company renamed to DowDuPont Inc. and ticker changed from DOW to DWDP after acquiring DuPont.[124],True
+DXC,2017-04-04,2023-10-03,"HPE spins off Everett, merged with CSC to form DXC[132][133]",True
+DXCM,2020-05-12,,Allergan acquired by AbbVie.[78],True
+DYN,1976-07-01,2009-12-18,pre-changelog,False
+EA,1976-07-01,2026-08-05,pre-changelog,False
+EBAY,1976-07-01,,pre-changelog,False
+ECHO,1976-07-01,,pre-changelog,False
+ECL,1976-07-01,,pre-changelog,False
+ED,1976-07-01,,pre-changelog,False
+EFX,1976-07-01,,pre-changelog,False
+EG,2023-07-10,,Everest Re Group renamed to Everest Group and changed its ticker symbol from RE to EG,True
+EIX,1976-07-01,,pre-changelog,False
+EK,1976-07-01,2010-12-17,pre-changelog,False
+EL,1976-07-01,,pre-changelog,False
+ELV,1976-07-01,,pre-changelog,False
+EMC,1976-07-01,2016-09-08,pre-changelog,False
+EME,2025-09-22,,Market capitalization change.[19],True
+EMN,1976-07-01,2025-11-04,pre-changelog,False
+EMR,1976-07-01,,pre-changelog,False
+ENDP,2015-01-27,2017-03-02,Covidien acquired by Medtronic[185],True
+ENPH,2021-01-07,2025-09-22,LVMH Moet Hennessy-Louis Vuitton SE acquired Tiffany & Co.[71],True
+EOG,1976-07-01,,pre-changelog,False
+EP,1976-07-01,2012-05-17,pre-changelog,False
+EPAM,2021-12-14,2026-06-02,Canadian Pacific acquired Kansas City Southern.[62],True
+EQIX,2015-03-23,,Market Capitalization Changes.[182],True
+EQR,1976-07-01,,pre-changelog,False
+EQT,2022-10-03,,S&P 500 constituent Prologis Inc. acquired Duke Realty.[52],True
+EQT,1976-07-01,2018-11-13,pre-changelog,False
+ERIE,2024-09-23,,Market capitalization change.[30],True
+ES,1976-07-01,,pre-changelog,False
+ESRX,2003-09-25,2018-12-24,Taken private,True
+ESS,2014-04-02,,Market capitalization changes[197],True
+ESV,2012-07-31,2016-03-30,Goodrich acquired by United Technologies (UTX).[222],True
+ETFC,1976-07-01,2020-10-07,pre-changelog,False
+ETN,1976-07-01,,pre-changelog,False
+ETR,1976-07-01,,pre-changelog,False
+ETSY,2020-09-21,2024-09-23,Market capitalization change.[75],True
+EVHC,2016-12-02,2018-10-11,Market capitalization change.[139],True
+EVRG,2018-06-05,,Westar Energy (NYSE: WR) acquired Great Plains Energy (NYSE: GXP) and changed name to Evergy.[115],True
+EW,2011-03-31,,Acquired by CenturyLink[244],True
+EXC,1976-07-01,,pre-changelog,False
+EXE,2025-03-24,,Market capitalization change.[25],True
+EXPD,1976-07-01,,pre-changelog,False
+EXPE,2007-10-02,,Solectron acquired by Flextronics.[269],True
+EXR,2016-01-19,,"EXR replaces ACE as ACE Ltd acquires Chubb and retains the CB ticker, giving up ACE[162]",True
+F,1976-07-01,,pre-changelog,False
+FANG,2018-12-03,,Market Capitalization change[104],True
+FAST,2008-09-12,,Capitalization rebalance.[263],True
+FBHS,2016-06-22,2022-12-19,CVC acquired by Altice NV[146],True
+FCX,1976-07-01,,pre-changelog,False
+FDC,1976-07-01,2007-09-26,pre-changelog,False
+FDO,1976-07-01,2015-07-08,pre-changelog,False
+FDS,2021-12-20,,Market capitalization change.[60],True
+FDX,1976-07-01,,pre-changelog,False
+FDXF,2026-06-01,,S&P 500 & 100 constituent FedEx Corp. spun off FedEx Freight Holding.[8],True
+FE,1976-07-01,,pre-changelog,False
+FERG,2026-08-05,,"An investor consortium comprising Saudi Arabia's Public Investment Fund (PIF), Silver Lake, and Affinity Partners acquired Electronic Arts.[5]",True
+FFIV,2010-12-17,,Market Cap changes.[248],True
+FHN,1976-07-01,2013-06-21,pre-changelog,False
+FICO,2023-03-20,,Market capitalization change.[44],True
+FII,1976-07-01,2013-01-02,pre-changelog,False
+FIS,1976-07-01,,pre-changelog,False
+FISV,1976-07-01,,pre-changelog,False
+FITB,1976-07-01,,pre-changelog,False
+FIX,2025-12-22,,Market capitalization change.[14],True
+FL,2016-04-04,2019-08-09,Schlumberger acquired Cameron[155],True
+FLEX,2026-06-22,,Market capitalization change.[7],True
+FLIR,1976-07-01,2021-05-14,pre-changelog,False
+FLR,1976-07-01,2019-06-03,pre-changelog,False
+FLS,1976-07-01,2021-03-22,pre-changelog,False
+FLT,2018-06-20,2024-03-25,AT&T acquired Time Warner.[112],True
+FMC,2009-08-19,2025-03-24,Centex acquired by Pulte Homes.[257],True
+FNM,1976-07-01,2008-09-12,pre-changelog,False
+FOSL,2012-04-03,2016-01-05,Acquired by Express Scripts (ESRX)[229],True
+FOX,2015-09-18,2019-03-19,Share class methodology change,True
+FOX,2019-03-19,,21st Century Fox merged with Disney and some parts spun off as Fox Corporation.[98],True
+FOXA,2019-03-19,,21st Century Fox merged with Disney and some parts spun off as Fox Corporation.[98],True
+FOXA,1976-07-01,2019-03-19,pre-changelog,False
+FRC,2019-01-02,2023-05-04,Dominion Energy acquired SCANA Corporation[102],True
+FRE,1976-07-01,2008-09-12,pre-changelog,False
+FRT,2016-02-01,,FRT replaces BRCM[161],True
+FRX,1976-07-01,2014-07-01,pre-changelog,False
+FSLR,2022-12-19,,Market capitalization change.[49],True
+FSLR,1976-07-01,2017-03-20,pre-changelog,False
+FTI,2009-06-05,2021-02-12,"Covidien moved its place of incorporation to Ireland, making it ineligible for inclusion in the index.[259]",True
+FTNT,2018-10-11,,EVHC acquired by KKR.[107],True
+FTR,1976-07-01,2017-03-20,pre-changelog,False
+FTV,2016-07-05,,CPGX acquired by TRP[144],True
+GAS,2011-12-12,2016-07-01,"Nicor acquired by AGL, which retained the GAS ticker.[234]",True
+GAS,1976-07-01,2011-12-12,pre-changelog,False
+GD,1976-07-01,,pre-changelog,False
+GDDY,2024-06-24,,Market capitalization change.[31],True
+GE,1976-07-01,,pre-changelog,False
+GEHC,2023-01-04,,S&P 500 constituent General Electric spun off GE HealthCare.[47],True
+GEN,1976-07-01,,pre-changelog,False
+GENZ,1976-07-01,2011-04-01,pre-changelog,False
+GEV,2024-04-02,,S&P 500 and 100 constituent General Electric Corp. spun off GE Vernova.[33],True
+GGP,2013-12-10,2018-08-28,MOLX acquired by Koch Industries.[201],True
+GHC,1976-07-01,2014-09-20,pre-changelog,False
+GILD,1976-07-01,,pre-changelog,False
+GIS,1976-07-01,,pre-changelog,False
+GL,1976-07-01,,pre-changelog,False
+GLK,1976-07-01,2005-07-01,pre-changelog,False
+GLW,1976-07-01,,pre-changelog,False
+GM,2013-06-06,,HNZ acquired by consortium[210],True
+GMCR,2014-03-21,2016-03-07,Market capitalization changes[198],True
+GME,2007-12-13,2016-04-25,Acquired by News Corporation,True
+GNRC,2021-03-22,,Market capitalization change.[68],True
+GNW,1976-07-01,2015-11-18,pre-changelog,False
+GOOG,1976-07-01,,pre-changelog,False
+GOOGL,2014-04-03,,Google Class C share distribution[196],True
+GPC,1976-07-01,,pre-changelog,False
+GPN,2016-04-25,,Global Payments is acquiring Heartland Payment Systems[153],True
+GPS,1976-07-01,2022-02-03,pre-changelog,False
+GR,1976-07-01,2012-07-31,pre-changelog,False
+GRA,1976-07-01,2000-12-05,pre-changelog,False
+GRMN,2012-12-11,,Market capitalization changes[217],True
+GRN,1976-07-01,1998-12-11,pre-changelog,False
+GS,1976-07-01,,pre-changelog,False
+GT,1976-07-01,2019-02-27,pre-changelog,False
+GWW,1976-07-01,,pre-changelog,False
+HAL,1976-07-01,,pre-changelog,False
+HAR,1976-07-01,2017-03-16,pre-changelog,False
+HAS,1976-07-01,,pre-changelog,False
+HBAN,1976-07-01,,pre-changelog,False
+HBI,2015-03-23,2021-12-20,Market Capitalization Changes.,True
+HCA,2015-01-27,,Safeway acquired by private equity consortium[184],True
+HCBK,1976-07-01,2015-11-02,pre-changelog,False
+HD,1976-07-01,,pre-changelog,False
+HES,1976-07-01,2025-07-23,pre-changelog,False
+HFC,2018-06-18,2021-06-04,Market capitalization change.[113],True
+HIG,1976-07-01,,pre-changelog,False
+HII,2018-01-03,,Becton Dickinson acquired BCR.[120],True
+HLT,2017-06-19,,VZ acquired YHOO operations; remainder of YHOO converted to closed-end company known as Altaba.[128],True
+HNG,1976-07-01,1976-07-01,pre-changelog,False
+HNZ,1976-07-01,2013-06-06,pre-changelog,False
+HOG,1976-07-01,2020-06-22,pre-changelog,False
+HOLX,2016-03-30,2026-04-09,Exelon acquired Pepco.[156],True
+HON,1976-07-01,,pre-changelog,False
+HONA,2026-06-29,,S&P 500 constituent Honeywell spun off Honeywell Aerospace.[6],True
+HOOD,2025-09-22,,Market capitalization change.[19],True
+HOT,1976-07-01,2016-09-22,pre-changelog,False
+HP,2010-02-26,2020-05-22,Taken private,True
+HPE,2015-11-02,,HPQ spins off HPE[169],True
+HPH,1976-07-01,1999-06-09,pre-changelog,False
+HPQ,1976-07-01,,pre-changelog,False
+HRB,1976-07-01,2020-09-21,pre-changelog,False
+HRL,2009-03-03,,Capitalization rebalance.[260],True
+HSIC,2015-03-18,,Carefusion acquired by Becton Dickinson[182],True
+HSP,1976-07-01,2015-09-02,pre-changelog,False
+HST,1976-07-01,,pre-changelog,False
+HSY,1976-07-01,,pre-changelog,False
+HUBB,2023-10-18,,Market capitalization change.[38],True
+HUM,1976-07-01,,pre-changelog,False
+HWM,2020-04-01,,Arconic separated into 2 companies - Howmet remained on the index.[80],True
+IBKR,2025-08-28,,Sycamore Partners acquired Walgreen Boots Alliance.[20],True
+IBM,1976-07-01,,pre-changelog,False
+ICE,2007-09-26,,FDC acquired by KKR.[269],True
+IDXX,2017-01-05,,S&P 100 & 500 constituent Abbott Laboratories (NYSE:ABT) acquired St. Jude Medical.[138],True
+IEX,2019-08-09,,Market capitalization change.[91],True
+IFF,1976-07-01,,pre-changelog,False
+IGT,1976-07-01,2014-06-20,pre-changelog,False
+ILMN,2015-11-19,2024-06-24,Sigma-Aldrich acquired by Merck KGaA (MKGAY)[167],True
+INCY,2017-02-28,,SE acquired by ENB[137],True
+INFO,2017-06-02,2022-03-02,TGNA spins off Cars.com[130],True
+INTC,1976-07-01,,pre-changelog,False
+INTU,2000-12-05,,Market Cap changes.[276],True
+INVH,2022-09-19,,Market capitalization change.[53],True
+IP,1976-07-01,,pre-changelog,False
+IPG,1976-07-01,2025-11-28,pre-changelog,False
+IPGP,2018-03-07,2022-06-21,Discovery Communications acquired SNI.[119],True
+IQV,2017-11-15,,QuintilesIMS changed its name to IQVIA and ticker symbol from Q to IQV.[121],True
+IR,2020-03-02,,"Gardner Denver acquired Ingersoll Rand's industrial businesses then changed its name to the ""new"" Ingersoll Rand Inc.[81][82]",True
+IRM,1976-07-01,,pre-changelog,False
+ISRG,1976-07-01,,pre-changelog,False
+IT,2017-04-05,,IT acquiring CEB[131],True
+ITT,1976-07-01,2011-10-31,pre-changelog,False
+ITW,1976-07-01,,pre-changelog,False
+IVZ,1976-07-01,,pre-changelog,False
+J,1976-07-01,,pre-changelog,False
+JBHT,2015-07-01,,Integrys taken over.[177],True
+JBL,2023-12-18,,Market capitalization change.[37],True
+JBL,1976-07-01,2014-11-05,pre-changelog,False
+JCI,1976-07-01,,pre-changelog,False
+JCP,1976-07-01,2013-12-02,pre-changelog,False
+JDSU,2000-07-27,2013-12-23,Market Cap change.[277],True
+JEF,1976-07-01,2019-09-26,pre-changelog,False
+JKHY,2018-11-13,,EQT spun off ETRN[105],True
+JNJ,1976-07-01,,pre-changelog,False
+JNPR,2006-06-02,2025-07-09,Albertsons acquired by SuperValu and CVS Corp.[274],True
+JNS,1976-07-01,2011-11-18,pre-changelog,False
+JNY,1976-07-01,2009-03-03,pre-changelog,False
+JOY,1976-07-01,2015-10-07,pre-changelog,False
+JPM,1976-07-01,,pre-changelog,False
+JWN,1976-07-01,2020-06-22,pre-changelog,False
+K,1976-07-01,2025-12-11,pre-changelog,False
+KBH,1976-07-01,2009-12-18,pre-changelog,False
+KDP,2022-06-21,,Market capitalization change.[54],True
+KEY,1976-07-01,,pre-changelog,False
+KEYS,2018-11-06,,CA acquired by Broadcom.[106],True
+KFT,2007-03-30,2012-10-02,Taken Private[272],True
+KG,1976-07-01,2010-12-17,pre-changelog,False
+KHC,2015-07-06,,Kraft merger with Heinz.[175],True
+KIM,1976-07-01,,pre-changelog,False
+KKR,2024-06-24,,Market capitalization change.[31],True
+KLAC,1976-07-01,,pre-changelog,False
+KMB,1976-07-01,,pre-changelog,False
+KMI,2012-05-17,,Acquired by Kinder Morgan (KMI)[227],True
+KMX,2010-06-28,2025-10-31,Acquired by ExxonMobil[253],True
+KO,1976-07-01,,pre-changelog,False
+KR,1976-07-01,,pre-changelog,False
+KRFT,2012-10-02,2015-07-06,Kraft split into two companies[220],True
+KSE,1976-07-01,2007-08-24,pre-changelog,False
+KSS,1976-07-01,2020-09-21,pre-changelog,False
+KSU,2013-05-23,2021-12-14,DF too small after spinoff of White Wave Foods[211],True
+KVUE,2023-08-25,,S&P 500 and S&P 100 constituent Johnson & Johnson offered to exchange the shares of Kenvue held for shares of Johnson & Johnson in a split-off exchange offer.[41],True
+L,1976-07-01,,pre-changelog,False
+LDOS,2019-08-09,,S&P 500 & 100 constituent Occidental Petroleum Corp. (NYSE:OXY) acquired Anadarko Petroleum.[91],True
+LDW,1976-07-01,1999-12-08,pre-changelog,False
+LEG,1976-07-01,2021-12-20,pre-changelog,False
+LEH,1976-07-01,2008-09-16,pre-changelog,False
+LEN,1976-07-01,,pre-changelog,False
+LH,1976-07-01,,pre-changelog,False
+LHX,1976-07-01,,pre-changelog,False
+LIFE,1976-07-01,2014-01-24,pre-changelog,False
+LII,2024-12-23,,Novo Holdings A/S acquired Catalent.[27],True
+LIN,1976-07-01,,pre-changelog,False
+LITE,2026-03-23,,Market capitalization change.[12],True
+LKQ,2016-05-23,2025-12-22,ARG acquired by Air Liquide[149],True
+LLL,1976-07-01,2019-07-01,pre-changelog,False
+LLTC,1976-07-01,2017-03-13,pre-changelog,False
+LLY,1976-07-01,,pre-changelog,False
+LM,1976-07-01,2016-12-02,pre-changelog,False
+LMT,1976-07-01,,pre-changelog,False
+LNC,1976-07-01,2023-09-18,pre-changelog,False
+LNT,2016-07-01,,GAS acquired by SO[145],True
+LO,2008-06-10,2015-06-11,Market Value Decline[266],True
+LOW,1976-07-01,,pre-changelog,False
+LRCX,2012-06-05,,Acquired by Lam Research (LRCX)[225],True
+LSI,1976-07-01,2014-05-08,pre-changelog,False
+LULU,2023-10-18,,S&P 500 and S&P 100 constituent Microsoft acquired Activision Blizzard.[38],True
+LUMN,1976-07-01,2023-03-20,pre-changelog,False
+LUV,1976-07-01,,pre-changelog,False
+LVLT,2014-11-05,2017-10-13,Market cap changes[187],True
+LVS,2019-10-03,,Market capitalization change.[88],True
+LW,2018-12-03,2026-03-23,UTX acquired COL[104],True
+LXK,1976-07-01,2012-10-01,pre-changelog,False
+LYB,2012-09-05,,SHLD below public float threshold,True
+LYV,2019-12-23,,Market capitalization change.[84],True
+M,1976-07-01,2020-04-06,pre-changelog,False
+MA,1976-07-01,,pre-changelog,False
+MAA,2016-12-02,,Market capitalization change.[139],True
+MAC,2013-05-08,2019-12-23,Acquired by Aetna (AET)[212],True
+MAR,1976-07-01,,pre-changelog,False
+MAS,1976-07-01,,pre-changelog,False
+MAT,1976-07-01,2019-06-07,pre-changelog,False
+MBC,2022-12-15,2022-12-19,S&P 500 constituent Fortune Brands Home & Security spun off MasterBrand.[49],True
+MBI,1976-07-01,2009-12-18,pre-changelog,False
+MCD,1976-07-01,,pre-changelog,False
+MCHP,1976-07-01,,pre-changelog,False
+MCK,1994-09-30,,re-entry,True
+MCK,1976-07-01,1994-09-30,pre-changelog,False
+MCO,1976-07-01,,pre-changelog,False
+MDLZ,2012-10-02,,Old Kraft Foods renamed Mondelez[221],True
+MDP,1976-07-01,2011-01-03,pre-changelog,False
+MDT,1976-07-01,,pre-changelog,False
+MEE,2008-06-23,2011-06-01,Market capitalization change.[265],True
+MET,1976-07-01,,pre-changelog,False
+META,1976-07-01,,pre-changelog,False
+MFE,1976-07-01,2011-02-28,pre-changelog,False
+MGM,2017-07-26,,British American Tobacco (NYSE MKT:BTI) acquired Reynolds American.[126],True
+MHK,2013-12-23,2025-12-22,Market capitalization changes.[200],True
+MHS,1976-07-01,2012-04-03,pre-changelog,False
+MI,1976-07-01,2011-07-05,pre-changelog,False
+MIL,1976-07-01,2010-07-14,pre-changelog,False
+MJN,2009-12-18,2017-06-19,Market capitalization change.[citation needed],True
+MKC,1976-07-01,,pre-changelog,False
+MKTX,2019-07-01,2025-09-22,L3 purchased by Harris Corporation[93],True
+MLM,2014-07-02,,Market capitalization changes[191],True
+MMI,2011-01-03,2012-05-21,S&P constituent Motorola spun off Motorola Mobility.[247],True
+MMM,1976-07-01,,pre-changelog,False
+MNK,2014-08-18,2017-07-26,Market cap changes[189],True
+MNST,2012-06-29,,Split up of Sara Lee[224],True
+MO,1976-07-01,,pre-changelog,False
+MOH,2022-03-02,2026-03-23,S&P 500 constituent S&P Global Inc. acquired IHS Markit.[57],True
+MOLX,1976-07-01,2013-12-10,pre-changelog,False
+MON,1976-07-01,2018-06-07,pre-changelog,False
+MOS,2011-09-23,,Acquired by Texas Instruments (TXN).[238],True
+MPC,2011-06-30,,Market capitalization adjustments.[240],True
+MPWR,2021-02-12,,TechnipFMC was removed from the S&P 500 in anticipation of its announced spin-off of Technip Energies.[69],True
+MRK,1976-07-01,,pre-changelog,False
+MRNA,2021-07-21,,AstraZeneca acquired Alexion Pharmaceuticals.[65],True
+MRO,1976-07-01,2024-11-26,pre-changelog,False
+MRSH,1976-07-01,,pre-changelog,False
+MRVL,2026-06-22,,Market capitalization change.[7],True
+MS,1976-07-01,,pre-changelog,False
+MSCI,2018-04-04,,S&P 500 constituent General Dynamics (NYSE: GD) acquired CSRA.[117],True
+MSFT,1976-07-01,,pre-changelog,False
+MSI,1976-07-01,,pre-changelog,False
+MTB,1976-07-01,,pre-changelog,False
+MTCH,2021-09-20,2026-03-23,Market capitalization change.[63],True
+MTD,2016-09-06,,TYC acquires JCI (and retains JCI ticker).[143],True
+MU,1976-07-01,,pre-changelog,False
+MUR,1976-07-01,2017-07-26,pre-changelog,False
+MWW,1976-07-01,2011-12-16,pre-changelog,False
+MXIM,2018-12-03,2021-08-30,CVS acquired Aetna[104],True
+MXIM,1976-07-01,2007-09-27,pre-changelog,False
+NAVI,2014-05-01,2018-06-05,Navient Spun off from SLM[195],True
+NBL,1976-07-01,2020-10-12,pre-changelog,False
+NBR,1976-07-01,2015-03-23,pre-changelog,False
+NCLH,2017-10-13,,CenturyLink acquired LVLT.[122],True
+NCR,1976-07-01,2007-10-01,pre-changelog,False
+NDAQ,1976-07-01,,pre-changelog,False
+NDSN,2022-02-15,,S&P 500 constituent Advanced Micro Devices acquired Xilinx.[58],True
+NE,1976-07-01,2015-07-20,pre-changelog,False
+NEE,1976-07-01,,pre-changelog,False
+NEM,1976-07-01,,pre-changelog,False
+NFLX,2010-12-17,,Market Cap changes.,True
+NFX,2010-12-17,2019-02-15,Market Cap changes.,True
+NI,1976-07-01,,pre-changelog,False
+NKE,1976-07-01,,pre-changelog,False
+NKTR,2018-03-19,2019-10-03,Market capitalization change.[118],True
+NLSN,2013-07-08,2022-10-12,Softbank consortium purchase results in public float below 50%[207],True
+NOC,1976-07-01,,pre-changelog,False
+NOV,1976-07-01,2021-09-20,pre-changelog,False
+NOVL,1976-07-01,2011-04-27,pre-changelog,False
+NOW,2019-11-21,,Bristol-Myers Squibb (NYSE:BMY) acquired Celgene.[87],True
+NRG,1976-07-01,,pre-changelog,False
+NSC,1976-07-01,,pre-changelog,False
+NSM,1976-07-01,2011-09-23,pre-changelog,False
+NTAP,1976-07-01,,pre-changelog,False
+NTRS,1976-07-01,,pre-changelog,False
+NUE,1976-07-01,,pre-changelog,False
+NVDA,1976-07-01,,pre-changelog,False
+NVLS,1976-07-01,2012-06-05,pre-changelog,False
+NVR,2019-09-26,,,True
+NWL,1976-07-01,2023-09-18,pre-changelog,False
+NWS,2015-09-18,,Share class methodology change,True
+NWSA,2013-07-01,,Apollo Group's market cap more representative of a mid-cap[208],True
+NXPI,2021-03-22,,Market capitalization change.[68],True
+NYT,1976-07-01,2010-12-17,pre-changelog,False
+NYX,1976-07-01,2013-11-13,pre-changelog,False
+O,2015-04-07,,Market capitalization change.[180],True
+ODFL,2019-12-09,,BB&T acquired SunTrust to form Truist Financial.[85],True
+ODP,1976-07-01,2010-12-17,pre-changelog,False
+OGN,2021-06-03,2023-10-18,S&P 500/100 constituent Merck & Co. spun off Organon.[59],True
+OI,2008-12-31,2016-12-02,Wachovia Bank acquired by Wells Fargo.[261],True
+OI,1976-07-01,2000-12-05,pre-changelog,False
+OKE,1976-07-01,,pre-changelog,False
+OMC,1976-07-01,,pre-changelog,False
+OMX,1976-07-01,2008-06-23,pre-changelog,False
+ON,2022-06-21,,Market capitalization change.[54],True
+ORCL,1976-07-01,,pre-changelog,False
+ORLY,1976-07-01,,pre-changelog,False
+OTIS,2020-04-03,,United Technologies spun off Otis and Carrier and acquired Raytheon Company.[79],True
+OXY,1976-07-01,,pre-changelog,False
+PANW,2023-06-20,,Market capitalization change.[42],True
+PAYC,2020-01-28,2026-03-23,S&P 500 constituent Centene Corp. (NYSE: CNC) acquired Wellcare Health Plans.[83],True
+PAYX,1976-07-01,,pre-changelog,False
+PBCT,1976-07-01,2022-04-04,pre-changelog,False
+PBI,1976-07-01,2017-03-01,pre-changelog,False
+PCAR,1976-07-01,,pre-changelog,False
+PCG,2022-10-03,,Vista Equity Partners acquired Citrix Systems.[52],True
+PCG,1976-07-01,2019-01-18,pre-changelog,False
+PCL,1976-07-01,2016-02-22,pre-changelog,False
+PCP,1976-07-01,2016-02-01,pre-changelog,False
+PCS,2009-06-29,2013-04-30,PCS replaced TEL.[258],True
+PDCO,1976-07-01,2018-03-19,pre-changelog,False
+PEG,1976-07-01,,pre-changelog,False
+PENN,2021-03-22,2022-09-19,Market capitalization change.[68],True
+PEP,1976-07-01,,pre-changelog,False
+PETM,2012-10-10,2015-03-12,Acquired by Energy Transfer Partners (ETP)[219],True
+PFE,1976-07-01,,pre-changelog,False
+PFG,1976-07-01,,pre-changelog,False
+PG,1976-07-01,,pre-changelog,False
+PGN,1976-07-01,2012-07-02,pre-changelog,False
+PGR,1976-07-01,,pre-changelog,False
+PH,1976-07-01,,pre-changelog,False
+PHM,1976-07-01,,pre-changelog,False
+PKG,2017-07-26,,Market capitalization change.[126],True
+PLD,1976-07-01,,pre-changelog,False
+PLL,1976-07-01,2015-08-28,pre-changelog,False
+PLTR,2024-09-23,,Market capitalization change.[30],True
+PM,1976-07-01,,pre-changelog,False
+PNC,1976-07-01,,pre-changelog,False
+PNR,2012-10-01,,Tyco spin-off merged w/Pentair,True
+PNW,1976-07-01,,pre-changelog,False
+PODD,2023-03-15,,"The FDIC placed SVB's main subsidiary, Silicon Valley Bank, into receivership.[46]",True
+POM,1976-07-01,2016-03-30,pre-changelog,False
+POOL,2020-10-07,2026-06-22,Morgan Stanley acquired E*Trade.[74],True
+PPG,1976-07-01,,pre-changelog,False
+PPL,1976-07-01,,pre-changelog,False
+PRGO,2011-12-16,2021-09-20,Market capitalization changes,True
+PRU,1976-07-01,,pre-changelog,False
+PSA,1976-07-01,,pre-changelog,False
+PSKY,1976-07-01,,pre-changelog,False
+PSX,2012-04-23,,ConocoPhillips spun off Phillips 66[228],True
+PTC,2021-04-20,,Siemens Healthineers acquired Varian Medical Systems.[67],True
+PTV,1976-07-01,2010-11-17,pre-changelog,False
+PVH,2013-02-15,2022-09-19,Market capitalization changes[214],True
+PWR,1976-07-01,,pre-changelog,False
+PXD,1976-07-01,2024-05-08,pre-changelog,False
+PYPL,2015-07-20,,PayPal Spun off by eBay[173],True
+Q,2017-08-29,2017-11-15,Amazon acquired Whole Foods Market.[124],True
+Q,2025-11-03,,"S&P 500 constituent Dupont de Nemours, Inc. spun off Qnity Electronics.[18]",True
+Q,1976-07-01,2011-03-31,pre-changelog,False
+QCOM,1976-07-01,,pre-changelog,False
+QEP,2010-06-30,2015-07-01,"Company split. QEP retained, but ticker changed.[252]",True
+QRVO,2015-06-11,2024-12-23,Lorillard gets acquired.[179],True
+QTRN,1976-07-01,2003-09-25,pre-changelog,False
+R,1976-07-01,2017-06-19,pre-changelog,False
+RAD,1976-07-01,2000-07-27,pre-changelog,False
+RAI,1976-07-01,2017-07-26,pre-changelog,False
+RCL,2014-12-05,,Market cap changes[186],True
+RDC,1976-07-01,2014-08-18,pre-changelog,False
+RE,2017-06-19,2023-07-10,Reckitt Benckiser acquired Mead Johnson Nutrition.[129],True
+REG,2017-03-02,,REG acquires EQY[137],True
+REGN,2013-04-30,,A majority of MetroPCS was acquired by T-Mobile[213],True
+RF,1976-07-01,,pre-changelog,False
+RHI,1976-07-01,2024-06-24,pre-changelog,False
+RHT,1976-07-01,2019-07-15,pre-changelog,False
+RIG,2013-10-29,2017-07-26,Founder Michael Dell and Silver Lake Partners acquired Dell.[204],True
+RJF,2017-03-20,,Market capitalization change.[134],True
+RL,1976-07-01,,pre-changelog,False
+RMD,2017-07-26,,Market capitalization change.[126],True
+ROK,1976-07-01,,pre-changelog,False
+ROL,2018-10-01,,ANDV acquired by Marathon Petroleum.[108],True
+ROP,1976-07-01,,pre-changelog,False
+ROST,2009-12-18,,Market capitalization change.[citation needed],True
+RRC,2007-12-20,2018-06-18,Taken private[267],True
+RRD,1976-07-01,2012-12-11,pre-changelog,False
+RSG,1976-07-01,,pre-changelog,False
+RSH,1976-07-01,2011-06-30,pre-changelog,False
+RTN,1976-07-01,2020-04-06,pre-changelog,False
+RTX,1976-07-01,,pre-changelog,False
+RVTY,1976-07-01,,pre-changelog,False
+RX,1976-07-01,2010-02-26,pre-changelog,False
+S,1976-07-01,2013-07-08,pre-changelog,False
+SAI,2009-12-18,2013-09-20,Market capitalization change.[citation needed],True
+SBAC,2017-09-01,,The Dow Chemical Company acquired DuPont.[124],True
+SBL,2000-12-05,2007-01-10,Market Cap changes.,True
+SBNY,2021-12-20,2023-03-15,Market capitalization change.[60],True
+SBUX,2000-06-07,,Siemens AG acquired Shared Medical Systems.[278],True
+SCG,1976-07-01,2019-01-02,pre-changelog,False
+SCHW,1976-07-01,,pre-changelog,False
+SE,1976-07-01,2017-02-28,pre-changelog,False
+SEDG,2021-12-20,2023-12-18,Market capitalization change.[60],True
+SEE,1976-07-01,2023-12-18,pre-changelog,False
+SGP,1976-07-01,2009-11-03,pre-changelog,False
+SHLD,1976-07-01,2012-09-05,pre-changelog,False
+SHW,1976-07-01,,pre-changelog,False
+SIAL,1976-07-01,2015-11-19,pre-changelog,False
+SIG,2015-07-29,2018-03-19,DirecTV acquired by AT&T.[172],True
+SII,1976-07-01,2010-08-26,pre-changelog,False
+SIVB,2018-03-19,2023-03-15,Market capitalization change.[118],True
+SJM,1976-07-01,,pre-changelog,False
+SLB,1976-07-01,,pre-changelog,False
+SLE,1976-07-01,2012-06-29,pre-changelog,False
+SLG,2015-03-23,2021-03-22,Market Capitalization Changes.,True
+SLM,1976-07-01,2014-05-01,pre-changelog,False
+SLR,1976-07-01,2007-10-02,pre-changelog,False
+SMCI,2024-03-18,,Market capitalization change.[35],True
+SMS,1976-07-01,2000-06-07,pre-changelog,False
+SNA,1976-07-01,,pre-changelog,False
+SNDK,2025-11-28,,S&P 500 constituent Omnicom Group Inc. acquired (The) Interpublic Group.[16][17],True
+SNDK,1976-07-01,2016-05-13,pre-changelog,False
+SNI,1976-07-01,2018-03-07,pre-changelog,False
+SNPS,2017-03-16,,Samsung Electronics acquired Harman International Industries.[135],True
+SO,1976-07-01,,pre-changelog,False
+SOLS,2025-10-30,2025-12-22,S&P 500 and S&P 100 constituent Honeywell International Inc. spun off Solstice Advanced Materials.[18],True
+SOLV,2024-04-01,,S&P 500 and 100 constituent 3M Co. spun off Solventum.[33],True
+SPG,1976-07-01,,pre-changelog,False
+SPGI,1976-07-01,,pre-changelog,False
+SPLS,1976-07-01,2017-09-18,pre-changelog,False
+SRCL,1976-07-01,2018-12-03,pre-changelog,False
+SRE,1976-07-01,,pre-changelog,False
+STE,2019-12-23,,Market capitalization change.[84],True
+STI,1976-07-01,2019-12-09,pre-changelog,False
+STJ,1976-07-01,2017-01-05,pre-changelog,False
+STLD,2022-12-22,,S&P 500 constituent Johnson & Johnson acquired Abiomed.[48],True
+STR,1976-07-01,2010-06-30,pre-changelog,False
+STT,1976-07-01,,pre-changelog,False
+STX,2012-07-02,,Acquired by Duke Energy (DUK)[223],True
+STZ,2005-07-01,,Acquired by Crompton Corp.,True
+SUN,1998-12-11,2012-10-10,re-entry,True
+SUN,1976-07-01,1998-12-11,pre-changelog,False
+SVU,1976-07-01,2012-04-23,pre-changelog,False
+SW,1976-07-01,,pre-changelog,False
+SWK,1976-07-01,,pre-changelog,False
+SWKS,2015-03-12,,PetSmart acquired by private equity consortium[183],True
+SWN,1976-07-01,2017-04-04,pre-changelog,False
+SWY,1976-07-01,2015-01-27,pre-changelog,False
+SYF,2015-11-18,,GE spinning off Synchrony Financial[168],True
+SYK,1976-07-01,,pre-changelog,False
+SYY,1976-07-01,,pre-changelog,False
+T,2005-11-18,,re-entry,True
+T,1976-07-01,2005-11-18,pre-changelog,False
+TAP,1976-07-01,,pre-changelog,False
+TDC,2007-10-01,2017-06-19,Teradata spun off by NCR Corporation.[269],True
+TDG,2016-06-03,,SHPG acquiring BXLT[147],True
+TDY,2020-06-22,,Market capitalization change.[76],True
+TE,1976-07-01,2016-07-01,pre-changelog,False
+TECH,2021-08-30,,S&P 500 constituent Analog Devices acquired Maxim Integrated Products.[64],True
+TEG,1976-07-01,2015-07-01,pre-changelog,False
+TEL,2011-10-14,,Acquired by Teva Pharmaceutical Industries (TEVA).[237],True
+TEL,1976-07-01,2009-06-25,pre-changelog,False
+TER,2020-09-21,,Market capitalization change.[75],True
+TER,1976-07-01,2013-12-23,pre-changelog,False
+TFC,1976-07-01,,pre-changelog,False
+TFX,2019-01-18,2025-03-24,PCG filed for bankruptcy[101],True
+TGNA,1976-07-01,2017-06-02,pre-changelog,False
+TGT,1976-07-01,,pre-changelog,False
+THC,1976-07-01,2016-04-18,pre-changelog,False
+TIE,1976-07-01,2012-12-21,pre-changelog,False
+TIF,1976-07-01,2021-01-07,pre-changelog,False
+TJX,1976-07-01,,pre-changelog,False
+TKO,2025-03-24,,Market capitalization change.[25],True
+TLAB,1976-07-01,2011-12-20,pre-changelog,False
+TMC,1976-07-01,2000-06-12,pre-changelog,False
+TMO,1976-07-01,,pre-changelog,False
+TMUS,2019-07-15,,S&P 500 & 100 constituent IBM acquired Red Hat.[92],True
+TPL,2024-11-26,,S&P 500 & 100 constituent ConocoPhillips acquired Marathon Oil.[28],True
+TPR,1976-07-01,,pre-changelog,False
+TRB,1976-07-01,2007-12-20,pre-changelog,False
+TRGP,2022-10-12,,Elliot Management Corp acquired Nielsen Holdings.[51],True
+TRIP,2011-12-20,2019-12-23,Expedia spun off TripAdvisor.[232],True
+TRMB,2021-01-21,,S&P 500/100 constituent ConocoPhillips acquired Concho Resources.[70],True
+TROW,1976-07-01,,pre-changelog,False
+TRV,1976-07-01,,pre-changelog,False
+TSCO,2014-01-24,,Life Technologies acquired by Thermo Fisher Scientific Inc[199],True
+TSG,1976-07-01,2007-03-30,pre-changelog,False
+TSLA,2020-12-21,,Apartment Investment and Management (Aimco) spun off Apartment Income REIT.[72],True
+TSN,1976-07-01,,pre-changelog,False
+TSS,1976-07-01,2019-09-23,pre-changelog,False
+TT,1976-07-01,,pre-changelog,False
+TTD,2025-07-18,,S&P 500 constituent Synopsys Inc. acquired Ansys.[22],True
+TTWO,2018-03-19,,Market capitalization change.[118],True
+TWC,1976-07-01,2016-05-18,pre-changelog,False
+TWTR,2018-06-07,2022-11-01,Bayer acquired Monsanto.[114],True
+TWX,1976-07-01,2018-06-20,pre-changelog,False
+TXN,1976-07-01,,pre-changelog,False
+TXT,1976-07-01,,pre-changelog,False
+TYC,2010-08-26,2016-09-06,Acquired by Schlumberger (SLB)[250],True
+TYL,2020-06-22,,Market capitalization change.[76],True
+UA,2016-04-08,2022-06-21,Under Armour distribution of second class of stock,True
+UAA,1976-07-01,2022-06-21,pre-changelog,False
+UAL,2015-09-02,,Hospira taken over[171],True
+UBER,2023-12-18,,Market capitalization change.[37],True
+UDR,2016-03-07,,JAB Holding Company acquired Keurig Green Mountain[157],True
+UHS,2014-09-20,,Market cap changes,True
+ULTA,2016-04-18,,Ulta replaces Tenet[154],True
+UNH,1976-07-01,,pre-changelog,False
+UNM,1976-07-01,2021-09-20,pre-changelog,False
+UNP,1976-07-01,,pre-changelog,False
+UPS,1976-07-01,,pre-changelog,False
+URBN,1976-07-01,2017-03-20,pre-changelog,False
+URI,2014-09-20,,Market cap changes[188],True
+USB,1976-07-01,,pre-changelog,False
+USL,1976-07-01,1997-06-17,pre-changelog,False
+V,2009-12-18,,Market capitalization change.[citation needed],True
+VAR,1976-07-01,2021-04-20,pre-changelog,False
+VEEV,2026-05-07,,S&P 500 constituent Devon Energy Corp. acquired Coterra Energy. [9][10],True
+VFC,1976-07-01,2024-04-03,pre-changelog,False
+VIAB,1976-07-01,2019-12-05,pre-changelog,False
+VICI,2022-06-08,,S&P 500 constituent Oracle Corp. acquired Cerner.[54],True
+VLO,1976-07-01,,pre-changelog,False
+VLTO,2023-10-02,,S&P 500 and S&P 100 constituent Danaher Corporation spun off Veralto.[39],True
+VMC,1976-07-01,,pre-changelog,False
+VNO,1976-07-01,2023-01-05,pre-changelog,False
+VNT,2020-10-09,2021-03-22,S&P 500 constituent Fortive spun off Vontier.[73],True
+VRSK,2015-10-07,,Market capitalization change.[170],True
+VRSN,1976-07-01,,pre-changelog,False
+VRT,2026-03-23,,Market capitalization change.[12],True
+VRTX,2013-09-20,,Market capitalization change.[205],True
+VST,2024-05-08,,S&P 500 and S&P 100 constituent ExxonMobil acquired Pioneer Natural Resources.[32],True
+VTR,2009-03-03,,Capitalization rebalance.,True
+VTRS,1976-07-01,,pre-changelog,False
+VZ,1976-07-01,,pre-changelog,False
+WAB,2019-02-27,,WAB acquired GE transportation business[99],True
+WAT,1976-07-01,,pre-changelog,False
+WB,1976-07-01,2008-12-31,pre-changelog,False
+WBA,1976-07-01,2025-08-28,pre-changelog,False
+WBD,2022-04-11,,WarnerMedia and Discovery merge to create Warner Bros. Discovery.[55],True
+WCG,2018-09-14,2020-01-28,XL acquired by Axa.[109],True
+WDAY,2024-12-23,,Market capitalization change.[26],True
+WDC,1976-07-01,,pre-changelog,False
+WEC,1976-07-01,,pre-changelog,False
+WELL,1976-07-01,,pre-changelog,False
+WFC,1976-07-01,,pre-changelog,False
+WFM,1976-07-01,2017-08-29,pre-changelog,False
+WFR,1976-07-01,2011-12-16,pre-changelog,False
+WHR,1976-07-01,2024-03-18,pre-changelog,False
+WIN,1976-07-01,2015-04-07,pre-changelog,False
+WLTW,2016-01-05,2022-01-10,WSH merges with TW (and renames to WLTW)[163],True
+WM,1976-07-01,,pre-changelog,False
+WMB,1976-07-01,,pre-changelog,False
+WMT,1976-07-01,,pre-changelog,False
+WPX,2011-12-31,2014-03-21,Market capitalization changes[231],True
+WRB,2019-12-05,,CBS acquired Viacom to form ViacomCBS.[86],True
+WSM,2025-03-24,,Market capitalization change.[25],True
+WST,2020-05-22,,Market capitalization change.[77],True
+WTW,2022-01-10,,Willis Towers Watson changed its ticker symbol from WLTW to WTW.[61],True
+WU,1976-07-01,2021-12-20,pre-changelog,False
+WY,1976-07-01,,pre-changelog,False
+WYN,1976-07-01,2018-05-31,pre-changelog,False
+WYNN,1976-07-01,,pre-changelog,False
+X,1976-07-01,2014-07-02,pre-changelog,False
+XEC,2014-06-20,2020-03-02,Market capitalization changes[193],True
+XEL,1976-07-01,,pre-changelog,False
+XL,1976-07-01,2018-09-14,pre-changelog,False
+XLNX,1976-07-01,2022-02-15,pre-changelog,False
+XOM,1976-07-01,,pre-changelog,False
+XRAY,1976-07-01,2024-04-03,pre-changelog,False
+XRX,1976-07-01,2021-03-22,pre-changelog,False
+XTO,1976-07-01,2010-06-28,pre-changelog,False
+XYL,2011-10-31,,Spun off from ITT Corp.[236],True
+XYZ,2025-07-23,,S&P 500 and S&P 100 constituent Chevron Corp. acquired Hess Corporation[21],True
+YHOO,1999-12-08,2017-06-19,Market capitalization change.[279],True
+YUM,1976-07-01,,pre-changelog,False
+ZBH,1976-07-01,,pre-changelog,False
+ZBRA,2019-12-23,,Market capitalization change.[84],True
+ZION,1976-07-01,2024-03-18,pre-changelog,False
+ZTS,2013-06-21,,Zoetis spun off by Pfizer[209],True

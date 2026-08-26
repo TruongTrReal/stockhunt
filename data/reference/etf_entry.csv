@@ -1,0 +1,11 @@
+symbol,entry,reason
+SPY,2000-01-03,trailing 252-bar median $vol >= $20M
+QQQ,2000-01-03,trailing 252-bar median $vol >= $20M
+IWM,2001-11-01,trailing 252-bar median $vol >= $20M
+TLT,2003-10-24,trailing 252-bar median $vol >= $20M
+XLF,2003-09-08,trailing 252-bar median $vol >= $20M
+GLD,2004-11-18,trailing 252-bar median $vol >= $20M
+EFA,2003-12-08,trailing 252-bar median $vol >= $20M
+DIA,2000-01-03,trailing 252-bar median $vol >= $20M
+XLV,2006-06-13,trailing 252-bar median $vol >= $20M
+XLE,2005-02-18,trailing 252-bar median $vol >= $20M
