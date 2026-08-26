@@ -109,7 +109,6 @@ everything else comes off local CSVs. A dead API key must not block a rebuild.
 | backtest leaderboards, per-asset | **`results.db`**, via `board_rank.build_sheet`. Filled from `wf_*` / `cwf_*` / `strat_*` by `tools/ingest_results.py` |
 | **edge standard** (`#/edge`) | **`results.db`** `edge` table, from `edge_standard.csv` |
 | **book columns + the ranking** | **`results.db`** `book` table, from `book_<class>_<tf>.csv` |
-| **converted-strategy board** (`conv`) | `../walk-forward optimization/results/convert_*.csv` + `portfolio.csv` — same stage, same columns |
 | equity curves | `../walk-forward optimization/results/book_curves_*.json` — **written by the same run as the book columns** |
 | research summary, gate power, prereg | same folder, `wf_meta`, `prereg_*` |
 | the old study-2 ETF sheet | `../top 20 stocks/results/` (frozen, read-only) — payload only, unrendered |
@@ -337,134 +336,34 @@ the paired-comparison argument on `vs B&H`. If one of them stops being true, the
 where it has to change. **A column added without a `doc` is the one column nobody can ask
 about.**
 
-## Two boards on the backtest page (2026-08-21)
+## One board, and the batch that used to have its own (2026-08-26)
 
-`#/backtest` carries **two leaderboards**, switched by the first filter (`bf.board`):
+`#/backtest` carried **two leaderboards** for five days, switched by a `bf.board` pill:
+the house catalogue, and a second board for the thirteen third-party rules converted on
+2026-08-18. That board is gone. The conversions -- and the 130 megacellar forecasters, and
+`sp100_momentum` -- were scored at **1d and 4h through the ordinary stages** on
+2026-08-26, so they are rows on the house board like any other rule and a second one would
+be two places to look for one answer.
 
-| board | population | timeframes | source |
-|---|---|---|---|
-| `house` | this repo's own catalogue — 231 TA-Lib singles, their pairs, `strategies/published/` | `dash_config.TIMEFRAMES` — the research axis: **1d/4h/1h/15m/5m** (5m added 2026-08-25; finer sizes stay fetchable in `config.WINDOWS` but are out of the program) | `wf_summary_*` + `book_<cls>_<tf>.csv` |
+**What the retirement cost, stated plainly.** The second board was also the only place the
+**minute-chart study** was rendered -- the same eight Pine rules at 1m/2m/3m/5m, with the
+`ha:` and `chart:` overlays and the overnight-flat pass. The house board's timeframe axis
+is `dash_config.TIMEFRAMES` and has no 1m/2m/3m, and the house columns have no facet chips,
+so those sheets are no longer drawn anywhere. **The numbers are not lost** -- the
+`convert_*.csv`, `convert_book_*.csv` and `convert_curves_*.json` files are all still in
+`../walk-forward optimization/results/`, and `strategies/CONVERSIONS.md` still records what
+they were. Putting them back means restoring a board, not re-running a stage.
 
-**Discover is EMPTY at 1h, 15m and 5m, and the reason is the `edge` table.** Every column
-on this board is gated on the six-criteria verdict, and `riskmatch_wf.py` has only ever
-been run at **1d and 4h** — so `results.db`'s `edge` table has no rows at the finer sizes
-and `build_sheet` drops all ~409 candidates as *unscored*. The books are not missing: 180
-rules per cell are in the `book` table and in the robustness index. The empty state
-therefore names the verdict, prints `riskmatch_wf.py --class X --tf Y`, and says where the
-measurement DID land — open any strategy from a sheet that does have rows and use the
-**Robustness** matrix at the bottom of its page, where every scored square is a link,
-including the cell this timeframe would have shown. It used to blame "no portfolio
-result", which is the one thing that is not absent. Three distinct blank states now, and
-they must stay distinct — no sheet, sheet with every row unscored, sheet with every row
-flat.
+**One thing the merge does not do, and it matters for `dsr`.** The conversions were
+pre-registered as their own trial family, so `n_trials` for a converted row is the count
+its own scope carries in `data/reference/trials.csv` -- which is now the same ledger the
+house rules deflate against, because both populations were registered into it. Read
+`n_trials_source` on any row before quoting its `dsr`, exactly as the root `CLAUDE.md`
+says.
 
-**`TIMEFRAMES` is the ROBUSTNESS axis, and Discover has sheets for only part of it.**
-`5m` has no `wf_summary_*` on any class and no close-fill book: it was run for the
-robustness question only — the 152 rules already on the board, re-scored as books at the
-pessimistic fill — because ranking 231 singles on 78 bars a day is not what that run was
-for. So selecting `5m` hits the empty state on all five classes, and that state **points
-at the robustness matrix** rather than printing a stage to re-run: sending a reader to
-regenerate output that already exists is worse than either of the other two things the box
-could say. It is gated on `D.robust.envs`, so it corrects itself the moment a ranking sheet
-does land.
-| `conv` | the **13 converted third-party strategies** of 2026-08-18 | 1d, 5m, 3m, 2m, 1m | `convert_book_*` where it exists, else `convert_*.csv` + `portfolio.csv` |
-
-Everything that decides what a number MEANS is shared. Both sheets came out of
-`portfolio_wf.py`, both are read through **`payload._book_record`** — extracted from
-`_book_index` for exactly this reason. A field that moves in `_book_record` moves on both
-boards at once, which is the property worth having; two definitions of "a book row" on a
-page whose whole argument is that there is one measurement would be the same defect this
-dashboard already removed once.
-
-**The ranking key is the one deliberate divergence** (2026-08-21). The house board ranks
-on the six-criteria count with the money as the tiebreak; this one ranks on `book vs B&H`
-alone, and the `Standard` column is **not rendered at all**. The reason is power, not
-taste: almost every sheet here is underpowered — 6 folds on crypto daily and about 4 on
-the minute sheets, against the 20 the thresholds were calibrated on — so the tiers were
-separating rows on evidence none of them had, and the key put a rule earning **+30 pp/yr
-below one earning +9** for clearing a gate neither could support. `portfolio_wf._standard`
-still computes the verdict and it is still on every row of the payload; it is simply not
-drawn and not sorted on. Put it back only if these sheets ever get the folds to carry it.
-
-**Why it is a second board and not extra rows on the first.** Three reasons, all about
-measurement:
-
-* **A different timeframe axis.** The catalogue has sheets at 1d and 4h; these rules were
-  written for minute charts and were scored at 1m/2m/3m/5m too. One filter strip cannot
-  offer both without offering `4h` and `2m` side by side with nothing behind one of them.
-* **Three facets no house rule carries** — a short side that REVERSES rather than selling
-  to cash, a Heikin-Ashi signal variant, and an overnight-flat variant. As columns on the
-  house board they would be empty on every row; as chips on this one they are the first
-  thing a reader needs, because the reversing facet alone costs a median 16.3 pp/yr across
-  256 matched pairs on these sheets.
-* **Their own pre-registered trial family** — 1,247 cells in `data/reference/trials.csv`.
-  Deflation is against the search that produced a row, so mixing the two populations would
-  deflate each against the other's search.
-
-Four things to preserve:
-
-- **`payload.conversion_sheets` globs `convert_ha_<cls>_<tf>[_flat][_knn].csv`.** A sheet
-  that finishes overnight joins the board at the next build with no edit. The **daily**
-  sheets are an explicit map (`_CONV_1D`) because several files carry the same labels and
-  merge order decides which wins — first file, and the first file is always the run that
-  scored the whole family rather than a follow-up over a subset.
-- **A re-run under one changed assumption is a CHECK, not a candidate.** Fees, fill timing
-  and the wider universe render as their own tables under the ranking (`_CONV_CHECKS`).
-  Merging them would let one strategy occupy three rows for having been priced three times,
-  and on the crypto sheet two of the three rules cross from win to loss on the venue alone
-  — which is a sensitivity, not a ranking.
-- **`convert_crypto_wf.csv` is the *What choosing cost* panel and belongs to the crypto
-  daily sheet**, not to the board. It is the one thing a leaderboard structurally cannot
-  show: every row above it is the view from the end. Do not promote it to a board-level
-  banner and do not drop it — the gap between the best fixed rule and the selection is most
-  of that sheet's headline.
-- **A row opens `#/backtest/conv/<class>/<tf>/<rule-slug>`** (`convDetail`), which reuses
-  the house detail page's `equitySection`, `metricsSection`, `curveIndexes` and
-  `equityChart` rather than drawing its own. Three properties of it:
-  * **The chart is the row here too.** `run_convert_curves.sh` re-scores a whole
-    (class, timeframe) with `--curves`, so the sheet and its equity series come out of one
-    `build_book` call and `portfolio_wf`'s MISMATCH check gates the pair. The rebuilt
-    `convert_book_<cls>_<tf>.csv` **supersedes** the ad-hoc sheets for that cell — it has
-    to, because `--curves` writes one JSON per sheet and the three runs that produced
-    `us_stocks 1d` would each have overwritten the other two's curves.
-  * **Its curves live in a `conv_` namespace** (`web/curves/conv_<group>_<tf>.json`, via
-    `payload.copy_conv_curves`). The house file name is derived from (group, timeframe)
-    alone and this board scores a different rule set on exactly those cells, so one
-    namespace would mean the two boards fighting over one file — the same collision
-    `--curves-out` exists to stop one level up.
-  * **It has no asset-by-asset table and says so**, rather than shipping an empty one:
-    this stage records the book and its curve, not per-symbol backtests. `equitySection`
-    takes an optional `tail` for exactly this, because without it the section inherits the
-    pair-shaped apology about leg diagnostics, which is not true of a converted rule.
-
-  What it carries instead is **the same signal measured the other ways** — every other
-  cell of the same base strategy on that sheet, differing only in the facets. That is the
-  comparison the whole batch exists to make, and what stops one cell being quoted as "the
-  strategy".
-- **A row's identity is `row.key`, not its rule label** (2026-08-21). The `_flat` sheets
-  are `run_intraday_ha.sh` re-running the *identical* `--rules` list under
-  `--flatten-eod`, so the overnight variant lives in the flags and the file name and
-  **never in the label** — one label names two rows on every intraday sheet. `key` is
-  `rule` or `rule|flat`, and it is what the URL slug, the curve lookup and
-  `copy_conv_curves`' cut all use; keying any of them on `rule` sends both detail pages to
-  whichever row `.find()` reaches first. Curves for the two passes are written under
-  separate stems (`convert_curves_*`, `convert_curves_flat_*`) and merged under that key
-  by `_conv_curve_json`, which is what lets one published file per (group, timeframe)
-  carry both.
-
-  The same trap bit the rebuild itself: `run_convert_curves.sh` originally collapsed a
-  cell into one pass, which silently dropped **28 flattened cells per intraday sheet**
-  while the sheet still looked complete. It now runs both passes, and a rebuilt cell
-  supersedes only the held-overnight sheets it actually re-scored.
-- **`row.curve` says whether a chart exists**, read off the curve file rather than assumed
-  from the sheet. A cell whose re-score has not happened yet has a sheet and no curves, and
-  the detail page says which of the two it is. Cost is set by bar count: the five daily
-  sheets rebuild in ~7 minutes, and the sixteen minute sheets took 36 hours to produce.
-
-`bindColHeaders(host, ctx, onSort, cols = LB_COLS)` takes the column list so the hover-doc
-and click-to-sort behaviour is one implementation across both boards. **A column added
-without a `doc` is the one column nobody can ask about** — that rule holds on `CONV_COLS`
-too.
+`bindColHeaders(host, ctx, onSort, cols = LB_COLS)` still takes the column list rather than
+closing over `LB_COLS`, and that is worth keeping even with one caller: **a column added
+without a `doc` is the one column nobody can ask about.**
 
 ## One research page, three questions (2026-08-26)
 
@@ -486,9 +385,8 @@ strategies" with the paper desk. Compare goes back to the board. A robustness li
 the rule it was about, so it opens that rule on the sheet currently selected.
 
 Asset class and timeframe stay **filters** (native selects, `.fsel`), not navigation —
-the pill strips they replaced read as tabs and stop scaling past two timeframes. The
-board switch (house / conv) stays a pill pair because it changes the *population*, not a
-research dimension. The masthead item is still labelled **Research**, in all three
+the pill strips they replaced read as tabs and stop scaling past two timeframes. They are
+the only two, since the board switch went with the second board. The masthead item is still labelled **Research**, in all three
 masthead copies (here, `../paper api/web/desk.html`, `docs.html`) — the copies must keep
 saying the same word or the nav jumps between processes.
 

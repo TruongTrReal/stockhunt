@@ -644,23 +644,6 @@ td.book-pnl{opacity:.55;}
   .promote{flex:1 1 100%;}
 }
 
-/* ---------- the converted-strategy board ----------
- *
- * No new colour and no new box. The three facet chips reuse the existing chip, and the one
- * that gets a dot is `reverses` — in `--loss`, because that is the page's rule: colour
- * carries meaning, and this facet costs a median 16.3 percentage points a year across 256
- * matched pairs. The other two chips are neutral because they are descriptions, not
- * findings. */
-.chip.warn::before{background:var(--loss);}
-
-/* A sensitivity is a small table under the ranking, set one step quieter than the
- * leaderboard so it reads as a check on it rather than a second ranking. */
-.conv-check{display:flex;flex-direction:column;gap:10px;}
-.conv-check + .conv-check{margin-top:26px;padding-top:22px;border-top:1px solid var(--hair);}
-.conv-check h3{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;}
-.conv-check .tbl-wrap table{font-size:13.5px;}
-.conv-check td .mut{font-family:var(--mono);font-size:11.5px;color:var(--muted);}
-
 /* Prose under a table, in the same muted ink the section notes use. `.logic-p.mut` did
  * this for one view only; these paragraphs sit under three. */
 p.mut{font-size:14.5px;color:var(--muted);margin:0;max-width:78ch;}
