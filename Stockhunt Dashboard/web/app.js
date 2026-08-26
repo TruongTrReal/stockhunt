@@ -875,8 +875,12 @@ function pnlLive(curve, bench, breaks, w = 620, h = 128) {
   const x = i => (i / Math.max(cur.length - 1, 1)) * w;
   const y = v => pad + (1 - (v - lo) / span) * (h - pad * 2);
   const cut = new Set(breaks || []);
-  const line = (s, dashed) => {
-    const ink = dashed ? "var(--muted)"
+  /* The benchmark is held apart by INK, not by a dash pattern. Both lines are solid: at
+   * 34px a dashed polyline breaks into a row of ticks that reads as a broken record
+   * rather than a second series, and the record is exactly the thing this chart must not
+   * cast doubt on. Grey against the gain/loss colour, and thinner, is separation enough. */
+  const line = (s, muted) => {
+    const ink = muted ? "var(--muted)"
       : (cur[cur.length - 1] >= 0 ? "var(--gain)" : "var(--loss)");
     const parts = []; let run = [];
     s.forEach((v, i) => {
@@ -890,9 +894,9 @@ function pnlLive(curve, bench, breaks, w = 620, h = 128) {
     // the record is simply short.
     return parts.map(p => p.length > 1
       ? `<polyline points="${p.map(([a, b]) => `${a},${b}`).join(" ")}" fill="none"
-          stroke="${ink}" stroke-width="${dashed ? 1 : 1.7}"
-          ${dashed ? 'stroke-dasharray="3 2"' : ""} vector-effect="non-scaling-stroke"/>`
-      : `<circle cx="${p[0][0]}" cy="${p[0][1]}" r="${dashed ? 1.2 : 1.8}"
+          stroke="${ink}" stroke-width="${muted ? 1 : 1.7}"
+          vector-effect="non-scaling-stroke"/>`
+      : `<circle cx="${p[0][0]}" cy="${p[0][1]}" r="${muted ? 1.2 : 1.8}"
           fill="${ink}"/>`).join("");
   };
   return `<svg class="pnl-chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"
@@ -921,7 +925,8 @@ function pnlLive(curve, bench, breaks, w = 620, h = 128) {
  * detail page, over years, and that is where it belongs. Days of paper fills against a
  * basket held over the same days is not that comparison and was reading as though it
  * were. `bench_curve` is still published and still drawn on the ranked list, where the
- * market line is context for a 34px sparkline rather than a verdict. */
+ * market line is context for a 34px sparkline rather than a verdict — solid grey there
+ * since 2026-08-26, because a dash pattern at that size shreds the line into ticks. */
 function pnlFigure(curve, breaks, opts = {}) {
   const cur = (curve || []).filter(v => isFinite(v));
   if (cur.length < 2) return "";
