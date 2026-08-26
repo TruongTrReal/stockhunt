@@ -42,9 +42,18 @@ for tf in 1h 15m; do
   #   commodities          148,727        37x     (measured)
   #   cme_futures          251,082      ~70x      (extrapolated -- hours, not minutes)
   #
-  # cme_futures goes LAST because it is the only cell that can run overnight, and putting
-  # it earlier blocks an 80-minute us_stocks cell behind an 8-hour one for no reason.
-  for cls in commodities us_etfs us_stocks cme_futures; do
+  # `cme_futures 15m` IS DROPPED, 2026-08-26, and the reason is memory rather than time.
+  # Ten workers each hold their own copy of 16 roots at 251,082 bars, which exhausted 32 GB;
+  # the pool died, the fallback carried on correctly on ONE core, and 5.7 hours in it was
+  # at 52% CPU because the box was paging and holding ~17 GB. Capped to a width that fits
+  # (STOCKHUNT_WORKERS=4..6) the cell costs 30-45 hours of a shared machine, for ONE sheet
+  # on the least-traded class -- which already has 1d and 1h scored and is already in the
+  # robustness matrix from its book run. The other seven intraday sheets cost under three
+  # hours between them. Its leaderboard keeps the honest empty state naming this stage.
+  # Put it back by adding cme_futures to the 15m list, and pass STOCKHUNT_WORKERS.
+  cells="commodities us_etfs us_stocks cme_futures"
+  [ "$tf" = "15m" ] && cells="commodities us_etfs us_stocks"
+  for cls in $cells; do
     out="results/edge_cells/edge_${cls}_${tf}.csv"
     [ -f "$out" ] && { echo "=== $cls $tf SKIP (have $(basename "$out"))"; continue; }
     t0=$SECONDS

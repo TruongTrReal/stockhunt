@@ -66,6 +66,8 @@ BODY_TOL = 0.50
 NEIGHBOUR_TOL = 0.20
 # A wick is judged against the same median, wider, because a real wick is a real trade.
 WICK_LO, WICK_HI = 0.50, 2.00
+# How close the DAILY bar must come to an intraday extreme for it to count as corroborated.
+DAILY_TOL = 0.01
 
 
 def find_faults(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
@@ -103,8 +105,58 @@ def find_faults(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
     return drop, (low_bad, high_bad)
 
 
-def repair_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+def daily_veto(df: pd.DataFrame, daily: pd.DataFrame | None, drop: pd.Series,
+               low_bad: pd.Series, high_bad: pd.Series
+               ) -> tuple[pd.Series, pd.Series, pd.Series, int]:
+    """Drop any repair the DAILY bar for that date corroborates.
+
+    **This is the check that was missing, and its absence cost real data.** Every test in
+    `find_faults` is local: it asks whether a bar disagrees with its intraday neighbours.
+    That cannot separate "the vendor printed a number nobody traded at" from "the whole
+    market gapped down for ninety seconds", because both look identical inside a 21-bar
+    window. On 2025-10-10 an earlier version of this tool decided a -78% wick was
+    impossible and clamped it out of crypto 1h, 15m and 5m -- and it was the real
+    liquidation cascade, still sitting in the daily bars, where DOT's low is 0.633 against
+    an intraday low of 2.452 afterwards. The finer the bars, the more of the crash was
+    erased, so the timeframes disagreed with each other about the largest move in the
+    sample, in the direction that flatters every dip-buying rule in the catalogue.
+
+    The daily bar is the right adjudicator because it comes from the same vendor and the
+    same instrument but is aggregated independently, so a bad tick has to appear in BOTH
+    to survive -- and the December 2023 ticks this tool exists for do not: BCH prints an
+    intraday 50.9 while its daily low that session is 227.6.
+
+    Corroboration is one-sided by construction. A Low may only be clamped if the daily bar
+    never went that low; a High only if the daily never went that high; a bar may only be
+    dropped if its Close sits outside the daily range entirely. Absent daily data vetoes
+    nothing -- this narrows what may be repaired and must never widen it.
+    """
+    if daily is None or daily.empty:
+        return drop, low_bad, high_bad, 0
+    d = daily.copy()
+    d.index = pd.to_datetime(d.index).normalize()
+    d = d[~d.index.duplicated(keep="first")]
+    day = pd.to_datetime(df.index).normalize()
+    dlo = pd.Series(d["Low"].reindex(day).to_numpy(), index=df.index, dtype="float64")
+    dhi = pd.Series(d["High"].reindex(day).to_numpy(), index=df.index, dtype="float64")
+    lo = df["Low"].astype("float64")
+    hi = df["High"].astype("float64")
+    c = df["Close"].astype("float64")
+
+    low_ok = (dlo <= lo * (1.0 + DAILY_TOL)).fillna(False)
+    high_ok = (dhi >= hi * (1.0 - DAILY_TOL)).fillna(False)
+    close_ok = ((c >= dlo * (1.0 - DAILY_TOL))
+                & (c <= dhi * (1.0 + DAILY_TOL))).fillna(False)
+
+    vetoed = int((low_bad & low_ok).sum() + (high_bad & high_ok).sum()
+                 + (drop & close_ok).sum())
+    return drop & ~close_ok, low_bad & ~low_ok, high_bad & ~high_ok, vetoed
+
+
+def repair_frame(df: pd.DataFrame,
+                 daily: pd.DataFrame | None = None) -> tuple[pd.DataFrame, list[dict], int]:
     drop, (low_bad, high_bad) = find_faults(df)
+    drop, low_bad, high_bad, vetoed = daily_veto(df, daily, drop, low_bad, high_bad)
     notes: list[dict] = []
     out = df.copy()
     for ts in df.index[drop]:
@@ -123,7 +175,7 @@ def repair_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     if high_bad.any():
         out.loc[high_bad, "High"] = body_hi[high_bad]
     out = out[~drop]
-    return out, notes
+    return out, notes, vetoed
 
 
 def main() -> int:
@@ -141,10 +193,17 @@ def main() -> int:
         if not files:
             print(f"{a.asset_class}/{tf}: no cache")
             continue
-        touched = dropped = clamped = 0
+        touched = dropped = clamped = vetoed = 0
+        daily_dir = cache_dir(a.asset_class, "1d")
         for path in files:
             df = pd.read_parquet(path)
-            fixed, notes = repair_frame(df)
+            # The same symbol's DAILY bars, read straight off the cache rather than through
+            # `td_loader.load`, which applies BACKTEST_START and the quarantine — neither
+            # belongs in a decision about whether a printed price was real.
+            dpath = daily_dir / path.name
+            daily = pd.read_parquet(dpath) if dpath.exists() else None
+            fixed, notes, n_vetoed = repair_frame(df, daily)
+            vetoed += n_vetoed
             if not notes:
                 continue
             touched += 1
@@ -156,7 +215,8 @@ def main() -> int:
             if not a.dry_run:
                 fixed.to_parquet(path)
         print(f"{a.asset_class}/{tf}: {touched} of {len(files)} symbols, "
-              f"{dropped} bars dropped, {clamped} wicks clamped"
+              f"{dropped} bars dropped, {clamped} wicks clamped, "
+              f"{vetoed} spared by the daily bar"
               f"{' (dry run)' if a.dry_run else ''}")
 
     if rows:
