@@ -210,6 +210,7 @@ Grouped so no two lanes write the same sheet or the same `.py`.
 | desk | `paper trading engine/` | `paper.db`, `desk.db` | Lane A, single session |
 | research | `walk-forward optimization/` | `results/wf_* book_*` | Lane A **per class/timeframe** |
 | core | `stockhunt/`, `strategies/`, `backtest engine/signals.py` | the cache key | **Lane B, alone** |
+| ml | `ML/` | `ML/results/`, `.cache/ml/` | Lane A — but its own venv, and a fit is a long job, so give it its own `logs/` name |
 
 ## 7. More than one task inside one folder
 

@@ -11,6 +11,8 @@
 .venv-bakeoff/
 # The paper trading engine runs on this one (nautilus_trader)
 .venv-nautilus/
+# ML/ runs on this one (scipy, scikit-learn, lightgbm). See ML/requirements.txt to recreate
+.venv-ml/
 
 # --- Claude Code ---
 # Session state is not project content, but settings.json IS: it carries the

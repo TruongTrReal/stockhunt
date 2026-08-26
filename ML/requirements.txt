@@ -1,0 +1,46 @@
+# The ML stage's own dependencies, installed into ../.venv-ml -- NOT into ../.venv.
+#
+# ../.venv runs the paper desk, and the desk runs live on the VPS. Adding a solver stack
+# to it means a numpy or pandas resolution can move under a process that is trading.
+# The repo already keeps a venv per experiment stack (.venv-bakeoff, .venv-nautilus);
+# this is the fourth.
+#
+#     py -3.13 -m venv ..\.venv-ml
+#     ..\.venv-ml\Scripts\python -m pip install -e .. -r requirements.txt
+#
+# `-e ..` is what puts `stockhunt` (stats, poscache, parallel, paths) in the environment.
+# 3.13 because that is the only interpreter on this box and what ../.venv already runs;
+# pyproject asks for >=3.11 and every wheel below ships cp313.
+
+# --- the actual ML stack ---------------------------------------------------------------
+scipy
+scikit-learn
+lightgbm
+
+# --- what the repo's own modules need to import at all -----------------------------------
+# None of these is an ML dependency. They are here because this folder's whole point is
+# that a model is scored by the EXISTING stages, and importing those stages drags them in:
+#
+#   TA-Lib   `walkforward` -> `signals` -> talib. `walkforward.generate_folds` is the ONE
+#            definition of a fold and duplicating it here would be a second definition
+#            that silently drifts, so the import has to work. Nothing in this folder
+#            computes an indicator itself. The wrapper needs the compiled TA-Lib C
+#            library already on the system, same as ../.venv
+#   requests `td_loader` imports it at module level for the fetch path, so `td_loader.load`
+#            -- the single door onto the bars -- will not import without it
+#   tqdm     progress bars in the stages this folder calls
+#   pyarrow  every bar cache and every feature panel is parquet
+TA-Lib
+requests
+tqdm
+pyarrow
+pandas
+numpy
+pytest
+
+# Deliberately absent, and each absence is a decision:
+#   nautilus_trader     the desk's engine. No ML study places an order; scoring is
+#                       riskmatch_wf / portfolio_wf, which do not need it
+#   torch / tensorflow  no result in this repo has ever been limited by model capacity
+#   optuna              an unrecorded hyperparameter search is an unrecorded trial count,
+#                       and `metrics.deflated_sharpe` needs an honest one
