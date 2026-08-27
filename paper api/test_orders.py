@@ -254,3 +254,26 @@ def test_symbols_are_normalised(client):
     body = client.post("/v1/orders", headers=h,
                        json=order(sid, symbol="spy")).json()
     assert body["symbol"] == "SPY"
+
+
+@pytest.mark.parametrize("sent", ["ES.v.0", "es.v.0", "ES.V.0"])
+def test_a_futures_order_reaches_the_ledger_spelled_as_the_desk_holds_it(client, sent):
+    """`cme_futures` is the one class whose symbols are not capitals, and this endpoint
+    writes the string the desk will match with `in`. A plain `.upper()` here put `ES.V.0`
+    in the inbox against a book registered for `ES.v.0`, and every order the strategy ever
+    sent would have been refused — each one after a `202`, because the refusal arrives
+    later, on a different endpoint, from a process this one cannot see.
+    """
+    authdb.allow("fut@example.test")
+    raw, _ = authdb.create_api_key("fut@example.test")
+    h = {"Authorization": f"Bearer {raw}"}
+    sid = client.post("/v1/strategies", headers=h, json={
+        "name": "roll", "cls": "cme_futures", "symbols": ["ES.v.0"], "tf": "1d",
+    }).json()["strategy_id"]
+
+    r = client.post("/v1/orders", headers=h, json=order(sid, symbol=sent))
+    assert r.status_code == 202, r.text
+    assert r.json()["symbol"] == "ES.v.0"
+    # Read back off the ledger, not out of the response: the row is what the desk drains.
+    written = deskdb.orders(account_id("fut@example.test"))
+    assert [o["symbol"] for o in written] == ["ES.v.0"]

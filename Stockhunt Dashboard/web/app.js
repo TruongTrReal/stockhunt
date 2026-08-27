@@ -585,14 +585,17 @@ function setActive(attr, value) {
 const pills = (opts, active, attr) => opts.map(([v, label]) =>
   `<button class="pill ${active === v ? "on" : ""}" ${attr}="${v}">${esc(label)}</button>`).join("");
 
-/* A dropdown, styled as text like everything else in a filter row. Research dimensions
- * — asset class, timeframe — are FILTERS, not navigation: five class pills and two
- * timeframe pills read as tabs, and at five classes × more timeframes they stop
- * fitting a row at all. A select scales and says what it is. */
-const selOpts = (opts, active, attr) =>
-  `<select class="fsel" ${attr}>${opts.map(([v, label]) =>
-    `<option value="${esc(v)}"${active === v ? " selected" : ""}>${esc(label)}</option>`)
-    .join("")}</select>`;
+/* The research filters were native selects for a while, on the argument that five classes
+ * times five timeframes stops fitting a row. They are pills again, because the argument
+ * was about width and the cost was reading: a select shows ONE option and hides the rest
+ * behind a click, so the reader could not see that `cme_futures` exists, or that 15m and
+ * 5m are scored, without opening it. Every other strip on this board — the paper class
+ * strip, the paper timeframe strip — is pills, so the one page where the options mattered
+ * most was also the only one that concealed them.
+ *
+ * The width worry is answered where it belongs, in CSS: `.f-group` wraps now, so ten
+ * buttons reflow onto a second line instead of overflowing the rail. `.fsel` stays — the
+ * Robustness section's fill and metric selectors are real dropdowns and should be. */
 
 /* There were three research views behind a `Research` pill strip here -- Discover,
  * Compare and Robustness -- and the strip is gone with two of them.
@@ -620,9 +623,11 @@ let pf = { cls: "us_stocks", tf: "1d", who: "mine" };
  *
  * The order is the research's own, so the pills read the same way as the backtest section's
  * rather than in whatever order the systems happened to register. */
-const PAPER_CLASS_ORDER = ["us_stocks", "us_etfs", "crypto", "commodities"];
+const PAPER_CLASS_ORDER = ["us_stocks", "us_etfs", "crypto", "commodities",
+                           "cme_futures"];
 const PAPER_CLASS_LABEL = {
   us_stocks: "Top 100 stocks", us_etfs: "ETFs", crypto: "Crypto", commodities: "Commodities",
+  cme_futures: "CME futures",
   /* Pre-2026-08-11 records, and any replay written from one, carry the old two-valued
    * class. Labelled rather than renamed: the sid is what identifies a system, so an old
    * row still belongs to the same record and is still worth showing under its own name. */
@@ -763,7 +768,14 @@ function paperMaster() {
     <p class="lede">${isReplay()
       ? `The live strategy class, the live signal layer and the live order path — run over
          cached bars in a Nautilus backtest engine. Same code, historical clock.`
-      : `Live simulated fills from the Nautilus sandbox on real Twelve Data bars.`}
+      /* Two vendors, not one. The desk fed four classes from Twelve Data until
+       * `cme_futures` joined it, and that class cannot come from there — every CME
+       * root resolves to an equity wearing the same letters — so it is fed from
+       * Databento on its own venue. Naming one vendor here would have made the page
+       * state the provenance of a fifth of the desk incorrectly. */
+      : `Live simulated fills from the Nautilus sandbox on real vendor bars — Twelve
+         Data for equities, ETFs, crypto and spot commodities, Databento for the CME
+         futures.`}
     This section is about whether the <em>execution path</em> works. Whether the rules
     work is a different question, answered in <a href="#/backtest">Backtest</a>.</p>
   </div>
@@ -1862,17 +1874,19 @@ function backtestMaster() {
       a sheet that does not exist still leaves you something to click. */""}
   <div class="filters wide">
     <span class="f-group"><span class="f-label">Asset class</span>
-      ${selOpts(boardClassPills(), bf.cls, "data-bcls")}</span>
+      ${pills(boardClassPills(), bf.cls, "data-bcls")}</span>
     <span class="f-group"><span class="f-label">Timeframe</span>
-      ${selOpts(boardTfPills(), bf.tf, "data-btf")}</span></div>
+      ${pills(boardTfPills(), bf.tf, "data-btf")}</span></div>
 
   <div id="bt-body"></div>`;
 
   paintBacktest();
-  document.querySelectorAll("select[data-bcls]").forEach(b =>
-    b.onchange = () => { bf.cls = b.value; paintBacktest(); });
-  document.querySelectorAll("select[data-btf]").forEach(b =>
-    b.onchange = () => { bf.tf = b.value; paintBacktest(); });
+  // `setActive` rather than a re-render: the filter strip sits outside `#bt-body`, so
+  // repainting the table must not rebuild the buttons the reader just clicked.
+  document.querySelectorAll("[data-bcls]").forEach(b =>
+    b.onclick = () => { bf.cls = b.dataset.bcls; setActive("data-bcls", bf.cls); paintBacktest(); });
+  document.querySelectorAll("[data-btf]").forEach(b =>
+    b.onclick = () => { bf.tf = b.dataset.btf; setActive("data-btf", bf.tf); paintBacktest(); });
 }
 
 /* A pair is two rules joined by an operator (`or`, `and`, `vote`, `gate`) and carries that

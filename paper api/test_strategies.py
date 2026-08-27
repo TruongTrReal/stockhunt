@@ -248,6 +248,83 @@ def test_symbols_are_normalised(client):
     assert r.json()["symbols"] == ["SPY", "QQQ"]
 
 
+# ----------------------------------------------------------------------- cme_futures
+#
+# The fifth class, and the only one whose symbols are not spelled in capitals. Everything
+# below is one failure wearing four faces: a fold to upper case rewrites the desk's own
+# `ES.v.0` as `ES.V.0`, the API answers 201, and the desk refuses it on its next pass for
+# a symbol the console offered out of the desk's own published universe.
+
+
+def test_the_fifth_class_can_be_registered(client):
+    r = register(client, key_for("fut@example.test"), cls="cme_futures",
+                 symbols=["ES.v.0"])
+    assert r.status_code == 201, r.text
+    assert r.json()["cls"] == "cme_futures"
+
+
+@pytest.mark.parametrize("typed", ["ES.v.0", "es.v.0", "ES.V.0", " es.V.0 "])
+def test_a_continuous_contract_keeps_the_desks_spelling(client, typed):
+    """`desk_control` checks each registered name against `paper_config.CLASS_OF` with
+    `in`, and `desk_orders` checks an order's symbol against the registration's own list
+    the same way. Both are plain string comparisons, so the case of one letter decides
+    whether the strategy trades at all."""
+    r = register(client, key_for("fut@example.test"), cls="cme_futures", symbols=[typed])
+    assert r.status_code == 201, r.text
+    assert r.json()["symbols"] == ["ES.v.0"]
+
+
+def test_two_spellings_of_one_contract_are_one_symbol(client):
+    """Caught as the duplicate it is. Registered as two names, it would be two subscription
+    requests for one instrument and a book that looks twice its size."""
+    r = register(client, key_for("fut@example.test"), cls="cme_futures",
+                 symbols=["ES.v.0", "ES.V.0"])
+    assert r.status_code == 422
+
+
+def test_the_fold_leaves_the_other_four_classes_alone(client):
+    """`BRK.B` is the near miss — a dot in the middle of an equity ticker — and the reason
+    the pattern is anchored on a trailing rank rather than on 'contains a dot'."""
+    r = register(client, key_for("eq@example.test"), symbols=["brk.b", "BTC/USD"])
+    assert r.json()["symbols"] == ["BRK.B", "BTC/USD"]
+
+
+def test_limits_advertises_the_fifth_class(client):
+    """The wizard builds its class buttons from `LIMITS.classes` and nothing else, so a
+    class the validator accepts but this endpoint omits is one nobody can pick."""
+    body = client.get("/v1/limits", headers=auth(key_for("m@example.com"))).json()
+    assert "cme_futures" in body["classes"]
+
+
+def test_limits_passes_the_futures_universe_through_unfolded(client, monkeypatch):
+    """`/v1/limits` filters the desk's published universe by `CLASSES`, so this class
+    reaches the picker only once BOTH halves have landed. The symbols it carries are the
+    desk's own strings and must arrive verbatim — the console offers exactly what is in
+    this list and refuses everything else."""
+    import api_live
+    monkeypatch.setattr(api_live, "catalog", lambda: {
+        "universe": {"us_stocks": ["SPY"], "cme_futures": ["ES.v.0", "GC.v.0"]}})
+
+    body = client.get("/v1/limits", headers=auth(key_for("m@example.com"))).json()
+    assert body["universe"]["cme_futures"] == ["ES.v.0", "GC.v.0"]
+
+
+def test_a_desk_with_no_catalog_still_offers_the_class(client, monkeypatch):
+    """The other half of this change is landing separately, and until it does the desk
+    publishes no futures universe. That must leave the class registrable on a typed symbol
+    rather than un-offerable: a research artifact that has not been rebuilt cannot be
+    allowed to close the door, and the desk checks anyway."""
+    import api_live
+    monkeypatch.setattr(api_live, "catalog", lambda: None)
+
+    raw = key_for("m@example.com")
+    body = client.get("/v1/limits", headers=auth(raw)).json()
+    assert body["universe"] == {}
+    assert "cme_futures" in body["classes"]
+    assert register(client, raw, cls="cme_futures",
+                    symbols=["ES.v.0"]).status_code == 201
+
+
 # ---------------------------------------------------------------------------- scoping
 
 def test_one_account_cannot_see_anothers_strategies(client):

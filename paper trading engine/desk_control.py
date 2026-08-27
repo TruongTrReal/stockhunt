@@ -352,6 +352,15 @@ class DeskController(Controller):
                     f"{', '.join(paper_config.MEMBER_TIMEFRAMES)} — each one costs a poll "
                     f"task per symbol against the vendor, so the list is deliberate.")
 
+        # Both kinds, and after both of the lists above, because a timeframe can be on the
+        # desk's offer and still be one this CLASS's vendor cannot serve. `cme_futures` at
+        # 4h is exactly that, permanently. Refused here so the owner reads a sentence,
+        # rather than in `_subscribe_bars` where it is logged into a Nautilus task and goes
+        # nowhere.
+        can, why = _feedable(cls, reg["tf"])
+        if not can:
+            raise RuntimeError(why)
+
         strategy = self._build(reg, paper_config.VENUES[cls])
         # Start it ourselves ONLY if the trader is already running. The controller's first
         # tick happens inside `on_start`, i.e. during the trader's own start sequence — so
@@ -415,8 +424,7 @@ class DeskController(Controller):
 
         if reg["kind"] == "house_rule":
             symbol = reg["symbols"][0]
-            inst = (td_pair(symbol, venue) if reg["cls"] in paper_config.PAIR_CLASSES
-                    else td_equity(symbol, venue))
+            inst = instrument_for(symbol, reg["cls"], venue)
             from nautilus_trader.model.data import BarType
             return TalibRuleStrategy(config=TalibRuleConfig(
                 order_id_tag=tag,
@@ -548,9 +556,41 @@ class DeskController(Controller):
 
 # Imported lazily by name so this module can be read without pulling the instrument
 # factories in at import time — they reach the vendor's symbol conventions.
-def td_equity(symbol: str, venue: str):
+def instrument_for(symbol: str, cls: str, venue: str):
+    """One dispatcher, in `td_nautilus`, rather than a branch per call site.
+
+    The branch was `pair if cls in PAIR_CLASSES else equity` in five places. `cme_futures`
+    is neither — a whole-share equity rounds its book to nothing and a `pair_instrument`
+    would read `ES.v.0` as a currency called `ES.v.0` — so a third arm had to exist
+    everywhere at once or the leg would have been one shape here and another there.
+    """
     import td_nautilus
-    return td_nautilus.equity_instrument(symbol, venue)
+    return td_nautilus.instrument_for(symbol, cls, venue)
+
+
+def _feedable(cls: str, tf: str) -> tuple[bool, str]:
+    """Can this class's live client actually subscribe to this timeframe?
+
+    Lazily, and only for the class that has an answer to give. `db_live` is where the
+    capability lives — the GLBX ohlcv archive has no 4h or 15m schema at all, and its 1m
+    bars fold whole sessions before 2016 — and it is checked HERE so a registration is
+    refused with a sentence its owner can read, rather than raising inside `_subscribe_bars`
+    where a Nautilus task logs it and it goes nowhere. That silence is what left two member
+    strategies reading `live` for fifteen hours with every order refused for want of a
+    price. `paper_config` cannot make this check itself: it is imported by the dashboard
+    builder and may not pull a vendor client in.
+    """
+    if cls != "cme_futures":
+        return True, ""
+    import db_live
+    if not db_live.can_feed(tf):
+        return False, (f"{tf} is not a bar Databento can serve for CME futures. The leg "
+                       f"runs {', '.join(sorted(db_live.SCHEMA))} — the GLBX archive has "
+                       f"no 4h or 15m schema at all, and the sheets at those sizes were "
+                       f"cut from cached 1m bars, which a live poll cannot ask for.")
+    if not db_live.have_key():
+        return False, db_live.NO_KEY
+    return True, ""
 
 
 def _bar_interval(tf: str):
@@ -564,7 +604,3 @@ def _bar_interval(tf: str):
     import td_live
     return td_live.INTERVALS[tf][1]
 
-
-def td_pair(symbol: str, venue: str):
-    import td_nautilus
-    return td_nautilus.pair_instrument(symbol, venue)

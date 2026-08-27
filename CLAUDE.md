@@ -84,9 +84,15 @@ walk-forward optimization/  what prices SELECTION: rolling re-fit, variants, pre
    |                        median of its parts
    |                        -> results/ wf_* cwf_* var_* prereg_* strat_* book_*
    |                                    edge_standard.csv
-paper trading engine/       the live desk: Nautilus sandbox on live Twelve Data bars
-   |                        top 3 rules x 4 classes x 2 timeframes, each leg selecting
+paper trading engine/       the live desk: Nautilus sandbox on live bars
+   |                        top 3 rules x 5 classes x 2 timeframes, each leg selecting
    |                        from its OWN wf_summary sheet -> publishes live.json
+   |                        TWO vendors, exactly as the research has: `td_live`/
+   |                        `td_nautilus` feed four classes from Twelve Data, and
+   |                        `db_live`/`db_nautilus` feed `cme_futures` from Databento
+   |                        on the `GLBX` venue, which is how Nautilus routes them
+   |                        apart. Bars are ratio back-adjusted live, so a roll cannot
+   |                        hand a rule a return nobody earned
    |                        alpaca_mirror.py: A SECOND, OPTIONAL PROCESS, and the one
    |                        place a REAL BROKER is involved. It drives Alpaca paper
    |                        accounts to a scaled copy of the desk's book, so real fills
@@ -522,7 +528,7 @@ Collecting either from the root would make `pytest` require `fastapi` or
 
 ```powershell
 cd "paper api";            ..\.venv\Scripts\python -m pytest -q
-cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py test_fill_pnl.py test_alpaca_map.py test_alpaca_mirror.py -q
+cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py test_fill_pnl.py test_alpaca_map.py test_alpaca_mirror.py test_futures_leg.py -q
 ```
 
 The engine's files are named explicitly because the same folder also holds `__main__`
@@ -567,6 +573,8 @@ python make_book_rules.py; ./run_book.sh          # ...stage 1h for the WHOLE le
                                                   #    and the dashboard's equity curves
 
 cd "../paper trading engine"
+python db_live.py                             # the SECOND live vendor: does the CME leg
+                                              #   fetch, and does it match the cache?
 python backtest_paper.py --symbols SOXL       # prove the order path fills, offline
 python migrate_owner.py --check               # what schema is paper.db on?
 python catalog.py                             # which rules may be promoted -> catalog.json

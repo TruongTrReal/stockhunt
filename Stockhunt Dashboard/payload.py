@@ -447,6 +447,18 @@ PAPER_GROUPS = [
      "note": "The deepest history in the repo — XAU/USD starts 1979 — and the shallowest "
              "cross-section, five contracts. Read the breadth figures accordingly.",
      "symbols": list(paper_config.COMMODITY_SYMBOLS)},
+    # A group of its own, and not for tidiness: without one every futures symbol falls
+    # through `group_of` to the `etf` default, which is labelled "SPY · SOXL · TQQQ".
+    # That is the same mislabel the book note below describes, and on this leg it would
+    # file back-adjusted CME contracts under leveraged equity funds.
+    {"key": "cme_futures", "label": "16 CME futures",
+     "note": "The only leg not fed by Twelve Data — Databento's GLBX archive, polled on "
+             "the bar close. Two things make its numbers read differently from the rest "
+             "of this page: prices are ratio back-adjusted across contract rolls, so a "
+             "level here is not a price anybody paid, and a unit is a fractional notional "
+             "unit rather than a CME contract. History also starts 2010-06-06 and cannot "
+             "be extended, which is the shortest sample on the board.",
+     "symbols": list(paper_config.FUTURES_SYMBOLS)},
 ]
 
 _GROUP_KEYS = {g["key"] for g in PAPER_GROUPS}

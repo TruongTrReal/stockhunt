@@ -1190,17 +1190,35 @@ const segValue = id => (el(id).querySelector("button.on") || {}).dataset?.v || "
 // `universe` is empty when the desk has not published a catalog. Then, and only then, this
 // falls back to accepting what is typed: a research artifact that has not been rebuilt must
 // not be able to stop somebody registering. The desk still checks.
+//
+// Symbols are folded through `canon`, not `toUpperCase`, and that is `api_symbols.py`'s
+// rule restated: `cme_futures` spells its names `ES.v.0` — root, roll rule, rank — with
+// the roll rule in lower case, because that is Databento's symbology and the desk holds
+// the vendor's string verbatim. Capitalising it produces `ES.V.0`, which the universe
+// does not contain, so `addSymbol` below would have silently refused every futures name
+// in its own dropdown: click a suggestion, watch nothing happen.
 let PICKED = [];
 let CURSOR = 0;
+
+const canon = raw => {
+  const s = String(raw).trim().toUpperCase();
+  const m = /^([A-Z0-9]{1,6})\.([A-Z])\.(\d{1,2})$/.exec(s);
+  return m ? `${m[1]}.${m[2].toLowerCase()}.${m[3]}` : s;
+};
 
 const universe = () => ((LIMITS && LIMITS.universe) || {})[segValue("f-cls")] || [];
 const checked = () => universe().length > 0;
 
 function matches() {
+  // Matched case-insensitively for the same reason: typing `es.v` must still find
+  // `ES.v.0`, and an uppercased query never will.
   const q = el("f-sym").value.trim().toUpperCase().replace(/,/g, "");
   return universe()
     .filter(s => !PICKED.includes(s))
-    .filter(s => !q || s.replace("/", "").startsWith(q) || s.includes(q))
+    .filter(s => {
+      const u = s.toUpperCase();
+      return !q || u.replace("/", "").startsWith(q) || u.includes(q);
+    })
     .slice(0, 40);
 }
 
@@ -1225,7 +1243,7 @@ function drawChips() {
 }
 
 function addSymbol(raw) {
-  const s = String(raw).trim().toUpperCase();
+  const s = canon(raw);
   if (!s) return false;
   if (checked() && !universe().includes(s)) return false;
   if (!PICKED.includes(s)) {
@@ -1272,7 +1290,7 @@ el("f-sym").addEventListener("keydown", ev => {
     const typed = el("f-sym").value.trim();
     if (!addSymbol(checked() ? (rows[CURSOR] || typed) : typed) && typed) {
       el("h-sym").classList.add("bad");
-      el("h-sym").textContent = `${typed.toUpperCase()} is not one the desk holds in ` +
+      el("h-sym").textContent = `${canon(typed)} is not one the desk holds in ` +
         `${segValue("f-cls")}. It only trades symbols it already subscribes to.`;
     }
   } else if (ev.key === "Backspace" && !el("f-sym").value && PICKED.length) {
@@ -1304,9 +1322,11 @@ el("f-cls").addEventListener("click", ev => {
 
 function symbols() {
   if (checked()) return PICKED.slice();
-  // Fallback mode: no published universe, so whatever was typed goes through as-is.
+  // Fallback mode: no published universe, so whatever was typed goes through as-is —
+  // folded, though, because this is the path a futures name takes until the desk has run
+  // `catalog.py`, and it is the server's fold either way.
   const raw = (el("f-sym").value + "," + PICKED.join(","))
-    .split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    .split(",").map(canon).filter(Boolean);
   return [...new Set(raw)];
 }
 

@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field, field_validator
 import api_auth
 import api_config
 import api_paths                                                        # noqa: F401
+import api_symbols
 from stockhunt import deskdb
 
 log = logging.getLogger("stockhunt.api.orders")
@@ -89,7 +90,12 @@ class OrderRequest(BaseModel):
     @field_validator("symbol")
     @classmethod
     def _symbol(cls, v: str) -> str:
-        return v.strip().upper()
+        # The same fold the registration went through, and it has to be: this string is
+        # written into the ledger and `desk_orders` matches it against the registration's
+        # own list with `in`. Upper-casing alone would put `ES.V.0` in the inbox against a
+        # book registered for `ES.v.0`, and the desk would refuse every order the strategy
+        # ever sent — with a 202 on each one, because refusals arrive later and elsewhere.
+        return api_symbols.canonical(v)
 
 
 class OrderOut(BaseModel):

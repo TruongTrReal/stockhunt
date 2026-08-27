@@ -212,6 +212,44 @@ ETF_SYMBOLS = ["QQQ", "IWM", "XLK", "TLT", "GLD"]
 # history in the repo (1979-12-26), which is the only lever there is on a noise ceiling.
 COMMODITY_SYMBOLS = list(bt_config.CLASSES["commodities"]["symbols"])
 
+# The CME roots, written out rather than read from `bt_config.CME_FUTURES`, and this is
+# the pin rule from the crypto note above applied one class over.
+#
+# `bt_config.CME_FUTURES` is `universes_futures.CME_SCREENED`, which is **GENERATED** —
+# `futures_screen.py --write` rewrites that file from the liquidity, tradable-years,
+# price-grid and correlation gates. So it is exactly the kind of thing the desk must not
+# read live: re-running the screen on a fresh fetch would silently add or drop a live
+# instrument, with no diff to review and a forward record that changes what it is measuring
+# halfway through. `CRYPTO_SYMBOLS` was one list-reordering away from that failure and
+# survived by luck.
+#
+# These sixteen are what the screen selected as of 2026-08-27, in its order (turnover,
+# descending). After re-running `futures_screen.py --write`, compare it against this list
+# and change it deliberately or not at all.
+#
+# **The history of this class begins 2010-06-06 and cannot be extended** — that is the
+# first day of Databento's CME archive, and there is nothing before it at any price. ~16
+# years against the equity sheet's ~26, and `metrics.se_ir` falls as 1/sqrt(years), so
+# every gate on this class is about 1.3x harder to clear than the same gate elsewhere.
+FUTURES_SYMBOLS = [
+    "ES.v.0",     # E-mini S&P 500
+    "GC.v.0",     # Gold
+    "CL.v.0",     # WTI Crude Oil
+    "SI.v.0",     # Silver
+    "HG.v.0",     # Copper
+    "HO.v.0",     # NY Harbor ULSD
+    "ZS.v.0",     # Soybeans
+    "RB.v.0",     # RBOB Gasoline
+    "ZC.v.0",     # Corn
+    "NG.v.0",     # Henry Hub Natural Gas
+    "NKD.v.0",    # Nikkei 225 (USD)
+    "ZL.v.0",     # Soybean Oil
+    "ZW.v.0",     # Chicago SRW Wheat
+    "LE.v.0",     # Live Cattle
+    "PL.v.0",     # Platinum
+    "ZM.v.0",     # Soybean Meal
+]
+
 FORWARD_TIMEFRAMES = ["1d", "4h"]
 
 # ------------------------------------------------------------------ class-wide books
@@ -284,6 +322,13 @@ UNIVERSE = {
     "us_etfs": ETF_SYMBOLS,
     "crypto": CRYPTO_SYMBOLS,
     "commodities": COMMODITY_SYMBOLS,
+    # The fifth leg, and the only one whose bars do not come from Twelve Data. A leg is a
+    # feed, an instrument, a venue and a sheet: `db_live`/`db_nautilus` are the feed,
+    # `td_nautilus.futures_instrument` is the instrument, `GLBX` is the venue, and
+    # `wf_summary_cme_futures_1d` is the sheet. There is no 4h sheet for this class and
+    # there cannot be one from the vendor's ohlcv archive — see `has_sheet` below and
+    # `db_live.SCHEMA`.
+    "cme_futures": FUTURES_SYMBOLS,
 }
 
 # The legs must stay disjoint: `class_of` is a reverse lookup, and it is what decides which
@@ -336,10 +381,26 @@ VENUES = {
     "us_etfs": "SANDBOX",
     "crypto": "BINANCE",
     "commodities": "SPOT",
+    # Databento's own name for the CME Globex dataset, and it must be its own venue for a
+    # stronger reason than tidiness: Nautilus routes DATA CLIENTS by venue.
+    # `DataEngine.register_client` files a client with `venue=None` as the default and one
+    # with a concrete venue into `_routing_map[venue]`, so `GLBX` is what makes
+    # `db_nautilus` receive exactly the futures subscriptions — and what stops a futures
+    # bar request reaching Twelve Data, where `ES` is Eversource Energy and comes back as
+    # a clean, plausible, entirely wrong series.
+    "cme_futures": "GLBX",
 }
 
 # Classes whose instrument is a fractional-quantity pair rather than a whole-share equity.
-PAIR_CLASSES = {"crypto", "commodities"}
+#
+# `cme_futures` is here and its unit is NOT a CME contract. `FuturesContract` has no
+# `size_increment`, so a whole-contract instrument against a $6,250 slice of a $100,000
+# book rounds ES to zero and the whole leg sits flat. See
+# `td_nautilus.futures_instrument`, which says at length what a unit on this leg is.
+# Membership also decides the ACCOUNT shape in `run_paper`: a pair venue is left
+# multi-currency, because a CurrencyPair trade converts USD into the base asset and an
+# account that cannot hold it fills one size increment and stops.
+PAIR_CLASSES = {"crypto", "commodities", "cme_futures"}
 
 
 def all_cells():
@@ -399,6 +460,24 @@ WFO_RESULTS = WFO / "results"
 TOP_N_RULES = 3
 
 
+def sheet_path(asset_class: str, timeframe: str):
+    return WFO_RESULTS / f"wf_summary_{asset_class}_{timeframe}.csv"
+
+
+def has_sheet(asset_class: str, timeframe: str) -> bool:
+    """Is there a walk-forward leaderboard for this cell at all?
+
+    Asked before `top_rules`, which raises `SystemExit` on a missing sheet — right for a
+    research script that has nothing else to do, and fatal for the desk. **This is not
+    hypothetical and it is not temporary:** `FORWARD_TIMEFRAMES` is `1d, 4h` and there is
+    no `wf_summary_cme_futures_4h.csv`, because the vendor's ohlcv archive has no 4h
+    schema for CME and the 15m/1h sheets that do exist were cut from cached 1m bars, which
+    a live poll cannot ask for. So one cell of the grid is permanently empty, and
+    `run_paper --top N` must skip it rather than take the desk down over it.
+    """
+    return sheet_path(asset_class, timeframe).exists()
+
+
 def top_rules(asset_class: str, n: int = TOP_N_RULES,
               timeframe: str = "1d") -> list[str]:
     """The n best rules on a sheet, by walk-forward out-of-sample IR.
@@ -410,14 +489,14 @@ def top_rules(asset_class: str, n: int = TOP_N_RULES,
     (`IS#1`, the `[WF]` families) are a different rule in every fold and have no single
     definition to trade live.
 
-    **Ranking is not passing.** Nothing on any of the four sheets clears a single acceptance
+    **Ranking is not passing.** Nothing on any of the five sheets clears a single acceptance
     gate. Three of them are led by `MAXINDEX`/`MININDEX` at `long_frac` ~ 0.86, which is the
     leaderboard ranking time-in-market rather than skill — see the `ir_vs_random` note in
     `../CLAUDE.md`. These are the least-bad candidates, which is not the same as good ones;
     they are here to exercise the pipeline.
     """
     import pandas as pd
-    p = WFO_RESULTS / f"wf_summary_{asset_class}_{timeframe}.csv"
+    p = sheet_path(asset_class, timeframe)
     if not p.exists():
         raise SystemExit(f"no sweep results at {p} — run walkforward.py first")
     _warn_if_stale(p)

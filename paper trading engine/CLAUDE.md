@@ -5,7 +5,7 @@ Guidance for Claude Code working in this directory. Read `../CLAUDE.md` first.
 
 ## What this is
 
-The live desk. Twelve Data bars in, NautilusTrader simulated fills out, state published for
+The live desk. Live vendor bars in, NautilusTrader simulated fills out, state published for
 the dashboard to watch.
 
 `SandboxExecutionClient` is the point of it: a real Nautilus execution client that prices
@@ -15,8 +15,13 @@ accounting is the *same code* that would run against a real venue.
 ```
 backtest   BacktestNode  + BacktestDataClient   + SimulatedExchange
 paper      TradingNode   + TwelveDataLiveClient + SandboxExecutionClient   <- here
-live       TradingNode   + TwelveDataLiveClient + Binance / IB exec client
+                         + DatabentoLiveClient
+live       TradingNode   + the same two clients + Binance / IB exec client
 ```
+
+**Two data clients, because the research has two vendors.** Twelve Data feeds four classes
+and Databento feeds `cme_futures`; Nautilus keeps them apart by venue, and the section
+below on the fifth leg is where that lives.
 
 Going live is a change of execution client in `EXEC_CLIENTS` and nothing else.
 
@@ -40,7 +45,13 @@ catalog.py        publishes catalog.json: which rules may be promoted to the des
 migrate_owner.py  inspect/apply/verify the account migration on paper.db
 paper_state.py    the registry; serialises results/paper_state.json and publishes live.json
 td_live.py        Twelve Data REST: bars, prices, market hours. Importable without Nautilus
-td_nautilus.py    TwelveDataLiveClient + instrument factories
+td_nautilus.py    TwelveDataLiveClient + instrument factories + `instrument_for`, the ONE
+                  dispatcher from class to instrument shape
+db_live.py        Databento REST: the CME futures leg's bars and marks, ratio
+                  back-adjusted. The SECOND vendor, and the only one this class may be
+                  asked. Importable without Nautilus, like td_live
+db_nautilus.py    DatabentoLiveClient, bound to the `GLBX` venue, and the roll/forward-
+                  factor arithmetic that keeps a live buffer continuous
 live_ws.py        LiveHub: upstream tick socket -> paper_state.mark() -> browser socket
 backtest_paper.py the same strategy through a BacktestEngine on cached bars
 parity_live.py    measures the rolling window each rule needs to match the full series
@@ -60,6 +71,9 @@ test_desk_orders.py     the rules that decide whether money moves        (pytest
 test_fill_pnl.py        None vs 0.0: what closed nothing against what closed at cost
 test_alpaca_map.py      the mirror's arithmetic, offline                 (pytest)
 test_alpaca_mirror.py   the mirror converges, is idempotent, and refuses (pytest)
+test_futures_leg.py     the CME leg: a fractional instrument, an unfeedable timeframe
+                        refused at subscribe time, and the live roll reproducing
+                        `db_loader.back_adjust` up to one constant       (pytest)
 ```
 
 ## The second record: Alpaca
@@ -464,50 +478,133 @@ because a 4h series has a 20-hour hole in it each night by construction.
 It **reads** `../walk-forward optimization/results/wf_summary_*.csv` to pick its rules, and
 `../data/` for cached bars via the engine's `td_loader`. It reads nothing else.
 
-## The universe: four classes, four legs, four leaderboards
+## The universe: five classes, five legs, five leaderboards
 
 Each leg trades the rules from **its own** sheet. `paper_config.UNIVERSE` is the whole
 declaration, and `class_of()` is the reverse lookup that decides which sheet a symbol selects
-from, which venue it trades on, and how it is grouped on the dashboard.
+from, which venue it trades on, which vendor feeds it, and how it is grouped on the dashboard.
 
-| leg | symbols | selects from | venue |
-|---|---|---|---|
-| `us_stocks` | MEGA20 + SPY, SOXL, TQQQ | `wf_summary_us_stocks_*` | `SANDBOX` |
-| `us_etfs` | QQQ, IWM, XLK, TLT, GLD | `wf_summary_us_etfs_*` | `SANDBOX` |
-| `crypto` | the top 10 by market cap | `wf_summary_crypto_*` | `BINANCE` |
-| `commodities` | XAU, XAG, XPT, XPD, WTI | `wf_summary_commodities_*` | `SPOT` |
+| leg | symbols | selects from | venue | fed by |
+|---|---|---|---|---|
+| `us_stocks` | MEGA20 + SPY, SOXL, TQQQ | `wf_summary_us_stocks_*` | `SANDBOX` | Twelve Data |
+| `us_etfs` | QQQ, IWM, XLK, TLT, GLD | `wf_summary_us_etfs_*` | `SANDBOX` | Twelve Data |
+| `crypto` | the top 10 by market cap | `wf_summary_crypto_*` | `BINANCE` | Twelve Data |
+| `commodities` | XAU, XAG, XPT, XPD, WTI | `wf_summary_commodities_*` | `SPOT` | Twelve Data |
+| `cme_futures` | the 16 screened CME roots | `wf_summary_cme_futures_1d` | `GLBX` | **Databento** |
 
-Three rules per leg per timeframe (`TOP_N_RULES`), two timeframes: **24 systems, 258
-deployments**.
+Three rules per leg per timeframe (`TOP_N_RULES`), two timeframes.
 
-### A fifth leg, `cme_futures`, is researched but NOT deployed here
+## The fifth leg has its own vendor, and Nautilus routes it by venue
 
-`backtest engine/db_loader.py` now fetches CME contracts from Databento and the class
-sweeps and walk-forwards like any other. It is deliberately absent from `UNIVERSE`,
-because a leg is not a list of symbols — it is a feed, an instrument, a venue and a sheet,
-and two of those four are missing. Adding the symbols without them would not start a
-futures desk; it would break the one that is running, since `all_cells()` would generate
-cells `td_live` cannot price.
+Twelve Data carries no CME contract at all and does not answer "no" — `ES` there is
+Eversource Energy and `CL` is Colgate-Palmolive, returned as clean, plausible, entirely
+wrong series. So `cme_futures` names its own source, and the seam is Nautilus's own:
 
-What it needs, in the order it blocks:
+    DataEngine.register_client   venue=None      -> _default_client   (TWELVEDATA)
+                                 venue=GLBX      -> _routing_map      (DATABENTO)
 
-1. **A live feed.** Twelve Data cannot serve this class at all, so `td_live`/`td_nautilus`
-   do not extend to it. The good news is that no equivalent has to be written: Nautilus
-   1.230 ships `nautilus_trader.adapters.databento`, with a live client and instrument
-   provider already in the venv. The cost is a **Databento live subscription**, which is
-   billed separately from the historical archive this repo's key already covers — a
-   decision to be made, not a line of code.
-2. **A `FuturesContract` instrument, not an equity.** Multiplier, tick and expiry all
-   matter for sizing, and `futures_specs.CME_CONTRACTS` already carries them. Venue is
-   `GLBX`, and it must be its own entry in `VENUES` for the same reason `BINANCE` and
-   `SPOT` are separate: `run_paper.route_bars_to_sandbox` filters by venue.
-3. **A 4h sheet, which does not exist.** `FORWARD_TIMEFRAMES` and `BOOK_TIMEFRAMES` are
-   both `1d, 4h`, and this class is 1d only because the vendor's hourly archive is holed
-   before 2013. Either the futures leg runs 1d alone, or the intraday bars get rebuilt
-   from the `trades` schema first. See `../backtest engine/CLAUDE.md`.
-4. **A sheet with something on it.** The same gate every other leg passed: `promote_top`
-   selects from `wf_summary_cme_futures_1d`, and if nothing on it clears the edge
-   standard there is nothing to deploy. That is a result, and results do not live here.
+`TwelveDataLiveClient` passes `venue=None` and stays the default; `DatabentoLiveClient`
+passes `Venue("GLBX")` and receives exactly the futures subscriptions. No routing code was
+written, and no futures bar can reach the wrong vendor by accident.
+
+**The Databento client is registered even with no key on the box**, and that is
+deliberate. Leaving it out does not turn the leg off, it hands the leg back to the default
+client — the one that would ask Twelve Data for `ES.v.0`. A registered client with no
+credential refuses visibly; an absent one mis-routes silently.
+
+### The historical archive IS the live feed
+
+Measured 2026-08-27 at 12:58:10 UTC: `metadata.get_dataset_range` for `GLBX.MDP3` reported
+the dataset ending at 12:50:00 UTC — the archive lags real time by about eight minutes, and
+`ohlcv-1h`/`ohlcv-1d` report that same fact rounded down to their own bar boundary. So a
+REST poller works, at $0.00, and **Databento's paid Live API is not needed and is not
+used**. `db_nautilus.POLL_LAG` is 15 minutes, sized against that measurement: poll inside
+the lag and the vendor has nothing, `drop_forming` correctly discards what it does have,
+and the bar is skipped in silence.
+
+Two schema notes that decide what this leg can run at:
+
+* **`ohlcv-1d` and `ohlcv-1h`, and nothing else.** The GLBX archive has no 15m or 4h
+  schema at all, and its 1m bars carry the folded-session defect before 2016. The 15m and
+  4h research sheets were cut from *cached* 1m files, which a live poll cannot ask for.
+  `db_live.can_feed` is the capability; `db_nautilus.timeframe_of` refuses anything else
+  at subscribe time, and `desk_control._feedable` refuses it one step earlier so the
+  refusal reaches the registration's owner rather than a Nautilus task's log.
+* **`db_live.available_end` is to the MINUTE, not to the day.** `db_loader.available_end`
+  rounds to a date and memoises forever, which is right for a fetch job and breaks a
+  poller twice: measured 2026-08-27 at 12:58 UTC, `ohlcv-1h` ended at **12:00** that day,
+  so a date-truncated request loses the whole current session — and a permanently
+  memoised end asks for the same window for the life of the process.
+
+### A "contract" on this leg is not a contract
+
+The instrument is a fractional `CurrencyPair`, not a `FuturesContract`, and
+`td_nautilus.futures_instrument` says at length why. Short version: `FuturesContract` has
+no `size_increment`, `BOOK_CAPITAL` is $100,000 across 16 names, and $6,250 against ES at
+~$385,000 of index exposure per real contract rounds to **zero**. The whole book would sit
+flat while every log line read healthy.
+
+So a unit here is a fractional notional unit of a back-adjusted continuous series. The
+multiplier, quote scale and tick in `futures_specs.CME_CONTRACTS` are **not** used, and a
+quantity on this leg must not be read as a contract count.
+
+### The roll is the one genuinely new piece of arithmetic
+
+`data/futures/**` is ratio back-adjusted; a live poll is not. On a roll the raw continuous
+series steps to a different contract's level — WTI printed 18.12 and then 24.76 in April
+2020 — and `book_strategy` appends live bars to a rolling buffer, so an unhandled roll
+feeds that fabricated return straight into a live signal.
+
+Back-adjustment is multiplication by a constant and every price indicator here is
+equivariant under a common scale, so **the anchor does not matter and internal consistency
+does**:
+
+| | |
+|---|---|
+| warm-up | `db_live.fetch_bars` runs the window through `db_loader.back_adjust` — the same code, the same rank-0/rank-1 same-bar ratio the cache was built with — anchored at the newest bar |
+| afterwards | a per-symbol cumulative FORWARD factor, 1.0 at warm-up. A roll is detected by the `instrument_id` behind the continuous symbol changing, its ratio comes from `db_live.roll_ratios` (which is `back_adjust`), and the factor is **divided** by it |
+
+Divided, not multiplied: `back_adjust` scales history *up* to the newest contract, and
+here history is already published, so it is the new bars that come *down* to the warm-up's
+anchor. Same adjustment, opposite end.
+
+An inexact roll — rank 1 was not the contract rank 0 became, because ranks can skip a
+month — falls back to the close-to-close splice `db_loader` labels in its ledger, and says
+so as a WARNING. **An unadjusted bar is never emitted across a roll.**
+
+`db_live.FORWARD_FACTORS` publishes that anchor so the MARK matches the FILLS. A fresh
+vendor read anchors at *its* newest bar, so after a roll a naive mark differs from the
+desk's own scale by that roll's ratio — a median 0.56% on this universe, applied to the
+whole position, showing up as a P&L step nobody traded.
+
+### Mark-to-market is split by vendor, in two threads
+
+`start_marker` batches every marked symbol into one Twelve Data `/price` call, which is
+exactly why futures cannot go through it. `run_paper._split_by_feed` divides them, and
+`start_futures_marker` prices the CME leg from Databento in its own daemon thread at
+`FUTURES_MARK_SECONDS` (300, against the equity leg's 60) — a Databento window costs ~25
+seconds of server-side symbology resolution whatever it carries, and a stall there must not
+delay the four classes Twelve Data prices. The Twelve Data **tick socket** gets the same
+split: `ES.v.0` there does not fail, it comes back in `subscribe-status.fails` forever.
+
+### There is no 4h sheet for this class, and there cannot be one
+
+`FORWARD_TIMEFRAMES` is `1d, 4h` and `wf_summary_cme_futures_4h.csv` does not exist.
+`paper_config.has_sheet` is what makes that survivable: `top_rules` raises `SystemExit` on
+a missing sheet — right for a research script, fatal for a desk — so `run_paper.build_plan`
+asks first and skips the cell with a printed line. `catalog.py` already skipped it.
+
+`BOOK_TIMEFRAMES` still carries `4h` and `5m` for the other four legs; a futures book at
+either is refused by `desk_control._feedable` with a sentence.
+
+### What the VPS needs that it does not have
+
+`DATABENTO_API_KEY` in `/opt/stockhunt/.env.local`. Until it is there the desk runs
+normally on four classes and every futures subscription is refused with that sentence in
+the log — verified, not assumed. `db_live.have_key` exists precisely so a missing secret is
+answered rather than raised: `run_paper.py` runs under systemd with a restart policy, and a
+`RuntimeError` at node build or in a poll task would restart-loop books that have nothing to
+do with futures.
 
 ## The house runs two timeframes; a member may run six
 

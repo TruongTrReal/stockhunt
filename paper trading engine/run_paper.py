@@ -1,4 +1,4 @@
-"""Paper-trade the forward test: live Twelve Data bars, Nautilus simulated fills.
+"""Paper-trade the forward test: live vendor bars, Nautilus simulated fills.
 
 `SandboxExecutionClient` is the point of this file. It is a real Nautilus execution
 client that prices fills from the live data feed instead of sending orders anywhere, so
@@ -8,13 +8,21 @@ else — the strategy, the data client and the signal layer are untouched.
 
     backtest   BacktestNode      + BacktestDataClient  + SimulatedExchange
     paper      TradingNode       + TwelveDataLiveClient + SandboxExecutionClient   <- here
-    live       TradingNode       + TwelveDataLiveClient + Binance / IB exec client
+                                 + DatabentoLiveClient
+    live       TradingNode       + the same two clients + Binance / IB exec client
 
-**This is plumbing, not a trading recommendation.** Nothing on any of the four walk-forward
-sheets clears an acceptance gate, and three of the four are led by rules that are in the
-market ~86% of the time — a leaderboard measuring capital deployment, not skill. The job of
-a run is to prove that bars arrive, signals compute, orders fill and P&L accrues. Do not
-read the P&L as evidence of anything.
+**Two data clients, and Nautilus routes them by VENUE.** `TwelveDataLiveClient` registers
+with `venue=None` and is therefore the default; `DatabentoLiveClient` registers with
+`Venue("GLBX")` and receives exactly the `cme_futures` subscriptions. That separation is
+not cosmetic — Twelve Data carries no CME contract and answers an unqualified `ES` with
+Eversource Energy rather than with an error, so a futures bar reaching the default client
+would be priced against somebody else's instrument.
+
+**This is plumbing, not a trading recommendation.** Nothing on any of the five walk-forward
+sheets clears an acceptance gate, and most of them are led by rules that are in the market
+~86% of the time — a leaderboard measuring capital deployment, not skill. The job of a run
+is to prove that bars arrive, signals compute, orders fill and P&L accrues. Do not read the
+P&L as evidence of anything.
 
 **By default the desk runs what has been REGISTERED, and nothing else** — the $100,000
 class books promoted from the backtest page, and managers' own strategies. It starts with
@@ -40,6 +48,8 @@ import threading
 from datetime import datetime, timezone
 
 import paper_config
+import db_live
+import db_nautilus
 import desk_control
 import desk_orders
 import live_ws
@@ -84,12 +94,12 @@ def instrument_for(symbol: str, asset_class: str | None = None):
     the same separator as `BTC/USD` and would have been built as a Binance spot pair — a
     metal quoted on a crypto venue, priced against a book it does not belong to, and
     reported under the wrong class on the dashboard. The class is looked up, not inferred.
+
+    The branch itself now lives in `td_nautilus.instrument_for`, because it was copied
+    into five places and the futures leg needed a third arm in every one of them.
     """
     cls = asset_class or paper_config.class_of(symbol)
-    venue = VENUES[cls]
-    if cls in paper_config.PAIR_CLASSES:
-        return td_nautilus.pair_instrument(symbol, venue)
-    return td_nautilus.equity_instrument(symbol, venue)
+    return td_nautilus.instrument_for(symbol, cls, VENUES[cls])
 
 
 RESULTS = paper_config.WFO_RESULTS
@@ -238,6 +248,19 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
         data_clients={
             "TWELVEDATA": td_nautilus.TwelveDataDataClientConfig(
                 window_bars=paper_config.DEFAULT_WINDOW_BARS),
+            # The second vendor, and it is registered UNCONDITIONALLY — including when
+            # there is no Databento key on the box, which is the state the VPS is in until
+            # somebody puts one in `/opt/stockhunt/.env.local`.
+            #
+            # Leaving it out does not turn the futures leg off. Nautilus routes data
+            # clients by venue, and `TwelveDataLiveClient` passes `venue=None`, so it is
+            # the DEFAULT client: with no `GLBX` client registered, a futures bar request
+            # falls through to Twelve Data, which carries no CME contract and does not
+            # answer "no" — `ES` there is Eversource Energy, returned as a clean and
+            # entirely wrong series. A registered client with no credential refuses
+            # visibly; an absent one mis-routes silently.
+            "DATABENTO": db_nautilus.DatabentoDataClientConfig(
+                window_bars=paper_config.DEFAULT_WINDOW_BARS),
         },
         exec_clients={
             # `base_currency` is set for the equity venue and deliberately NOT for the
@@ -263,6 +286,8 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     node = TradingNode(config=config)
     node.add_data_client_factory("TWELVEDATA",
                                  td_nautilus.TwelveDataLiveDataClientFactory)
+    node.add_data_client_factory("DATABENTO",
+                                 db_nautilus.DatabentoLiveDataClientFactory)
     for v in venues:
         node.add_exec_client_factory(v, SandboxLiveExecClientFactory)
     node.build()
@@ -323,6 +348,68 @@ def route_bars_to_sandbox(node: TradingNode) -> int:
     return wired
 
 
+# How often the futures leg is revalued, and why it is not the equity cadence.
+#
+# A Databento window costs ~25 seconds whatever it carries — the server spends it resolving
+# continuous symbology — so a 60-second loop would be in flight more than it is waiting.
+# Five minutes is a mark on a class whose books decide once a day; it is reporting, and the
+# thing it must never do is delay the equity marks, which is why it is its own thread
+# rather than a branch inside `start_marker`.
+FUTURES_MARK_SECONDS = 300
+
+
+def _split_by_feed(symbols) -> tuple[list[str], list[str]]:
+    """Which symbols Twelve Data may be asked about, and which it may not.
+
+    **This split is the whole point of the function.** `td_live.fetch_prices` batches every
+    marked symbol into one `/price` call, and asking Twelve Data for `ES.v.0` is the
+    "a bare ticker is not an identity" failure the root `CLAUDE.md` documents: the vendor
+    carries no CME contract at all and answers with a namesake equity or with nothing,
+    never with an error. Either way the desk would be marking a futures book against a
+    price that has nothing to do with it.
+
+    `CLASS_OF.get`, not `class_of`, because the latter raises `SystemExit` on an unknown
+    symbol and a mark-to-market poller must not be able to stop the desk over a stale name
+    in the published state.
+    """
+    td, futures = [], []
+    for symbol in symbols:
+        cls = paper_config.CLASS_OF.get(symbol)
+        (futures if cls == "cme_futures" else td).append(symbol)
+    return td, futures
+
+
+def start_futures_marker(symbols_of, every: int = FUTURES_MARK_SECONDS):
+    """Revalue the CME leg from Databento, in its own daemon thread.
+
+    Separate from `start_marker` for two reasons and both are about blast radius: a
+    Databento stall must not hold up the four classes Twelve Data prices, and a missing
+    Databento key must not make the equity marker log a failure every minute. If there is
+    no key the thread is never started and one line says so.
+    """
+    if every <= 0:
+        return lambda: None
+    if not db_live.have_key():
+        print(f"  ! {db_live.NO_KEY} — the futures leg will not be marked either")
+        return lambda: None
+    stop = threading.Event()
+
+    def loop():
+        while not stop.wait(every):
+            try:
+                _, futures = _split_by_feed(symbols_of())
+                if not futures:
+                    continue
+                paper_state.mark(db_live.fetch_prices(futures))
+                paper_state.flush(force=True)
+            except Exception as exc:
+                print(f"futures mark-to-market failed (will retry): {exc}", flush=True)
+
+    threading.Thread(target=loop, daemon=True, name="mark-to-market-futures").start()
+    print(f"marking the CME leg from Databento every {every}s")
+    return stop.set
+
+
 def start_marker(symbols_of, every: int):
     """Revalue open positions on a timer, in a plain background thread.
 
@@ -338,6 +425,9 @@ def start_marker(symbols_of, every: int):
 
     One batched `/price` call covers every symbol, so the credit cost is one request per
     interval regardless of how many systems are running.
+
+    **Twelve Data's symbols only.** The CME leg is marked by `start_futures_marker` from
+    its own vendor; see `_split_by_feed` for what asking this one about `ES.v.0` returns.
     """
     if every <= 0:
         return lambda: None
@@ -346,7 +436,7 @@ def start_marker(symbols_of, every: int):
     def loop():
         while not stop.wait(every):
             try:
-                symbols = symbols_of()
+                symbols, _ = _split_by_feed(symbols_of())
                 if not symbols:
                     continue
                 paper_state.mark(td_live.fetch_prices(symbols))
@@ -375,6 +465,11 @@ def start_feed_tracker(hub, plan_symbols: list[str], every: int = 15):
     which is empty in the configuration the desk actually runs in. This closes the loop:
     whatever registers, gets priced — including a book promoted hours after the node came
     up, with no restart.
+
+    `wanted()` is the WHOLE running book, because that is what the markers split between
+    their two vendors. The Twelve Data tick socket is handed only its own half: subscribing
+    `ES.v.0` there does not fail, it comes back in `subscribe-status.fails` — one more line
+    of noise per reconnect about a symbol that was never going to stream.
     """
     stop = threading.Event()
     base = set(plan_symbols)
@@ -385,7 +480,7 @@ def start_feed_tracker(hub, plan_symbols: list[str], every: int = 15):
     def loop():
         while not stop.wait(every):
             try:
-                if hub is not None and hub.set_symbols(wanted()):
+                if hub is not None and hub.set_symbols(_split_by_feed(wanted())[0]):
                     print(f"feed now tracking {len(hub.symbols)} symbols", flush=True)
             except Exception as exc:
                 print(f"feed tracker failed (will retry): {exc}", flush=True)
@@ -405,7 +500,7 @@ def build_plan(args) -> list[tuple]:
     sheet has never ranked it in its top fifty.
 
     Grouping is by `paper_config.class_of`, so a symbol trades the rules from its own
-    leaderboard. Four classes now, and the two new ones are why this cannot be a split on
+    leaderboard. Five classes now, and they are why this cannot be a split on
     the ticker: `GLD` and `SPY` are both ETFs but only one of them is on the ETF leg here,
     and `XAU/USD` and `BTC/USD` are spelled alike and ranked on different sheets.
     """
@@ -429,6 +524,14 @@ def build_plan(args) -> list[tuple]:
             plan += [(s, args.rule, tf, paper_config.class_of(s)) for s in args.symbols]
             continue
         for cls, group in by_class.items():
+            # A (class, timeframe) with no leaderboard is skipped with a sentence, not an
+            # exit. `cme_futures` at 4h is permanently in that state — the vendor's ohlcv
+            # archive has no 4h schema for CME — so `--top N` would otherwise take the
+            # whole desk down over a sheet that is never going to exist.
+            if not paper_config.has_sheet(cls, tf):
+                print(f"  ! no wf_summary_{cls}_{tf}.csv — skipping the automatic "
+                      f"{cls} leg at {tf}")
+                continue
             for rule in top_rules(cls, args.top, tf):
                 plan += [(s, rule, tf, cls) for s in group]
     return plan
@@ -480,6 +583,12 @@ def main() -> None:
               f"({pending} registration(s) waiting). Flip a switch on the backtest page, "
               f"or pass --top 3 for the old per-symbol legs.")
 
+    # Said at startup, before anything is built, because the alternative is finding out
+    # from a book that never warms up. The desk starts either way — four other classes are
+    # holding live positions and a missing secret must not restart-loop them.
+    if not db_live.have_key():
+        print(f"  ! {db_live.NO_KEY}")
+
     node, instruments = build_node(plan, args.allow_short, args.log_level,
                                    args.capital)
     print(f"built node: {len(plan)} strategies over {len(instruments)} instruments, "
@@ -528,6 +637,7 @@ def main() -> None:
     # The poller stays on as a slow safety net even when streaming: it costs one request a
     # minute and it is what keeps the marks honest if the upstream socket silently stalls.
     stop_marking = start_marker(wanted_symbols, args.mark_seconds)
+    stop_futures_marking = start_futures_marker(wanted_symbols)
     paper_state.set_feed(status="ok")
     # `force`, because this write lands milliseconds after the "starting" one above and
     # `flush` is debounced at MIN_FLUSH_SECONDS — un-forced it does not write, it schedules
@@ -544,6 +654,7 @@ def main() -> None:
         # The dashboard must not keep showing "live" for a process that has exited. The
         # numbers stay — they were real — but the status tells the truth about the feed.
         stop_marking()
+        stop_futures_marking()
         stop_tracking()
         if hub is not None:
             hub.stop()

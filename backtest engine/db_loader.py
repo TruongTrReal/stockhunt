@@ -304,8 +304,14 @@ def _parse_partial(body: str) -> pd.DataFrame:
     return pd.read_csv(io.StringIO("\n".join([header, *rows])))
 
 
-def _fetch_window(symbols: list[str], a: str, b: str) -> pd.DataFrame:
+def _fetch_window(symbols: list[str], a: str, b: str,
+                  schema: str = SOURCE_SCHEMA) -> pd.DataFrame:
     """One window of bars, resumed as many times as the vendor cuts the stream.
+
+    `schema` defaults to the daily one this module ships, and exists so the live desk's
+    poller can reuse the resume logic at `ohlcv-1h` instead of writing a second copy of
+    it. Both truncations below are properties of the CSV endpoint, not of the daily
+    schema, so a second copy would be a second place to get them wrong.
 
     Two different truncations have to be survived and they look nothing alike:
 
@@ -327,7 +333,7 @@ def _fetch_window(symbols: list[str], a: str, b: str) -> pd.DataFrame:
     cursor = a
     while cursor < b:
         try:
-            raw = _get_range(symbols, cursor, b)
+            raw = _get_range(symbols, cursor, b, schema)
             cut = len(raw) >= OUTPUT_SIZE
         except PartialResponse as exc:
             raw = _parse_partial(exc.body)

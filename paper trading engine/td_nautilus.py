@@ -174,6 +174,90 @@ def pair_instrument(pair: str, venue: str) -> CurrencyPair:
     )
 
 
+def futures_instrument(symbol: str, venue: str) -> CurrencyPair:
+    """`ES.v.0` -> a FRACTIONAL instrument, and the word "contract" here is a lie.
+
+    **A unit on this leg is a fractional notional unit of a back-adjusted continuous
+    series, not a CME contract**, and that has to be said plainly because a reader who
+    sees "futures" will assume otherwise. Two facts force it:
+
+    * The series itself is a fiction. `ES.v.0` is whichever contract carried the most
+      volume that day, ratio back-adjusted across every roll, so a level on it is not a
+      price anybody paid and a "quantity" of it is not a position anybody could open.
+      `data/reference/futures_rolls.csv` records every adjustment behind it.
+    * Nautilus's `FuturesContract` has no `size_increment` — quantities are whole
+      contracts — and this desk's `BOOK_CAPITAL` is $100,000 split across a class's names.
+      Sixteen roots is ~$6,250 a slice, and $6,250 against ES at ~$320,000 of index
+      exposure per contract rounds to **zero**. The whole book would sit flat while every
+      log line read healthy, which is this folder's worst failure mode and it has happened
+      before.
+
+    The research book holds fractional equal weights anyway, so the fractional instrument
+    is the one that reproduces what was measured. What it does NOT reproduce is contract
+    sizing: `futures_specs.CME_CONTRACTS` carries the multiplier, the quote scale and the
+    tick, and none of them are used here. A number on this leg is a notional exposure, and
+    it must not be read as a contract count.
+
+    Shape is `pair_instrument`'s, for the same reason commodities use it: buying settles
+    USD into the base asset. `Currency.from_str("ES")` auto-creates an 8-precision
+    currency, so no registration step is needed for a root Nautilus has never heard of.
+    """
+    from nautilus_trader.model.currencies import USD as _USD
+    from nautilus_trader.model.objects import Currency
+
+    root = symbol.split(".")[0]
+    return CurrencyPair(
+        instrument_id=InstrumentId(Symbol(symbol), Venue(venue)),
+        raw_symbol=Symbol(symbol),
+        base_currency=Currency.from_str(root),
+        quote_currency=_USD,
+        # Six places rather than two, because a back-adjusted price is a real price times
+        # a product of ratios and lands nowhere near the exchange's tick grid. Rounding it
+        # to the grid would be a fiction about a fiction; the tick that matters lives in
+        # `futures_specs` and is not what this series is quoted on.
+        price_precision=6,
+        size_precision=6,
+        price_increment=Price.from_str("0.000001"),
+        size_increment=Quantity.from_str("0.000001"),
+        lot_size=None,
+        max_quantity=None,
+        min_quantity=None,
+        max_notional=None,
+        min_notional=None,
+        max_price=None,
+        min_price=None,
+        margin_init=Decimal(0),
+        margin_maint=Decimal(0),
+        maker_fee=Decimal(0),
+        taker_fee=Decimal(0),
+        ts_event=0,
+        ts_init=0,
+    )
+
+
+# Which builder each class gets. Held as a map rather than as a chain of `if`s because
+# five call sites used to carry their own copy of the chain — `run_paper.instrument_for`,
+# `desk_control._build`, `member_strategy._instrument_for` and `book_strategy` twice — and
+# the futures leg needed a third branch in every one of them. A class whose instrument
+# shape is decided in five places is a class that will be one shape in four of them.
+_BUILDERS = {"cme_futures": futures_instrument}
+
+
+def instrument_for(symbol: str, asset_class: str, venue: str):
+    """The Nautilus instrument for a desk symbol, by CLASS rather than by spelling.
+
+    Never inferred from the ticker. `XAU/USD` carries the same separator as `BTC/USD` and
+    belongs to a different class, a different venue and a different leaderboard; `ES.v.0`
+    carries no separator at all and is not a share. The class is looked up.
+    """
+    builder = _BUILDERS.get(asset_class)
+    if builder is not None:
+        return builder(symbol, venue)
+    if asset_class in paper_config.PAIR_CLASSES:
+        return pair_instrument(symbol, venue)
+    return equity_instrument(symbol, venue)
+
+
 def vendor_symbol(instrument_id: InstrumentId) -> str:
     """`BTCUSD.BINANCE` -> `BTC/USD`; `XAUUSD.SPOT` -> `XAU/USD`; `SOXL.SANDBOX` -> `SOXL`.
 

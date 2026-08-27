@@ -211,6 +211,12 @@ def normalize_symbol(symbol: str) -> str:
     if s.endswith(".P"):
         s = s[:-2]                                  # BTCUSDT.P (perpetual) -> BTCUSDT
     s = re.sub(r"\d*!$", "", s)                     # ES1! (continuous) -> ES
+    # ...and the DESK's spelling of the same continuous contract. Both sides are reduced
+    # here, so dropping one form and not the other is not a smaller version of the same
+    # rule — it is the two sides landing on `ES` and `ESV0` and never matching. Every
+    # alert on a `cme_futures` book would have answered 422 naming the symbol it was
+    # registered for.
+    s = re.sub(r"\.[A-Z]\.\d{1,2}$", "", s)         # ES.v.0 (Databento continuous) -> ES
     s = re.sub(r"[^A-Z0-9]", "", s)                 # BTC/USD -> BTCUSD, BRK.B -> BRKB
     for quote in ("USDT", "USDC"):
         if s.endswith(quote) and len(s) > len(quote):

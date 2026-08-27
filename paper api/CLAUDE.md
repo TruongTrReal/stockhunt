@@ -32,6 +32,8 @@ authdb.py       state/auth.db - users, api_keys, webhook_secrets, otp_challenges
                 sessions, audit
 mailer.py       the code, over Gmail SMTP. `python mailer.py --check` tests the credentials
 api_auth.py     /auth/*, `current_session`, `current_principal`, and the API-key endpoints
+api_symbols.py  how this desk SPELLS an instrument. One fold, read by the register, the
+                order and the webhook paths, because they must agree exactly
 api_strategies.py  /v1/strategies - a manager registers, pauses, retires
 api_orders.py   /v1/orders - the hot path. 202 means written down, never filled
 api_webhook.py  /v1/webhook/tradingview - the ONE route whose credential is in the BODY,
@@ -333,6 +335,13 @@ Three things it must keep doing:
   computed here. When the desk has not published one the field falls back to free text:
   a research artifact that has not been rebuilt must not be able to stop somebody
   registering, and the desk checks anyway.
+* **A symbol is folded through `api_symbols.canonical`, never through `.upper()`.**
+  `cme_futures` is the one class whose names are not capitals — `ES.v.0` is root, roll
+  rule, rank, and the lower-case roll rule is Databento's, held verbatim by the desk.
+  Capitalising it yields `ES.V.0`, which is in no universe, and the desk matches with a
+  plain `in`: a `201` here and a refusal there, for a symbol the picker itself offered.
+  The register path, the order path and `normalize_symbol` all fold, and they have to
+  land on the same string or the agreement is only apparent.
 * **Timeframes come from the desk's list, not this one.** `api_config.TIMEFRAMES` must stay
   a subset of `paper_config.MEMBER_TIMEFRAMES`; `test_strategies.py` reads the desk's file
   off disk and asserts it, because this process cannot import it. Widen the desk first.

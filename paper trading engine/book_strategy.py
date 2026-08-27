@@ -217,9 +217,8 @@ class BookStrategy(Strategy):
         start = self.clock.utc_now() - span * self.config.window_bars * 2 / duty
 
         for symbol in watch:
-            inst = (td_nautilus.pair_instrument(symbol, self.config.venue)
-                    if self.config.cls in paper_config.PAIR_CLASSES
-                    else td_nautilus.equity_instrument(symbol, self.config.venue))
+            inst = td_nautilus.instrument_for(symbol, self.config.cls,
+                                              self.config.venue)
             if self.cache.instrument(inst.id) is None:
                 self.cache.add_instrument(inst)
             bar_type = BarType.from_str(
@@ -462,10 +461,8 @@ class BookStrategy(Strategy):
         if price <= 0:
             return
         import td_nautilus
-        inst_factory = (td_nautilus.pair_instrument
-                        if self.config.cls in paper_config.PAIR_CLASSES
-                        else td_nautilus.equity_instrument)
-        inst = self.cache.instrument(inst_factory(symbol, self.config.venue).id)
+        inst = self.cache.instrument(
+            td_nautilus.instrument_for(symbol, self.config.cls, self.config.venue).id)
         if inst is None:
             return
 

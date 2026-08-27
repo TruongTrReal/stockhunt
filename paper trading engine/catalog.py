@@ -212,8 +212,12 @@ def build(depth: int = DEPTH) -> dict:
             # Declared per class, never inferred from the holdings. A book of a hundred
             # names has no single instrument to benchmark against, so where there is no
             # obvious index the honest answer is none and the curve is one line.
+            # `cme_futures` is None for the same reason crypto and commodities are: the
+            # research class benchmarks against `ES.v.0`, which is a HOLDING of this book
+            # rather than an index outside it, so drawing it as the second line would be
+            # the book against one of its own sixteen names.
             "benchmark": {"us_stocks": "SPY", "us_etfs": "QQQ",
-                          "crypto": None, "commodities": None},
+                          "crypto": None, "commodities": None, "cme_futures": None},
             # The dashboard's tab keys are NOT the engine's class names — the board says
             # `stocks` and `etf` where the desk says `us_stocks` and `us_etfs`. The URL a
             # reader is on carries the board's spelling, so the switch has to translate
@@ -262,7 +266,13 @@ def main() -> None:
         for key, sheet in doc["sheets"].items():
             print(f"\n  {key}   ({len(sheet['cells'])} cells)")
             for c in sheet["cells"][:5]:
-                print(f"    {c['rule']:<24} ir_net {c['ir_net']:>7}  "
+                # `.get`, because a cell carries a column only when its sheet had one —
+                # `cells()` copies `EXTRA` and nothing else, and `ir_net` has never been
+                # in `EXTRA`. Indexing it made `--print` a `KeyError` on the first row of
+                # the first sheet, which is a poor way for the verification command to work.
+                print(f"    {c['rule']:<24} "
+                      f"passed {str(c.get('edge_passed')):<5} "
+                      f"cm_excess_cagr {c.get('book_cm_excess_cagr')}  "
                       f"long_frac {c.get('long_frac')}")
     print(f"\n  {WARNING}")
 

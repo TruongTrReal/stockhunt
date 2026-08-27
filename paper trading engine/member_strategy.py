@@ -89,9 +89,7 @@ class MemberStrategy(Strategy):
 
     # ------------------------------------------------------------------ instruments
     def _instrument_for(self, symbol: str):
-        if self.config.cls in paper_config.PAIR_CLASSES:
-            return td_nautilus.pair_instrument(symbol, self.config.venue)
-        return td_nautilus.equity_instrument(symbol, self.config.venue)
+        return td_nautilus.instrument_for(symbol, self.config.cls, self.config.venue)
 
     def _instrument_id(self, symbol: str) -> InstrumentId:
         return self._instrument_for(symbol).id

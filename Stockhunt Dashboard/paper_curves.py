@@ -196,6 +196,11 @@ def main() -> None:
     # legs it adds are single rules over the class's configured universe, exactly as before.
     for tf in args.timeframes:
         for cls, symbols in paper_config.UNIVERSE.items():
+            # A (class, timeframe) with no leaderboard is skipped, not fatal. `top_rules`
+            # raises SystemExit on a missing sheet, and `cme_futures` has no 4h sheet and
+            # never will — the vendor's ohlcv archive has no 4h schema for CME.
+            if args.top and not paper_config.has_sheet(cls, tf):
+                continue
             for rule in (paper_config.top_rules(cls, args.top, tf) if args.top else []):
                 plan.setdefault(f"{cls}|{tf}|{rule}",
                                 {"cls": cls, "tf": tf, "rule": rule,

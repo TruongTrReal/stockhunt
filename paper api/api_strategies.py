@@ -26,6 +26,7 @@ import api_auth
 import api_config
 import api_live
 import api_paths                                                        # noqa: F401
+import api_symbols
 import api_webhook
 import authdb
 from stockhunt import deskdb
@@ -42,7 +43,11 @@ limits_router = APIRouter(prefix="/v1", tags=["strategies"])
 # Asset classes a registration may name. Held here rather than imported from the engine
 # because this process imports no trading code — and it is a list that changes about once
 # a year, against a rule that says the desk re-checks it anyway.
-CLASSES = ("us_stocks", "us_etfs", "crypto", "commodities")
+#
+# `cme_futures` is the odd one and `api_symbols` is why: it is the only class whose
+# symbols are not spelled in capitals (`ES.v.0`, not `ES`), so naming it here without
+# fixing the fold would have produced registrations the desk cannot match.
+CLASSES = ("us_stocks", "us_etfs", "crypto", "commodities", "cme_futures")
 
 NAME_MAX = 40
 SYMBOLS_MAX = 20
@@ -88,9 +93,15 @@ class RegisterRequest(BaseModel):
     @field_validator("symbols")
     @classmethod
     def _symbols(cls, v: list[str]) -> list[str]:
-        out = [s.strip().upper() for s in v if s and s.strip()]
+        # `api_symbols.canonical`, not `.upper()`. A plain fold to capitals is right for
+        # every class but `cme_futures`, where it rewrites `ES.v.0` — the desk's own
+        # spelling, offered by the console out of the desk's own published universe — as
+        # `ES.V.0` and registers a symbol no leg holds.
+        out = [api_symbols.canonical(s) for s in v if s and s.strip()]
         if not out:
             raise ValueError("name at least one symbol")
+        # Compared after the fold, so `ES.v.0` and `ES.V.0` in one request are caught as
+        # the duplicate they are rather than registered as two names for one contract.
         if len(set(out)) != len(out):
             raise ValueError("the same symbol twice")
         return out
@@ -161,9 +172,13 @@ def limits(who: dict = Depends(api_auth.current_principal)) -> LimitsOut:
 
     The console states these terms up front — capital, the class list, the order cap —
     and every one of them is settable from the environment. Written into the page instead,
-    they would go on reading `$10,000` and `us_stocks, us_etfs, crypto, commodities` on the
-    day somebody changes `API_CAPITAL_PER_STRATEGY` or adds a class, and a page that
-    misstates the terms is worse than one that omits them.
+    they would go on reading `$10,000` and offering four classes on the day somebody
+    changed `API_CAPITAL_PER_STRATEGY` or added a fifth, and a page that misstates the
+    terms is worse than one that omits them.
+
+    This paragraph used to name those four in prose, and `cme_futures` made it wrong — the
+    drift it was warning about, in the sentence warning about it. So the count stays and
+    the list does not: `CLASSES` is the one place they are written down.
 
     Authenticated like the rest of `/v1`, though it carries no account data: the whole API
     is behind the allowlist and there is no reason for this to be the one door left open.

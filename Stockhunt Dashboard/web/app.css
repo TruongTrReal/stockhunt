@@ -159,7 +159,10 @@ h2{font-size:15px;font-weight:600;letter-spacing:-.005em;color:var(--ink);margin
 .filters{display:flex;gap:18px;flex-wrap:wrap;align-items:baseline;
   font-size:13.5px;padding-bottom:2px;}
 .f-label{color:var(--muted);font-size:12px;}
-.f-group{display:flex;gap:12px;align-items:baseline;}
+/* Wraps, because the research strips are pills again and there are five asset classes and
+   five timeframes on them. Without this the buttons overflow the rail on a narrow window
+   instead of reflowing, which is the whole objection that turned them into selects once. */
+.f-group{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;}
 .pill{font:inherit;font-size:13.5px;background:none;border:none;padding:0 0 2px;
   color:var(--muted);cursor:pointer;border-bottom:1.5px solid transparent;}
 .pill:hover{color:var(--ink);}

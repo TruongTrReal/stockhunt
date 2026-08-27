@@ -384,9 +384,17 @@ matches nothing falls through to `paperMaster`, which would answer "compare thes
 strategies" with the paper desk. Compare goes back to the board. A robustness link carries
 the rule it was about, so it opens that rule on the sheet currently selected.
 
-Asset class and timeframe stay **filters** (native selects, `.fsel`), not navigation —
-the pill strips they replaced read as tabs and stop scaling past two timeframes. They are
-the only two, since the board switch went with the second board. The masthead item is still labelled **Research**, in all three
+Asset class and timeframe are **filters**, not navigation, and they are **pill strips**
+again (2026-08-27). They were native `.fsel` selects for a day, on the argument that five
+classes times five timeframes stops fitting a row — which was true about width and wrong
+about reading. **A select shows one option and hides the rest behind a click**, so nothing
+on the page said that `cme_futures` is a fifth class or that 15m and 5m are scored; the
+one strip whose options a reader most needed to see was the only one concealing them, on a
+board where every other strip (paper class, paper timeframe) is pills. The width objection
+is answered in CSS instead — `.f-group` wraps, so ten buttons reflow rather than overflow.
+`.fsel` stays for the Robustness fill and metric selectors, which are genuinely dropdowns.
+They are the only two filters, since the board switch went with the second board. The
+masthead item is still labelled **Research**, in all three
 masthead copies (here, `../paper api/web/desk.html`, `docs.html`) — the copies must keep
 saying the same word or the nav jumps between processes.
 

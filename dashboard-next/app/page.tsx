@@ -83,7 +83,12 @@ export default function ResearchPage() {
     [sheets, cls],
   );
 
-  const pick = useCallback((next: string, which: "cls" | "tf") => {
+  const pick = useCallback((next: string, which: "cls" | "tf", current: string) => {
+    // Clicking the pill that is already on is not a filter change. A `<select>` fired no
+    // event for it; a button does, and without this it would blank the sheet and re-fetch
+    // it — a cold sheet is seconds of an empty page, so re-selecting what is on screen
+    // would look exactly like breaking it.
+    if (next === current) return;
     // A filter change invalidates the page number: page 7 of a 500-row sheet is nowhere on
     // a 60-row one, and landing on an empty page reads as "no results" rather than "you
     // were deep in the last one".
@@ -113,26 +118,38 @@ export default function ResearchPage() {
         </p>
       </div>
 
+      {/* Pills, not selects, and the vanilla board's Research page matches (2026-08-27).
+          A select shows one option and hides the rest behind a click, so nothing on the
+          page said that a fifth asset class exists or that 15m and 5m are scored — on the
+          one strip whose options a reader most needs to see. `.f-group` wraps, so ten
+          buttons reflow instead of overflowing the rail. The two boards share `app.css`,
+          so `.pill` and `.pill.on` are the same buttons in both. */}
       <div className="filters wide">
         <span className="f-group">
           <span className="f-label">Asset class</span>
-          <select className="fsel" value={cls} onChange={(e) => pick(e.target.value, "cls")}>
-            {classes.map((c) => (
-              <option key={c} value={c}>
-                {CLASS_LABEL[c] ?? c}
-              </option>
-            ))}
-          </select>
+          {classes.map((c) => (
+            <button
+              key={c}
+              type="button"
+              className={`pill${c === cls ? " on" : ""}`}
+              onClick={() => pick(c, "cls", cls)}
+            >
+              {CLASS_LABEL[c] ?? c}
+            </button>
+          ))}
         </span>
         <span className="f-group">
           <span className="f-label">Timeframe</span>
-          <select className="fsel" value={tf} onChange={(e) => pick(e.target.value, "tf")}>
-            {timeframes.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          {timeframes.map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={`pill${t === tf ? " on" : ""}`}
+              onClick={() => pick(t, "tf", tf)}
+            >
+              {t}
+            </button>
+          ))}
         </span>
       </div>
 

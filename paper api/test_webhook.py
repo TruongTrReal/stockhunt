@@ -311,6 +311,23 @@ def test_a_chart_ticker_finds_the_desks_symbol(client, sent, expected):
     assert r.json()["resolved"]["symbol"] == expected
 
 
+@pytest.mark.parametrize("sent", ["ES1!", "CME_MINI:ES1!", "ES.v.0", "es"])
+def test_a_futures_chart_ticker_finds_the_desks_contract(client, sent):
+    """A `cme_futures` book holds `ES.v.0` — root, roll rule, rank — and no chart anywhere
+    says that. TradingView's continuous ticker is `ES1!`.
+
+    `normalize_symbol` reduces BOTH sides, so dropping one continuous form and not the
+    other is not a smaller version of the rule: it lands the two on `ES` and `ESV0`, and
+    every alert on a futures book answers 422 naming the symbol it was registered for.
+    """
+    h = session_headers()
+    sid = strategy(client, h, symbols=["ES.v.0", "GC.v.0"], cls="cme_futures", tf="1d")
+    secret = webhook(client, h, sid)
+    r = client.post(HOOK, json=alert(sid, secret, ticker=sent))
+    assert r.status_code == 202, r.text
+    assert r.json()["resolved"]["symbol"] == "ES.v.0"
+
+
 def test_a_symbol_that_was_not_registered_is_refused(client):
     _h, sid, secret = desk(client)
     r = client.post(HOOK, json=alert(sid, secret, ticker="NASDAQ:TSLA"))
