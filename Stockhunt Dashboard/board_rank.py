@@ -255,6 +255,95 @@ def _read(path):
         return pd.DataFrame()
 
 
+# ---------------------------------------------------------------- what is not a strategy
+#
+# Two ways for a book to reach this board without being a strategy, and they sit at
+# opposite ends of one axis. Both were in the top ten.
+#
+# **Idle.** The book is in cash. `BBANDS` and `CDL3STARSINSOUTH` sat 6th and 5th on
+# us_stocks 1d holding NOTHING for 23.6 years -- one trade between them, 0.0% exposure,
+# a pile of T-bills. They rank there because the sort's second key is the book's
+# cash-matched excess CAGR and theirs is -0.0002: a rounding error below zero, which
+# beats every rule that actually took risk and lost. Doing nothing is not a small edge,
+# and a leaderboard that ranks it above a real attempt is measuring the wrong thing.
+#
+# **Closet.** The book IS buy-and-hold. `mc_williams_r_reactive` is 98.8% invested with
+# 53 trades across ten ETFs in twenty years and an R-squared against buy-and-hold of
+# 0.992; whatever it computes, what it HOLDS is the index. Same non-strategy seen from
+# the other side, and the more flattering of the two, because the market's own return
+# arrives on the page under the rule's name.
+#
+# The old filter was `n_trades == 0` alone. It caught neither: one trade is not zero, and
+# a closet indexer trades constantly.
+
+MIN_EXPOSURE = 0.01
+"""In cash 99%+ of the time -- a T-bill account with a signal attached. Filtered on
+exposure rather than on the trade count because the count does not separate the cases:
+`CDLINNECK` opens 849 positions on us_stocks 1d and is still invested 0.8% of the time,
+while `CDL3STARSINSOUTH` opens one. Neither is a strategy; both are cash."""
+
+MAX_BH_R2 = 0.95
+MIN_BH_BETA = 0.90
+"""Buy-and-hold, measured on the OUTCOME rather than on the construction. `r2_vs_bh` is
+the R-squared of the book's returns against the same universe held passively, so 0.95 is
+literally "95% of this is buy-and-hold" -- which is the question, stated as a number.
+
+`beta_BH` is the second half and it is not redundant. A de-levered sleeve -- half the
+market, half in bills -- also posts a high R-squared, and cash-matching already prices
+that fairly, so cutting it would be removing a real answer to a question the board asks
+correctly. Requiring a full unit of the market leaves those rows on the page and takes
+only the ones holding the whole thing. Nothing in the store today has `beta_BH` above
+1.10 with an R-squared this high, so a LEVERED index has never had to be told apart from
+a plain one; if one appears it will show up here as a closet row, which is the safer of
+the two errors."""
+
+BH_HOLD_EXPOSURE = 0.95
+BH_HOLD_TRADES = 1.0
+"""The fallback, for a book row written before the benchmark regression existed: nearly
+always invested AND opening under one round trip per name per year is a rule that bought
+and held, whatever its docstring says. On this store it decides nothing -- every row it
+would catch is already caught by the R-squared, checked -- so it is a floor under a
+missing column and not a second policy."""
+
+
+def _criteria_passed(b: dict | None) -> int:
+    """How many of the six the BOOK cleared. `-1` where there is no answer.
+
+    -1 rather than 0, because "the standard never looked at this" is not "it cleared
+    nothing" and sorting the two together would put a rule nobody measured level with one
+    that was measured and failed everything. On a sheet that has a book those rows are
+    dropped before the sort anyway; the value only decides anything on a sheet that has
+    none, where every row scores it equally.
+    """
+    n = ((b or {}).get("standard") or {}).get("passed")
+    return -1 if n is None else int(n)
+
+
+def is_idle(b: dict | None) -> bool:
+    """The book never really held anything. No book record is not idle -- it is unknown,
+    and a rule the book stage has not reached must not be cut as though it had been."""
+    if not b:
+        return False
+    if b.get("n_trades") == 0:
+        return True
+    exp = b.get("exposure")
+    return exp is not None and exp < MIN_EXPOSURE
+
+
+def is_closet_bh(b: dict | None) -> bool:
+    """The book is buy-and-hold wearing a rule's name. See `MAX_BH_R2` for the basis."""
+    if not b:
+        return False
+    r2, beta = b.get("r2_vs_bh"), b.get("beta_bh")
+    if r2 is not None and beta is not None:
+        return r2 >= MAX_BH_R2 and beta >= MIN_BH_BETA
+    exp, n = b.get("exposure"), b.get("n_trades")
+    names, yrs = b.get("n_names"), b.get("years")
+    if exp is None or n is None or not names or not yrs:
+        return False
+    return exp >= BH_HOLD_EXPOSURE and (n / (names * yrs)) < BH_HOLD_TRADES
+
+
 def drop_selection_rows(h: pd.DataFrame) -> pd.DataFrame:
     """Remove `IS#1` / `IS#1[combo]` from a leaderboard.
 
@@ -533,11 +622,30 @@ def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
         # ranking every row identically at -inf and letting row order decide the board.
         merged["edge_tie"] = [(e or {}).get("sharpe", float("-inf"))
                               if e else float("-inf") for e in merged["edge_rec"]]
-    # An unscored row has no count. It sorts below every scored one rather than at zero,
-    # because "the standard never looked at this" is not "it cleared nothing" — and those
-    # rows are dropped a few lines down anyway.
-    merged["edge_rank"] = [(e or {}).get("passed", -1) if e else -1
-                           for e in merged["edge_rec"]]
+    # THE BOOK's criteria count, not the median asset's, and the two are not close: on
+    # us_stocks 1d they disagreed on 29 of the 30 rows shown. This key used to come off
+    # `edge_standard.csv`, which scores the MEDIAN ASSET, while the tiebreak beneath it,
+    # every money column beside it and the `Standard` verdict the page prints are all the
+    # BOOK's. So the board sorted on one measurement and displayed another, and it showed:
+    # `CDLLADDERBOTTOM` sat 5th on us_stocks 1d having cleared 2 of 6 as a median asset
+    # and 0 of 6 as a portfolio, above rules whose book cleared five.
+    #
+    # `../CLAUDE.md` already says which of the two the dashboard is: "They disagree on
+    # rows, legitimately — a book is steadier than any of its names. The dashboard shows
+    # the book's." The columns did; the sort did not.
+    #
+    # A rule the book stage has not reached scores -1 here and is dropped below rather
+    # than falling back to its per-asset count, for the same reason the key moved: a sort
+    # is only a ranking while every row in it is the same measurement.
+    #
+    # The `else` is the sheet where `portfolio_wf.py` has never run at all. There the old
+    # per-asset key is still the best available and the sheet says so through
+    # `ranked_tiebreak`; it is a different board, honestly labelled, not this one degraded.
+    if book:
+        merged["edge_rank"] = [_criteria_passed(b) for b in merged["book_rec"]]
+    else:
+        merged["edge_rank"] = [(e or {}).get("passed", -1) if e else -1
+                               for e in merged["edge_rec"]]
     # DROPPED, not sorted last. `edge_standard.csv` and the `wf_*`/`cwf_*` leaderboards are
     # written by different stages and can be from different studies, and after the
     # 2026-08-11 shortlist re-run they were: the standard covered 89 rules over 23.6 years
@@ -560,24 +668,41 @@ def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
     scoped = merged[pd.Series([e is not None for e in merged["edge_rec"]],
                               index=merged.index, dtype=bool)]
     dropped = len(merged) - len(scoped)
-    # A rule that never opens a position is not a strategy, and it was reaching the board.
+    # Three cuts follow, and one sentence covers all of them: they run AFTER the unscored
+    # cut and BEFORE the sort, so each count describes rules that had a verdict and were
+    # still not worth a row -- which is the only version of these numbers a reader can do
+    # anything with.
     #
-    # `BBANDS`, `T3_1000` and `CDL3STARSINSOUTH` sat 5th, 6th and 7th on us_stocks 1d
-    # holding NOTHING for 23.6 years — 0% exposure, 0 trades, $14,875 of pure cash — and
-    # they ranked there because the per-asset standard scored their SHORT side, which is
-    # "always sell everything" and a different strategy from the one every other column
-    # described. The ranking is the book's now, so the fix is to require the book to have
-    # traded: no positions opened, no row. They are still in `book_*.csv` for anyone
-    # asking what a rule that never fires does.
+    # The population statistics above (`n_rules`, `exposure_corr`, `noise_ceiling`) are
+    # deliberately NOT recomputed after them. Those describe the candidate population the
+    # search actually ranged over, and shrinking it because some of it turned out to be
+    # cash would understate what luck alone reaches. What is filtered is the page, not the
+    # study -- every rule cut here is still in `book_*.csv` and still in the store, so
+    # "what does a rule that never fires do" and "which of these are just the index" stay
+    # answerable questions. They are simply not answered on a leaderboard.
     #
-    # Filtered on the trade count rather than on exposure because that is the column the
-    # page prints. A rule with a whisper of exposure and one trade is a bad strategy and
-    # stays; a rule with none is not one.
+    # A row with no book on a sheet that HAS one cannot be ranked here: the key above is
+    # the book's criteria count and every column beside it is the book's too, so such a
+    # row would be sorted by a measurement it does not carry and then rendered with the
+    # money cells empty. Same policy as the unscored cut above, one measurement further
+    # in, and it costs nothing — the thinnest sheet still has 40 ranked candidates for 30
+    # slots. On a sheet with no book at all nothing is dropped, because there the
+    # per-asset key applies to every row alike.
+    before_nobook = len(scoped)
+    if book:
+        scoped = scoped[pd.Series([b is not None for b in scoped["book_rec"]],
+                                  index=scoped.index, dtype=bool)]
+    n_nobook = before_nobook - len(scoped)
+    # The two non-strategies. `is_idle` and `is_closet_bh` carry the reasoning and the
+    # thresholds; this is only where they are applied.
     before_flat = len(scoped)
-    scoped = scoped[pd.Series([not (b and b.get("n_trades") == 0)
-                               for b in scoped["book_rec"]],
+    scoped = scoped[pd.Series([not is_idle(b) for b in scoped["book_rec"]],
                               index=scoped.index, dtype=bool)]
     n_flat = before_flat - len(scoped)
+    before_closet = len(scoped)
+    scoped = scoped[pd.Series([not is_closet_bh(b) for b in scoped["book_rec"]],
+                              index=scoped.index, dtype=bool)]
+    n_closet = before_closet - len(scoped)
     # Two keys, stable: criteria cleared first, then the money at equal risk. `nlargest`
     # takes one column, and a stable sort is what makes the second key the tiebreak rather
     # than an accident of row order.
@@ -604,7 +729,9 @@ def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
             "ranked_on": "edge_passed",
             "ranked_tiebreak": "book_cm_excess_cagr" if book else "edge_sharpe",
             "n_unscored_dropped": dropped,
+            "n_nobook_dropped": n_nobook,
             "n_flat_dropped": n_flat,
+            "n_closet_dropped": n_closet,
             "folds": int(h["n_folds"].median()) if "n_folds" in h else None,
             "universe": universe, "rows": rows,
             "n_rules": n_all, "n_singles": n_singles, "n_pairs": n_pairs,
@@ -880,6 +1007,12 @@ def _book_record(r) -> dict:
         "vol": num(getattr(r, "vol", None), 3),
         "dd": num((getattr(r, "dd", None) or 0) * 100.0, 1),
         "exposure": num(getattr(r, "exposure", None), 3),
+        # The book's returns regressed on the SAME universe held passively. `r2_vs_bh` is
+        # how much of the rule is buy-and-hold and `beta_bh` is how much of it it holds;
+        # together they are what `is_closet_bh` reads. Carried on the record rather than
+        # looked up separately so the filter and the page cannot disagree about a row.
+        "r2_vs_bh": num(getattr(r, "r2_vs_bh", None), 3),
+        "beta_bh": num(getattr(r, "beta_BH", None), 3),
         "alpha_t": num(getattr(r, "alpha_vs_bh_t", None), 2),
         # The trade block, pooled across the book's names. These replace the
         # `edge_standard` versions on the leaderboard, which were the MEDIAN

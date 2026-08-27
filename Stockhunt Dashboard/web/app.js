@@ -2524,7 +2524,11 @@ function paintBacktest() {
       so the measurement exists — it is just not ranked. Open any strategy from a sheet
       that does have rows and use the <b>Robustness</b> matrix at the bottom of its page:
       every scored square is a link, this cell included.`;
-    const allUnscored = sh && sh.n_unscored_dropped >= sh.n_rules && !sh.n_flat_dropped;
+    /* Every reason a scored rule can still be off the board, summed. Used both to decide
+     * which empty-state to print and to caption a sheet that did fill. */
+    const cut = sh => (sh.n_flat_dropped || 0) + (sh.n_closet_dropped || 0)
+      + (sh.n_nobook_dropped || 0);
+    const allUnscored = sh && sh.n_unscored_dropped >= sh.n_rules && !cut(sh);
     host.innerHTML = !sh
       ? (robHas
         ? `<div class="note"><b>${esc(grp.label)} at ${bf.tf} has no ranking sheet, but it
@@ -2542,8 +2546,10 @@ function paintBacktest() {
       : `<div class="note"><b>${sh.n_rules} strategies were ranked for
          ${esc(grp.label)} at ${bf.tf}, and none of them can be shown.</b> Every column on
          this board is measured at portfolio level, and no rule on this sheet has a
-         portfolio result${sh.n_flat_dropped
-           ? ` — all ${sh.n_flat_dropped} opened no position` : ""}.</div>`;
+         portfolio result${cut(sh)
+           ? ` — of the ${cut(sh)} dropped, ${sh.n_flat_dropped || 0} never held anything,
+              ${sh.n_closet_dropped || 0} were buy-and-hold under another name and
+              ${sh.n_nobook_dropped || 0} were never run as a book` : ""}.</div>`;
     return;
   }
   const best = sh.rows[0], cols = lbCols();
@@ -2753,8 +2759,9 @@ function paintBacktest() {
         ? `picked on ${picked}, re-ordered by ${by} — <b>not</b> the best ${
             sh.rows.length} by ${by}`
         : basis}${q ? ` · ${shown} match “${esc(lbQuery.trim())}”` : ""}${sh.n_flat_dropped
-        ? ` · ${sh.n_flat_dropped} rule${sh.n_flat_dropped === 1 ? "" : "s"} that never
-            opened a position removed` : ""} · tap a row for its detail`;
+        ? ` · ${sh.n_flat_dropped} that never held anything removed` : ""}${sh.n_closet_dropped
+        ? ` · ${sh.n_closet_dropped} that were buy-and-hold removed` : ""} · tap a row for
+        its detail`;
     bindGo(body);
   };
   paintRows();
