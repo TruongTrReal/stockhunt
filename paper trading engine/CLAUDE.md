@@ -501,7 +501,7 @@ from, which venue it trades on, which vendor feeds it, and how it is grouped on 
 | `us_etfs` | QQQ, IWM, XLK, TLT, GLD | `wf_summary_us_etfs_*` | `SANDBOX` | Twelve Data |
 | `crypto` | the top 10 by market cap | `wf_summary_crypto_*` | `BINANCE` | Twelve Data |
 | `commodities` | XAU, XAG, XPT, XPD, WTI | `wf_summary_commodities_*` | `SPOT` | Twelve Data |
-| `cme_futures` | the 16 screened CME roots | `wf_summary_cme_futures_1d` | `GLBX` | **Databento** |
+| `cme_futures` | the 19 screened CME roots | `wf_summary_cme_futures_1d` | `GLBX` | **Databento** |
 
 Three rules per leg per timeframe (`TOP_N_RULES`), two timeframes.
 
@@ -551,7 +551,7 @@ Two schema notes that decide what this leg can run at:
 
 The instrument is a fractional `CurrencyPair`, not a `FuturesContract`, and
 `td_nautilus.futures_instrument` says at length why. Short version: `FuturesContract` has
-no `size_increment`, `BOOK_CAPITAL` is $100,000 across 16 names, and $6,250 against ES at
+no `size_increment`, `BOOK_CAPITAL` is $100,000 across 19 names, and $5,263 against ES at
 ~$385,000 of index exposure per real contract rounds to **zero**. The whole book would sit
 flat while every log line read healthy.
 

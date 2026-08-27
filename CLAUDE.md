@@ -371,6 +371,16 @@ changes how a number on it must be read:
 * **History begins 2010-06-06 and cannot be extended** — that is the first day of the
   vendor's CME archive. ~16 years against the equity sheet's ~26, and `metrics.se_ir`
   falls as 1/sqrt(years), so every gate on this class is about 1.3x harder to clear.
+  `RTY.v.0` is shorter still (2017-07-10), so this class's names span unequal windows.
+* **Five of its nineteen names are one bet, deliberately** (2026-08-28). `NQ`, `YM` and
+  `RTY` correlate 0.93, 0.95 and 0.86 with `ES` and were rejected by the screen's
+  correlation gate; they are carried anyway by `futures_screen.ALWAYS_KEEP`, by request,
+  and that list is where the reasoning lives. The consequence is not cosmetic:
+  `metrics.se_ir` assumes independent assets and cannot notice that these are not, so
+  **`n_assets` on this class counts contracts, not independent bets**, and breadth and `t`
+  computed across the names are optimistic. Read `portfolio_wf`'s BOOK figures here in
+  preference to the per-asset ones — a book holds all five in one account and therefore
+  prices the redundancy instead of assuming it away.
 
 The class was **1d only** until 2026-08-22, and the reason was a measured vendor defect:
 the archive folds whole sessions into a handful of bars on scattered days, and a folded

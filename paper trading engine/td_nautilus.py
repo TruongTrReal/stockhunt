@@ -187,7 +187,7 @@ def futures_instrument(symbol: str, venue: str) -> CurrencyPair:
       `data/reference/futures_rolls.csv` records every adjustment behind it.
     * Nautilus's `FuturesContract` has no `size_increment` — quantities are whole
       contracts — and this desk's `BOOK_CAPITAL` is $100,000 split across a class's names.
-      Sixteen roots is ~$6,250 a slice, and $6,250 against ES at ~$320,000 of index
+      Nineteen roots is ~$5,263 a slice, and $5,263 against ES at ~$385,000 of index
       exposure per contract rounds to **zero**. The whole book would sit flat while every
       log line read healthy, which is this folder's worst failure mode and it has happened
       before.

@@ -93,9 +93,22 @@ def _get(symbol: str, schema: str, start: str, end: str) -> pd.DataFrame:
             if not r.text.strip():
                 return pd.DataFrame()
             return pd.read_csv(io.StringIO(r.text))
-        except db_loader.PartialResponse:
-            # Asking for a smaller window is the fix; the caller's chunk is already
-            # sized under the cap, so this means the vendor cut it for another reason.
+        except db_loader.PartialResponse as exc:
+            # **An EMPTY 206 is an empty window, not a truncation.** Measured 2026-08-28 on
+            # `RTY.v.0 ohlcv-1h 2016-01-01..2016-06-29`: the vendor answers 206 with a
+            # 76-byte body that is the CSV header and nothing else. The E-mini Russell did
+            # not move to CME until 2017-07-10, so there is genuinely nothing there — this
+            # is the same "that contract did not exist yet" that `_UNLISTED` covers on the
+            # other endpoint, wearing a different status code. Retried as a truncation it
+            # fails four times and takes the whole run down with it, which is how adding
+            # one short-history root broke a fetch of three.
+            if db_loader._parse_partial(exc.body).empty:
+                return pd.DataFrame()
+            # A 206 that DID carry rows stays an error, and must. The body parses
+            # perfectly and simply stops in the middle, so keeping it would put a silent
+            # hole in the series and every later stage would read it as a shorter history
+            # rather than a broken one. Asking for a smaller window is the fix; this
+            # chunk is already under the cap, so the vendor cut it for another reason.
             time.sleep(2 * (attempt + 1))
         except RuntimeError as exc:
             if db_loader._UNLISTED in str(exc):

@@ -2,23 +2,32 @@
 
 The CME roots that survived the liquidity, history, price-grid and correlation
 gates. `config.CME_POOL` is what was ranked; this is what is traded.
+
+Rows marked (ALWAYS_KEEP) did NOT survive a gate -- they are carried by the
+override list in `futures_screen.py`, which says what that costs. A name marked
+there is redundant with one above it, so `n_assets` on this class counts
+contracts rather than independent bets and `metrics.se_ir` is optimistic by
+whatever that redundancy is worth.
 """
 
 CME_SCREENED = [
-    "ES.v.0",     # E-mini S&P 500, $579.7B/day
-    "GC.v.0",     # Gold, $70.0B/day
-    "CL.v.0",     # WTI Crude Oil, $22.0B/day
-    "SI.v.0",     # Silver, $15.6B/day
+    "ES.v.0",     # E-mini S&P 500, $569.8B/day
+    "NQ.v.0",     # E-mini Nasdaq-100, $213.4B/day (ALWAYS_KEEP)
+    "GC.v.0",     # Gold, $74.6B/day
+    "YM.v.0",     # E-mini Dow, $36.5B/day (ALWAYS_KEEP)
+    "RTY.v.0",    # E-mini Russell 2000, $23.6B/day (ALWAYS_KEEP)
+    "CL.v.0",     # WTI Crude Oil, $21.6B/day
+    "SI.v.0",     # Silver, $16.4B/day
     "HG.v.0",     # Copper, $8.2B/day
-    "HO.v.0",     # NY Harbor ULSD, $5.2B/day
-    "ZS.v.0",     # Soybeans, $4.7B/day
+    "HO.v.0",     # NY Harbor ULSD, $4.9B/day
+    "ZS.v.0",     # Soybeans, $4.9B/day
     "RB.v.0",     # RBOB Gasoline, $3.5B/day
-    "ZC.v.0",     # Corn, $2.8B/day
-    "NG.v.0",     # Henry Hub Natural Gas, $2.6B/day
-    "NKD.v.0",    # Nikkei 225 (USD), $2.5B/day
+    "ZC.v.0",     # Corn, $3.0B/day
+    "NG.v.0",     # Henry Hub Natural Gas, $2.8B/day
+    "NKD.v.0",    # Nikkei 225 (USD), $2.4B/day
     "ZL.v.0",     # Soybean Oil, $1.7B/day
-    "ZW.v.0",     # Chicago SRW Wheat, $1.5B/day
+    "ZW.v.0",     # Chicago SRW Wheat, $1.6B/day
     "LE.v.0",     # Live Cattle, $1.5B/day
-    "PL.v.0",     # Platinum, $1.1B/day
+    "PL.v.0",     # Platinum, $1.2B/day
     "ZM.v.0",     # Soybean Meal, $1.1B/day
 ]

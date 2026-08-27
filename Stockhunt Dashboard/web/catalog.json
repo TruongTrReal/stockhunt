@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-08-27T13:12:58+00:00",
+ "generated_at": "2026-08-27T23:20:26+00:00",
  "universe": {
   "us_stocks": [
    "AAPL",
@@ -54,6 +54,10 @@
   ],
   "cme_futures": [
    "ES.v.0",
+   "NQ.v.0",
+   "YM.v.0",
+   "RTY.v.0",
+   "NKD.v.0",
    "GC.v.0",
    "CL.v.0",
    "SI.v.0",
@@ -63,7 +67,6 @@
    "RB.v.0",
    "ZC.v.0",
    "NG.v.0",
-   "NKD.v.0",
    "ZL.v.0",
    "ZW.v.0",
    "LE.v.0",
@@ -87,7 +90,7 @@
    "us_etfs": 5,
    "crypto": 10,
    "commodities": 5,
-   "cme_futures": 16
+   "cme_futures": 19
   },
   "benchmark": {
    "us_stocks": "SPY",

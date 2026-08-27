@@ -12,7 +12,7 @@ Four properties, and each one is a failure this folder has already paid for once
 different hat:
 
 * **The instrument is fractional.** `FuturesContract` has no `size_increment`, so a whole
-  contract against a $6,250 slice rounds ES to zero and the whole book sits flat while
+  contract against a $5,263 slice rounds ES to zero and the whole book sits flat while
   every log line reads healthy. Same shape as the crypto one-increment fills.
 * **The legs stay disjoint.** `class_of` is a reverse lookup and decides the sheet, the
   venue and the feed. A symbol in two legs resolves to whichever was declared first.
@@ -101,7 +101,7 @@ def test_the_futures_instrument_is_fractional_and_on_glbx(symbol):
 def test_a_slice_of_the_book_is_a_tradable_quantity():
     """The arithmetic the fractional instrument exists for, stated as a number.
 
-    $100,000 across sixteen names is ~$6,250 a slice. One REAL E-mini S&P contract is 50
+    $100,000 across nineteen names is ~$5,263 a slice. One REAL E-mini S&P contract is 50
     index points at ~7,700, which is ~$385,000 of exposure — `futures_specs.CME_CONTRACTS`
     carries the multiplier — so a whole-contract instrument rounds that slice to zero and
     the leg holds nothing while every log line reads healthy.

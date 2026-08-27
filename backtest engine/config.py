@@ -261,25 +261,35 @@ CME_POOL = [
     "BTC.v.0", "ETH.v.0",
 ]
 
-# The traded universe: 16 of the 43, from `futures_screen.py --write`. What the gates
+# The traded universe: 19 of the 43, from `futures_screen.py --write`. What the gates
 # removed, and why it is the right removal:
 #
-# * **NQ, YM, EMD** -- 0.91 to 0.95 correlated with ES. Four US equity index contracts are
-#   one bet, and `metrics.se_ir` would have been told they were four.
+# * **EMD** -- 0.91 correlated with ES. Two US equity index contracts that move together
+#   are one bet, and `metrics.se_ir` would have been told they were two.
 # * **ZT, ZN and the whole FX block** -- under the 15% volatility floor. A round trip costs
 #   the same fraction of notional whatever the contract, but ZT's median daily range is
 #   0.08% against CL's 2.73%, so the same fee eats ~34x more of the available move.
-# * **RTY, BTC, ETH, SR3** -- too short. The E-mini Russell only moved to CME in 2017 and
-#   SOFR did not exist before 2018, so none has the 12 tradable years the class floor
-#   demands against its own 16.2-year ceiling.
+# * **BTC, ETH, SR3** -- too short. SOFR did not exist before 2018, so none has the 12
+#   tradable years the class floor demands against its own 16.2-year ceiling.
 # * **BZ, GF, KE, HE, PA, 6L** -- under $1B a day.
+#
+# **NQ, YM and RTY are in the universe and did NOT clear those gates** (2026-08-28, by
+# request). They are carried by `futures_screen.ALWAYS_KEEP`, which is where the reasoning
+# and the price of the override are written down. In short: NQ is 0.93 correlated with ES,
+# YM 0.95, RTY 0.86 and also nine years short. So the equity-index block is now five
+# contracts expressing something close to one bet, and **`n_assets` on this class counts
+# contracts, not independent bets** -- a breadth figure or a `t` computed across the names
+# is optimistic by whatever that redundancy is worth. Prefer `portfolio_wf`'s book numbers
+# on this class, which hold all five in one account and therefore price the redundancy
+# rather than assuming it away.
 #
 # **Dropping the slow half cost nothing in breadth, and that is the measured part.** Mean
 # |pairwise correlation| among the kept names is **0.20 either way** -- the eight FX
 # contracts were correlated with each other rather than adding independence, so removing
-# them concentrates nothing. It is 0.20 across five sectors here against 0.44 for the ETF
-# class, which is still the widest universe in the repo and the whole argument for
-# carrying it. Above a 25% floor it would start to cost: 7 names, 3 sectors, 0.25.
+# them concentrates nothing. Adding the three index contracts back takes it to **0.22**,
+# max 0.95. It is still five sectors here against 0.44 for the ETF class, which is the
+# widest universe in the repo and the whole argument for carrying it. Above a 25%
+# volatility floor it would start to cost: 7 names, 3 sectors, 0.25.
 from universes_futures import CME_SCREENED
 
 CME_FUTURES = CME_SCREENED

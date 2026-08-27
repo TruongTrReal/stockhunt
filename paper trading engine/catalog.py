@@ -215,7 +215,7 @@ def build(depth: int = DEPTH) -> dict:
             # `cme_futures` is None for the same reason crypto and commodities are: the
             # research class benchmarks against `ES.v.0`, which is a HOLDING of this book
             # rather than an index outside it, so drawing it as the second line would be
-            # the book against one of its own sixteen names.
+            # the book against one of its own nineteen names.
             "benchmark": {"us_stocks": "SPY", "us_etfs": "QQQ",
                           "crypto": None, "commodities": None, "cme_futures": None},
             # The dashboard's tab keys are NOT the engine's class names — the board says

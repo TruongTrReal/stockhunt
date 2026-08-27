@@ -65,8 +65,14 @@ GROUPS = [("stocks", "us_stocks", "Top 100 US stocks, point-in-time", bt_config.
           # at ~13 out-of-sample years against us_stocks' 24; and it has **no 4h sheet**,
           # because the vendor's hourly archive is holed before 2013. The 4h tab is
           # therefore permanently empty for this class, which is the empty state's job.
-          ("futures", "cme_futures", "26 CME contracts, screened on turnover and "
-           "correlation", bt_config.CME_FUTURES)]
+          # "screened on turnover and correlation" stopped being the whole truth on
+          # 2026-08-28: NQ, YM and RTY are carried by `futures_screen.ALWAYS_KEEP`
+          # DESPITE the correlation gate, so five of the nineteen are US equity index
+          # contracts expressing close to one bet. A reader comparing this class's
+          # breadth against another's has to know that.
+          ("futures", "cme_futures", "19 CME contracts, screened on turnover; the "
+           "US equity index legs are carried despite the correlation gate",
+           bt_config.CME_FUTURES)]
 # The research axis, coarse to fine. This list is what `payload.build` asks for sheets on
 # AND what the page's timeframe select offers (`D.timeframes` -> `btTimeframes()`), so a
 # timeframe with no sheet yet still gets an option and renders the empty state naming the

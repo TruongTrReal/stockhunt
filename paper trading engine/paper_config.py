@@ -223,16 +223,29 @@ COMMODITY_SYMBOLS = list(bt_config.CLASSES["commodities"]["symbols"])
 # halfway through. `CRYPTO_SYMBOLS` was one list-reordering away from that failure and
 # survived by luck.
 #
-# These sixteen are what the screen selected as of 2026-08-27, in its order (turnover,
-# descending). After re-running `futures_screen.py --write`, compare it against this list
-# and change it deliberately or not at all.
+# These nineteen are what the screen selected as of 2026-08-28, grouped by sector rather
+# than by turnover so the equity-index block reads as the one bet it mostly is. After
+# re-running `futures_screen.py --write`, compare it against this list and change it
+# deliberately or not at all.
 #
 # **The history of this class begins 2010-06-06 and cannot be extended** — that is the
 # first day of Databento's CME archive, and there is nothing before it at any price. ~16
 # years against the equity sheet's ~26, and `metrics.se_ir` falls as 1/sqrt(years), so
 # every gate on this class is about 1.3x harder to clear than the same gate elsewhere.
 FUTURES_SYMBOLS = [
+    # The equity-index block. Five contracts, and close to ONE BET: NQ is 0.93 correlated
+    # with ES, YM 0.95, RTY 0.86. Three of them are in because they were asked for, not
+    # because the screen kept them — `futures_screen.ALWAYS_KEEP` carries them and says
+    # what that costs. On the desk the cost is concrete rather than statistical: an
+    # equal-weight book puts ~26% of its capital into five versions of the same move, so
+    # this leg's drawdown is a US-equity drawdown far more than the contract count
+    # suggests. Read it that way, not as five diversified positions.
     "ES.v.0",     # E-mini S&P 500
+    "NQ.v.0",     # E-mini Nasdaq-100          (ALWAYS_KEEP: corr +0.93 with ES)
+    "YM.v.0",     # E-mini Dow                 (ALWAYS_KEEP: corr +0.95 with ES)
+    "RTY.v.0",    # E-mini Russell 2000        (ALWAYS_KEEP: corr +0.86, and 9.1y history)
+    "NKD.v.0",    # Nikkei 225 (USD)           — kept on merit; a different index entirely
+    # Everything below cleared every gate on its own.
     "GC.v.0",     # Gold
     "CL.v.0",     # WTI Crude Oil
     "SI.v.0",     # Silver
@@ -242,7 +255,6 @@ FUTURES_SYMBOLS = [
     "RB.v.0",     # RBOB Gasoline
     "ZC.v.0",     # Corn
     "NG.v.0",     # Henry Hub Natural Gas
-    "NKD.v.0",    # Nikkei 225 (USD)
     "ZL.v.0",     # Soybean Oil
     "ZW.v.0",     # Chicago SRW Wheat
     "LE.v.0",     # Live Cattle
@@ -394,7 +406,7 @@ VENUES = {
 # Classes whose instrument is a fractional-quantity pair rather than a whole-share equity.
 #
 # `cme_futures` is here and its unit is NOT a CME contract. `FuturesContract` has no
-# `size_increment`, so a whole-contract instrument against a $6,250 slice of a $100,000
+# `size_increment`, so a whole-contract instrument against a $5,263 slice of a $100,000
 # book rounds ES to zero and the whole leg sits flat. See
 # `td_nautilus.futures_instrument`, which says at length what a unit on this leg is.
 # Membership also decides the ACCOUNT shape in `run_paper`: a pair venue is left

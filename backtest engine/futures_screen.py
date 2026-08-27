@@ -34,6 +34,14 @@ accept a candidate only if its return correlation against everything already acc
 stays under `MAX_CORR`. That keeps the most tradable member of each cluster and drops the
 echoes, and because the order is liquidity there is nothing arbitrary in which survives.
 
+**`ALWAYS_KEEP` overrides that last gate and the history one, by name.** Some contracts
+are wanted in the book for reasons a screen cannot see — a forward test on a specific
+index, say — and the honest way to carry them is an explicit list that records what it
+cost, not a loosened threshold that quietly changes every other verdict too. It cannot
+override liquidity, the price grid or the volatility floor: those decide whether an
+instrument can be filled, and a book holding something it cannot fill is a different
+and much worse mistake than a book holding two things that move together.
+
 Run::
 
     python futures_screen.py                  # the table, and what it would keep
@@ -113,6 +121,38 @@ MIN_ANN_VOL_PCT = 15.0
 # the same trade).
 MAX_CORR = 0.85
 
+# Roots carried WHATEVER the correlation and history gates say (2026-08-28, by request).
+#
+# This is an override, not a re-tuning, and it is written as a named list rather than as a
+# looser `MAX_CORR` on purpose: raising the bar to 0.96 would have admitted `EMD` too and
+# quietly reshuffled the class, where this admits exactly the four contracts that were
+# asked for and leaves every other verdict on the sheet untouched.
+#
+# `ES` is not here — it passes on merit and leads the liquidity ranking. The other three
+# each fail exactly one gate, and the CSV keeps saying which:
+#
+#   NQ   corr +0.93 with ES        RTY  only 9.1 tradable years (needs 12)
+#   YM   corr +0.95 with ES
+#
+# **What it costs, stated where it is done rather than in a commit message.** The
+# correlation gate exists because `metrics.se_ir` assumes its assets are independent and
+# has no way to notice that they are not. Four US equity index contracts are close to one
+# bet, so a breadth figure or a `t` on this class now counts that bet up to four times and
+# is optimistic by roughly the amount that redundancy is worth. Read `n_assets` on this
+# class as "contracts", never as "independent bets", and prefer the book-level numbers
+# (`portfolio_wf`), which hold the four in one account and therefore price the redundancy
+# instead of assuming it away.
+#
+# RTY brings a second, smaller cost: it starts 2017-07-10, so it is ~9 years against the
+# class's ~16, and any statistic pooled across names is now pooled over unequal spans.
+ALWAYS_KEEP = ["NQ.v.0", "YM.v.0", "RTY.v.0"]
+
+# ...but only the two gates that are about REDUNDANCY and SAMPLE LENGTH. Liquidity, the
+# price grid and the volatility floor are about whether the instrument can be traded at
+# all, and an override there would be a different and much worse claim — it would put a
+# name in the book that the desk cannot fill. All three clear those three gates already.
+OVERRIDABLE = ("corr", "tradable years")
+
 OUT_CSV = config.RESULTS_DIR / "universe_screen_cme_futures.csv"
 GENERATED = Path(__file__).resolve().parent / "universes_futures.py"
 
@@ -172,13 +212,25 @@ def screen(timeframe: str = "1d", max_corr: float = MAX_CORR,
     if table.empty or "adv_usd" not in table:
         return table, [], pd.DataFrame()
 
-    reasons = {}
+    forced = set(ALWAYS_KEEP)
+    reasons: dict[str, str] = {}
+    # Why an OVERRIDDEN name is in, which is a different column's worth of meaning from
+    # why a rejected one is out — but it belongs in the same column, because `reason` is
+    # "why is this row what it is" and a kept-despite is exactly that. Losing it would
+    # leave a universe whose most questionable members look like its most ordinary ones.
+    notes: dict[str, str] = {}
     for _, r in table.iterrows():
         if not r.get("bars"):
+            # Not overridable, and it is the one rejection that cannot be: there is
+            # nothing to trade, score or correlate.
             reasons[r["symbol"]] = "no bars cached"
         elif r["years"] < MIN_TRADABLE_YEARS:
-            reasons[r["symbol"]] = (f"only {r['years']:.1f} tradable years "
-                                    f"(need {MIN_TRADABLE_YEARS:.0f})")
+            short = (f"only {r['years']:.1f} tradable years "
+                     f"(need {MIN_TRADABLE_YEARS:.0f})")
+            if r["symbol"] in forced:
+                notes[r["symbol"]] = f"ALWAYS_KEEP: {short}"
+            else:
+                reasons[r["symbol"]] = short
         elif r["adv_usd"] < MIN_ADV_USD:
             reasons[r["symbol"]] = (f"${r['adv_usd'] / 1e6:,.0f}M/day "
                                     f"(need ${MIN_ADV_USD / 1e6:,.0f}M)")
@@ -196,10 +248,33 @@ def screen(timeframe: str = "1d", max_corr: float = MAX_CORR,
                        key=lambda s: -table.set_index("symbol").loc[s, "adv_usd"])
     corr = correlations(timeframe, survivors) if survivors else pd.DataFrame()
 
+    def _worst(symbol: str, against: list[str]):
+        """The strongest correlation `symbol` has with anything already accepted."""
+        hits = [(k, corr.loc[symbol, k]) for k in against
+                if symbol in corr.index and k in corr.columns
+                and pd.notna(corr.loc[symbol, k])]
+        return max(hits, key=lambda kv: abs(kv[1])) if hits else None
+
+    # `comparators` is NOT `accepted`, and the split is the whole behaviour of the
+    # override. An ALWAYS_KEEP name is added to the universe but never becomes something
+    # later candidates are measured against, so admitting one can only ADD a contract —
+    # never silently evict a different one. "Also carry NQ" must not turn into "…and drop
+    # whatever now looks like NQ", which is what reusing one list would have done.
     accepted: list[str] = []
+    comparators: list[str] = []
     for symbol in survivors:
+        if symbol in forced:
+            accepted.append(symbol)
+            worst = _worst(symbol, comparators)
+            if worst and abs(worst[1]) > max_corr:
+                said = f"corr {worst[1]:+.2f} with {worst[0]} -- the same asset"
+                notes[symbol] = (f"{notes[symbol]}; {said}" if symbol in notes
+                                 else f"ALWAYS_KEEP: {said}")
+            elif symbol not in notes:
+                notes[symbol] = "ALWAYS_KEEP (clears every gate on its own anyway)"
+            continue
         clash = None
-        for kept in accepted:
+        for kept in comparators:
             if symbol in corr.index and kept in corr.columns:
                 c = corr.loc[symbol, kept]
                 if pd.notna(c) and abs(c) > max_corr:
@@ -209,9 +284,11 @@ def screen(timeframe: str = "1d", max_corr: float = MAX_CORR,
             reasons[symbol] = f"corr {clash[1]:+.2f} with {clash[0]} -- the same asset"
         else:
             accepted.append(symbol)
+            comparators.append(symbol)
 
     table["kept"] = ~table["symbol"].isin(reasons)
-    table["reason"] = table["symbol"].map(reasons).fillna("")
+    table["reason"] = (table["symbol"].map(reasons)
+                       .fillna(table["symbol"].map(notes)).fillna(""))
     ranked = table.sort_values("adv_usd", ascending=False, na_position="last")
     return ranked, accepted, corr
 
@@ -224,14 +301,21 @@ def write_module(accepted: list[str], table: pd.DataFrame) -> None:
         "",
         "The CME roots that survived the liquidity, history, price-grid and correlation",
         "gates. `config.CME_POOL` is what was ranked; this is what is traded.",
+        "",
+        "Rows marked (ALWAYS_KEEP) did NOT survive a gate -- they are carried by the",
+        "override list in `futures_screen.py`, which says what that costs. A name marked",
+        "there is redundant with one above it, so `n_assets` on this class counts",
+        "contracts rather than independent bets and `metrics.se_ir` is optimistic by",
+        "whatever that redundancy is worth.",
         '"""',
         "",
         "CME_SCREENED = [",
     ]
     for symbol in accepted:
         r = kept.loc[symbol]
+        flag = " (ALWAYS_KEEP)" if symbol in ALWAYS_KEEP else ""
         lines.append(f'    "{symbol}",'.ljust(16)
-                     + f"  # {r['desc']}, ${r['adv_usd'] / 1e9:,.1f}B/day")
+                     + f"  # {r['desc']}, ${r['adv_usd'] / 1e9:,.1f}B/day{flag}")
     lines += ["]", ""]
     GENERATED.write_text("\n".join(lines), encoding="utf-8")
 

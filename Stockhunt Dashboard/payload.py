@@ -451,13 +451,20 @@ PAPER_GROUPS = [
     # through `group_of` to the `etf` default, which is labelled "SPY · SOXL · TQQQ".
     # That is the same mislabel the book note below describes, and on this leg it would
     # file back-adjusted CME contracts under leveraged equity funds.
-    {"key": "cme_futures", "label": "16 CME futures",
+    {"key": "cme_futures", "label": "19 CME futures",
      "note": "The only leg not fed by Twelve Data — Databento's GLBX archive, polled on "
-             "the bar close. Two things make its numbers read differently from the rest "
-             "of this page: prices are ratio back-adjusted across contract rolls, so a "
-             "level here is not a price anybody paid, and a unit is a fractional notional "
-             "unit rather than a CME contract. History also starts 2010-06-06 and cannot "
-             "be extended, which is the shortest sample on the board.",
+             "the bar close. Three things make its numbers read differently from the rest "
+             "of this page. Prices are ratio back-adjusted across contract rolls, so a "
+             "level here is not a price anybody paid. A unit is a fractional notional "
+             "unit rather than a CME contract. And FIVE of the nineteen are US equity "
+             "index contracts — ES, NQ, YM, RTY, NKD — the middle three carried "
+             "despite correlating 0.86 to 0.95 with ES, so a quarter of this book is "
+             "close to one bet and its breadth counts contracts rather than independent "
+             "ones. History also starts 2010-06-06 and cannot be extended (RTY only "
+             "2017), which is the shortest sample on the board. NQ, YM and RTY "
+             "joined the universe on 2026-08-28 and every score on this class was "
+             "computed BEFORE that, over the other sixteen — the row counts say "
+             "16 and they are right; the three join at the next re-score.",
      "symbols": list(paper_config.FUTURES_SYMBOLS)},
 ]
 
