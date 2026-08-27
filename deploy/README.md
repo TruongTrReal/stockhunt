@@ -28,16 +28,52 @@ slow npm registry can break is a board taken down by somebody else's outage.
 nginx needs no change: `location /` proxies everything to 127.0.0.1:8080 and the export is
 served by the same FastAPI process, behind the same session.
 
-## Three services and three timers
+## Four services and three timers
 
 | unit | what |
 |---|---|
 | `stockhunt-api` | the board + manager desk on 127.0.0.1:8080, nginx terminates TLS |
 | `stockhunt-desk` | `run_paper.py`, the live Nautilus desk that publishes `live.json` |
+| `stockhunt-mirror` | `alpaca_mirror.py`, the broker-side copy of the desk's book |
 | `stockhunt-refresh.timer` | rebuilds `data.js` + `paper_curves.json` at 00/06/12/18:05 |
 | `stockhunt-autodeploy.timer` | every 5 min: if `origin/master` moved, deploy the board+API |
 | `stockhunt-rotation.timer` | every 5 min, 19:00-21:55 UTC: the monthly ETF rotation |
 | `stockhunt-research.timer` | every 2 min: score anything submitted through `/v1/research` |
+
+## The mirror needs credentials, and they are not in git
+
+`stockhunt-mirror` is the only unit here that talks to a third party with a secret, so it
+is the only one with a provisioning step. Six values go in `/opt/stockhunt/.env.local`,
+one key pair per Alpaca paper account:
+
+    ALPACA_STOCKS_KEY_ID / ALPACA_STOCKS_SECRET
+    ALPACA_ETFS_KEY_ID   / ALPACA_ETFS_SECRET
+    ALPACA_CRYPTO_KEY_ID / ALPACA_CRYPTO_SECRET
+
+`.env.local` is gitignored and owned by `stockhunt` at mode 640, so **`autodeploy.sh` never
+touches it and a fresh clone will not have it.** A rebuilt box needs these pasted in again;
+without them the unit starts, logs `no Alpaca credentials configured`, and exits 1 into a
+restart loop, which is the loudest available way of saying so.
+
+The host is a constant in `alpaca_client.py` with no environment override, so nothing in
+this file or in the unit can point the mirror at real money.
+
+```bash
+cd "/opt/stockhunt/paper trading engine"
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python alpaca_mirror.py --check
+sudo -u stockhunt /opt/stockhunt/.venv/bin/python alpaca_mirror.py --once --dry-run
+systemctl enable --now stockhunt-mirror
+journalctl -u stockhunt-mirror -f
+```
+
+**Run it as `stockhunt`, never as root** -- the same trap as the rotation manager one
+section down. A root run leaves a root-owned `alpaca.db-wal` beside a `stockhunt`-owned
+database and the service then cannot write its own record.
+
+`autodeploy.sh` restarts the API and never this unit, on the same reasoning that keeps it
+away from `stockhunt-desk`: the mirror holds a broker-side position, and a restart mid-cycle
+is a reconciliation that has to happen again. It is listed in `DESK_PATHS`, so a deploy that
+changes its code reports a pending restart rather than performing one.
 
 ## The rotation manager is a client, not a fourth service
 

@@ -1,0 +1,36 @@
+[Unit]
+Description=Alpaca mirror: drive paper accounts to a scaled copy of the desk's book
+Documentation=https://github.com/TruongTrReal/stockhunt
+After=network-online.target stockhunt-desk.service
+Wants=network-online.target
+# Deliberately NOT Requires=stockhunt-desk. The mirror reads a file, not a process: if the
+# desk is down the snapshot goes stale and the mirror holds by itself, which is the
+# behaviour wanted anyway. Binding the units would add a way for this process to take the
+# desk's restart with it, and this side is the optional one.
+
+[Service]
+Type=simple
+User=stockhunt
+Group=stockhunt
+# Same quoting trap as stockhunt-api and stockhunt-desk: systemd splits directive values
+# on whitespace and takes quotes literally in single-path settings, so the cd is the
+# shell's job. ReadWritePaths= is a list type and does honour quotes.
+ExecStart=/bin/sh -c 'cd "/opt/stockhunt/paper trading engine" && exec /opt/stockhunt/.venv/bin/python -u alpaca_mirror.py'
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# `state/` for alpaca.db, `logs/` for the vendor client. NOT `results/`, and that omission
+# is the point: `results/paper.db` and `paper_state.json` are the record this process
+# exists to check, so it is denied the ability to write them even by accident. A second
+# record that can edit the first is not a second record.
+ReadWritePaths="/opt/stockhunt/paper trading engine/state" "/opt/stockhunt/paper trading engine/logs"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
