@@ -111,10 +111,14 @@ def build_plan(cls: str, client: alpaca_client.AlpacaClient, snapshot: dict,
     desk_eq = alpaca_map.desk_equity(snapshot, cls)
     alpaca_eq = alpaca_map.account_equity(client.account())
     held = alpaca_map.held_units(client.positions())
+    # What this process has already asked for and not yet received. Without it the cycle
+    # re-sends every order that has not filled within `--interval`, which at the opening
+    # auction means buying the same book two and three times over. See `pending_units`.
+    pending = alpaca_map.pending_units(client.orders(status="open"))
     ratio = alpaca_map.scale_ratio(desk_eq, alpaca_eq)
     plan = alpaca_map.plan_orders(
         cls, targets=targets, held=held, marks=marks, ratio=ratio, assets=assets,
-        desk_eq=desk_eq, alpaca_eq=alpaca_eq)
+        pending=pending, desk_eq=desk_eq, alpaca_eq=alpaca_eq)
     plan.marks = marks
     return plan
 
@@ -218,6 +222,7 @@ def run_cycle(cls: str, client: alpaca_client.AlpacaClient, snapshot: dict,
     log(f"[{cls}] desk ${plan.desk_equity:,.0f} -> alpaca ${plan.alpaca_equity:,.0f} "
         f"(x{plan.ratio:.4f}); {len(plan.targets)} target(s), "
         f"{len(plan.orders)} order(s)"
+        + (f"; {len(plan.pending)} in flight" if plan.pending else "")
         + (f"; {len(plan.untradable)} untradable" if plan.untradable else "")
         + (f"; {len(plan.clamped)} negative target(s) clamped" if plan.clamped else ""))
     if plan.untradable:

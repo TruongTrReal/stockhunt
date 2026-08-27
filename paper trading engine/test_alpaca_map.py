@@ -270,6 +270,80 @@ def test_a_zero_ratio_flattens_everything():
     assert [(o["side"], o["qty"]) for o in p.orders] == [("sell", pytest.approx(100.0))]
 
 
+# ------------------------------------------------------------------ orders in flight
+#
+# The defect these pin cost real money on 2026-08-27. `/v2/positions` does not know about
+# an order that has not filled, so the first cycles after the US open sent 60 orders, then
+# 60 more a minute later, then more -- and the excess had to be sold back the same morning.
+
+def test_pending_units_signs_by_side_and_counts_only_the_remainder():
+    pend = m.pending_units([
+        {"symbol": "SPY", "side": "buy", "qty": "10", "filled_qty": "4"},
+        {"symbol": "QQQ", "side": "sell", "qty": "8", "filled_qty": "0"},
+    ])
+    assert pend == {"SPY": pytest.approx(6.0), "QQQ": pytest.approx(-8.0)}
+
+
+def test_pending_units_sums_several_orders_on_one_symbol():
+    pend = m.pending_units([
+        {"symbol": "SPY", "side": "buy", "qty": "10", "filled_qty": "0"},
+        {"symbol": "SPY", "side": "buy", "qty": "5", "filled_qty": "0"},
+    ])
+    assert pend == {"SPY": pytest.approx(15.0)}
+
+
+def test_pending_units_ignores_a_fully_filled_order():
+    assert m.pending_units([
+        {"symbol": "SPY", "side": "buy", "qty": "10", "filled_qty": "10"}]) == {}
+
+
+def test_an_order_in_flight_is_not_sent_again():
+    """THE regression. Position still zero, order already working: send nothing."""
+    p = plan(targets={"SPY": 100.0}, held={}, pending={"SPY": 100.0})
+    assert p.orders == []
+    assert p.pending == {"SPY": pytest.approx(100.0)}
+    assert any("in flight" in reason for _, reason in p.skipped)
+
+
+def test_a_partial_fill_orders_only_the_remainder():
+    p = plan(targets={"SPY": 100.0}, held={"SPY": 30.0}, pending={"SPY": 70.0})
+    assert p.orders == []
+    # ...and with only part of it working, the rest is still wanted.
+    p2 = plan(targets={"SPY": 100.0}, held={"SPY": 30.0}, pending={"SPY": 20.0})
+    assert [(o["side"], o["qty"]) for o in p2.orders] == [("buy", pytest.approx(50.0))]
+
+
+def test_a_pending_sell_is_not_duplicated_into_a_double_exit():
+    """A working sell must not be re-sent, or the account ends up short."""
+    p = plan(targets={"SPY": 0.0}, held={"SPY": 80.0}, pending={"SPY": -80.0})
+    assert p.orders == []
+
+
+def test_a_partial_exit_in_flight_sells_only_what_is_left():
+    p = plan(targets={"SPY": 0.0}, held={"SPY": 80.0}, pending={"SPY": -30.0})
+    assert [(o["side"], o["qty"]) for o in p.orders] == [("sell", pytest.approx(50.0))]
+
+
+def test_never_sells_more_than_is_actually_held_despite_a_pending_buy():
+    """An in-flight BUY is not stock this account can deliver yet."""
+    p = plan(targets={"SPY": 0.0}, held={"SPY": 10.0}, pending={"SPY": 40.0})
+    assert all(o["qty"] <= 10.0 + 1e-9 for o in p.orders if o["side"] == "sell")
+
+
+def test_a_symbol_only_in_flight_is_still_considered():
+    """Target dropped to zero while the opening buy was still working."""
+    p = plan(targets={}, held={}, pending={"SPY": 25.0})
+    assert p.pending == {"SPY": pytest.approx(25.0)}
+    assert p.orders == []          # nothing held yet, so there is nothing to sell
+
+
+def test_no_pending_reproduces_the_previous_behaviour_exactly():
+    """The fix must be inert when nothing is in flight."""
+    a = plan(targets={"SPY": 100.0}, held={"SPY": 40.0})
+    b = plan(targets={"SPY": 100.0}, held={"SPY": 40.0}, pending={})
+    assert [(o["side"], o["qty"]) for o in a.orders] ==            [(o["side"], o["qty"]) for o in b.orders] == [("buy", pytest.approx(60.0))]
+
+
 def test_client_order_id_is_deterministic_and_distinct_per_cycle():
     a = m.client_order_id("crypto", "BTC/USD", 1000)
     assert a == m.client_order_id("crypto", "BTC/USD", 1000)

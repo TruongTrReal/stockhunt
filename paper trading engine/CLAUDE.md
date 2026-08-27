@@ -107,6 +107,17 @@ Four things about it are load-bearing:
 * **The target is scaled.** Each class runs six $100,000 books against one $100,000 account,
   so every target is multiplied by `alpaca_equity / desk_equity`. Without it the mirror is a
   stream of rejected buys.
+* **The position it reconciles against is `held + pending`, never `held` alone.**
+  `/v2/positions` does not know about an order that has not filled yet, so a cycle that
+  looks only at positions concludes the trade never happened and sends it again — once per
+  `--interval`, for as long as the fill takes. That is not a rare race: market orders sent
+  into the opening auction do not print for minutes, so the first cycles of a session
+  re-ordered the whole book two and three times, Alpaca refused part of it with
+  `potential wash trade detected` (403), and the excess had to be sold back the same
+  morning. The round-trip spread on that churn lands in `slip_bp`, which is the one column
+  this process exists to measure — so the bug corrupts the measurement, not just the book.
+  `alpaca_map.pending_units` reads the unfilled REMAINDER of each open order, so a partial
+  fill is counted once.
 
 **The decide-early books have one honest divergence and it is recorded, not hidden.** They
 compute at 15:55 ET and trade the close; Alpaca **rejects `cls` (market-on-close) orders

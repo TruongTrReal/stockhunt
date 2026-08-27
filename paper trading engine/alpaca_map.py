@@ -55,6 +55,7 @@ class Plan:
     alpaca_equity: float = 0.0
     targets: dict[str, float] = field(default_factory=dict)   # scaled, by repo symbol
     held: dict[str, float] = field(default_factory=dict)      # by repo symbol
+    pending: dict[str, float] = field(default_factory=dict)   # in flight, by repo symbol
     marks: dict[str, float] = field(default_factory=dict)     # last mark, by repo symbol
     orders: list[dict] = field(default_factory=list)
     untradable: list[str] = field(default_factory=list)
@@ -231,6 +232,39 @@ def held_units(positions: list[dict]) -> dict[str, float]:
     return out
 
 
+def pending_units(open_orders: list[dict]) -> dict[str, float]:
+    """`/v2/orders?status=open` as `norm_key -> signed UNFILLED units`.
+
+    **A position this process has already asked for but not yet received.** `/v2/positions`
+    does not know about it, so a reconciler that looks only at positions concludes the
+    trade never happened and sends it again -- once per cycle, for as long as the order
+    takes to fill.
+
+    That is not hypothetical and it is not cheap. On 2026-08-27 the first cycles after the
+    US open sent 60 market orders, then 60 more a minute later, then more: the opening
+    auction had not printed, `held` was still zero, and the mirror re-ordered a book it had
+    already bought. Alpaca stopped some of it with `potential wash trade detected` (403)
+    and the rest had to be sold back the same morning -- $45,657 of stock and $37,775 of
+    ETF round trips that no signal asked for, whose spread lands in `slip_bp`, which is the
+    one column this entire process exists to measure.
+
+    The unfilled REMAINDER, not the order size, so a partial fill is counted once: the
+    filled part is already in `held`.
+    """
+    out: dict[str, float] = {}
+    for o in open_orders:
+        try:
+            remaining = float(o.get("qty") or 0.0) - float(o.get("filled_qty") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if remaining <= DUST_UNITS:
+            continue
+        sign = -1.0 if str(o.get("side", "")).lower() == "sell" else 1.0
+        key = norm_key(o.get("symbol", ""))
+        out[key] = out.get(key, 0.0) + sign * remaining
+    return out
+
+
 def account_equity(account: dict) -> float:
     for key in ("equity", "portfolio_value", "last_equity"):
         try:
@@ -283,14 +317,20 @@ def _round_qty(qty: float, asset: dict | None) -> float:
 def plan_orders(cls: str, *, targets: dict[str, float], held: dict[str, float],
                 marks: dict[str, float], ratio: float,
                 assets: dict[str, dict] | None = None,
+                pending: dict[str, float] | None = None,
                 desk_eq: float = 0.0, alpaca_eq: float = 0.0,
                 min_notional: float = MIN_NOTIONAL, min_drift: float = MIN_DRIFT,
                 max_orders: int = MAX_ORDERS_PER_CYCLE) -> Plan:
     """The whole reconciliation for one class, as data.
 
-    `targets` and `marks` are keyed by repo symbol; `held` by `norm_key`. Every symbol the
-    desk wants *or* Alpaca holds is considered, so a name the desk has dropped entirely
-    still gets its closing sell.
+    `targets` and `marks` are keyed by repo symbol; `held` and `pending` by `norm_key`.
+    Every symbol the desk wants *or* Alpaca holds is considered, so a name the desk has
+    dropped entirely still gets its closing sell.
+
+    **The position this compares against is `held + pending`, never `held` alone.** An
+    order already in flight is a position this process has committed to; treating it as
+    absent is what made the mirror buy the same book three times over one opening auction.
+    See `pending_units`.
     """
     plan = Plan(cls=cls, ratio=ratio, desk_equity=desk_eq, alpaca_equity=alpaca_eq)
 
@@ -303,17 +343,26 @@ def plan_orders(cls: str, *, targets: dict[str, float], held: dict[str, float],
         scaled[sym] = want
     plan.targets = scaled
 
+    pending = pending or {}
     by_key = {norm_key(s): s for s in scaled}
     # A position Alpaca holds under a symbol the desk never named still has to be closed,
-    # or a retired book leaves its shares behind forever.
+    # or a retired book leaves its shares behind forever. An in-flight order counts the
+    # same way: it is about to become such a position.
     for key in held:
+        by_key.setdefault(key, key)
+    for key in pending:
         by_key.setdefault(key, key)
 
     candidates: list[tuple[float, dict]] = []
     for key, sym in sorted(by_key.items()):
         want = scaled.get(sym, 0.0)
         have = held.get(key, 0.0)
+        in_flight = pending.get(key, 0.0)
+        # What this process will hold once the orders it has already sent come back.
+        effective = have + in_flight
         plan.held[sym] = have
+        if abs(in_flight) > DUST_UNITS:
+            plan.pending[sym] = in_flight
 
         asset = (assets or {}).get(key)
         if assets is not None and asset is None:
@@ -331,20 +380,28 @@ def plan_orders(cls: str, *, targets: dict[str, float], held: dict[str, float],
             # correct response and it is reported so it cannot pass unnoticed.
             plan.skipped.append((sym, f"unexpected short position of {have:g}"))
 
-        delta = want - have
+        delta = want - effective
         if abs(delta) <= DUST_UNITS:
+            if abs(in_flight) > DUST_UNITS:
+                plan.skipped.append(
+                    (sym, f"{in_flight:+g} unit(s) already in flight"))
             continue
 
         side = "buy" if delta > 0 else "sell"
         qty = abs(delta)
         if side == "sell":
-            qty = min(qty, max(have, 0.0))     # never sell into a short
+            # Never sell into a short, and never sell more than is ACTUALLY held: an
+            # in-flight buy is not yet stock this account can deliver.
+            qty = min(qty, max(have, 0.0))
             if qty <= DUST_UNITS:
                 continue
 
         # A full exit sells the whole position rather than a rounded share of it, so a
-        # non-fractionable name cannot leave a permanent stub behind.
-        exact_close = side == "sell" and want <= DUST_UNITS
+        # non-fractionable name cannot leave a permanent stub behind. Only when nothing is
+        # in flight, though -- with a sell already working, the exact quantity to close is
+        # the remainder, and `delta` is already that.
+        exact_close = (side == "sell" and want <= DUST_UNITS
+                       and abs(in_flight) <= DUST_UNITS)
         qty = qty if exact_close else _round_qty(qty, asset)
         if qty <= DUST_UNITS:
             plan.skipped.append((sym, "delta rounds to zero at this asset's increment"))
@@ -356,7 +413,7 @@ def plan_orders(cls: str, *, targets: dict[str, float], held: dict[str, float],
             plan.skipped.append((sym, f"${notional:.2f} below the ${min_notional:.2f} floor"))
             continue
 
-        denom = want if want > DUST_UNITS else have
+        denom = want if want > DUST_UNITS else effective
         drift = abs(delta) / denom if denom > DUST_UNITS else 1.0
         if drift < min_drift and not exact_close:
             plan.skipped.append((sym, f"{drift:.1%} drift below the {min_drift:.0%} band"))
