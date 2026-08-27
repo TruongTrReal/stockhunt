@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./board.css";
 import "./busy.css";
+import { Nav } from "@/components/Nav";
 
 /* `board.css` is COPIED from `../Stockhunt Dashboard/web/app.css` by the `prebuild` and
  * `predev` scripts, and is gitignored. It is not a fork: that stylesheet is 730 hand-tuned
@@ -28,14 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <span className="brand">
               <b>stockhunt</b>
             </span>
-            <nav className="nav">
-              {/* `next/link` and not a bare <a>: it applies `basePath` for us. A hand
-                  written href would be right at the root and 404 at /next/, which is
-                  exactly where this app is mounted while it is being built. */}
-              <Link className="on" href="/">
-                Research
-              </Link>
-            </nav>
+            {/* A client island, because the active link depends on the path and this
+                layout must stay a server component to export `metadata`. */}
+            <Nav />
           </div>
         </header>
 

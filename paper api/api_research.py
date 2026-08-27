@@ -252,6 +252,37 @@ def board(who: dict = Depends(api_auth.current_principal)) -> dict:
     return board_rank.build_board()
 
 
+@router.get("/row/{cls}/{tf}/{rule:path}", summary="One ranked row, with its sheet context")
+def row(cls: str, tf: str, rule: str,
+        who: dict = Depends(api_auth.current_principal)) -> dict:
+    """The leaderboard row for one label, as the board would print it.
+
+    A detail page shows the same figures its leaderboard row does — the book's delta-Sharpe,
+    its t against the sheet's own bar, what $10k became, the criteria count — and without
+    this the only way to reach them is to page the sheet looking for the label. On
+    us_stocks 1d that is ten requests and ~500 rows to render one strip of seven numbers,
+    which is the shape of thing the paging work exists to stop.
+
+    It carries the SHEET's context alongside the row (`rank`, `folds`, `book_bench`,
+    `noise_ceiling`, `years`) because those are facts about the document rather than about
+    the rule, and a reader who arrived from a link has no other way to know whether they are
+    looking at 3rd of 493 or 300th.
+
+    A 404 here means the label is not RANKED on this sheet, which is not the same as unknown
+    — a rule the standard never scored, one with no book, one that never opened a position
+    and a closet tracker are all still in `book_*.csv` and still answer on `/rule` and
+    `/curve`. The detail page's off-board reading is built from those.
+    """
+    _check_sheet(cls, tf)
+    rec = board_rank.build_row(cls, tf, rule)
+    if rec is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"{rule!r} is not ranked on {cls}/{tf}. It may still have a book — see "
+                   f"/v1/research/rule/{cls}/{tf}/{rule}.")
+    return rec
+
+
 @router.get("/rule/{cls}/{tf}/{rule:path}", summary="One rule, asset by asset")
 def rule(cls: str, tf: str, rule: str,
          who: dict = Depends(api_auth.current_principal)) -> dict:

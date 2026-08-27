@@ -296,3 +296,60 @@ def test_the_owner_can_read_any_job(client):
     r = client.get(f"/v1/research/jobs/{mine['job_id']}",
                    headers=key_for("o@example.com", admin=True))
     assert r.status_code == 200
+
+
+# ------------------------------------------------------------------- one row, by label
+
+def test_a_row_carries_its_rank_and_its_sheet_context(client):
+    """The detail page's hero strip, in one request instead of ten.
+
+    Without this the only way to reach a rule's own row is to page the sheet looking for
+    the label -- on us_stocks 1d, ten requests and ~500 rows to render seven numbers, which
+    is exactly the shape of thing the paging work exists to stop.
+    """
+    head = key_for("m@example.com")
+    r = client.get(f"/v1/research/row/{CLS}/{TF}/alpha", headers=head)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rule"] == "alpha"
+    # The row itself...
+    assert body["book"] is not None
+    assert body["edge"] is not None
+    # ...and the SHEET's context, which cannot be derived from the row. A reader who
+    # arrived from a link has no other way to know whether this is 1st or 300th.
+    assert body["rank"] == 1
+    assert body["n_ranked"] == 2
+    assert body["noise_ceiling"] is not None
+
+
+def test_the_row_agrees_with_the_page_it_came_from(client):
+    """Two routes, one `leaderboard_entry`. If these ever disagree, the board has two
+    answers to `which rule is better` and neither is trustworthy."""
+    head = key_for("m@example.com")
+    page = client.get(f"/v1/research/leaderboard?cls={CLS}&tf={TF}&offset=1&limit=1",
+                      headers=head).json()
+    row = client.get(f"/v1/research/row/{CLS}/{TF}/beta", headers=head).json()
+    assert row["rank"] == 2
+    for k in ("rule", "kind", "ir_net", "t_stat", "edge", "book"):
+        assert row[k] == page["rows"][0][k], k
+
+
+def test_a_row_carries_its_asset_table(client):
+    """`assets=True` here, unlike the leaderboard's default: a detail page is the one
+    caller that draws it, and one row's worth is ~29 KB rather than a MB."""
+    head = key_for("m@example.com")
+    body = client.get(f"/v1/research/row/{CLS}/{TF}/alpha", headers=head).json()
+    assert [r["symbol"] for r in body["per_asset"]] == ["BTC/USD", "ETH/USD"]
+
+
+def test_an_unranked_label_is_a_404_that_points_somewhere(client):
+    """Not ranked is not the same as unknown, and the message has to say so: an off-board
+    rule still answers on /rule and /curve, which is what the detail page falls back to."""
+    head = key_for("m@example.com")
+    r = client.get(f"/v1/research/row/{CLS}/{TF}/nosuchrule", headers=head)
+    assert r.status_code == 404
+    assert "/v1/research/rule/" in r.json()["detail"]
+
+
+def test_a_row_needs_a_session(client):
+    assert client.get(f"/v1/research/row/{CLS}/{TF}/alpha").status_code == 401

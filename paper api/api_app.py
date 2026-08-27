@@ -103,6 +103,7 @@ def create_app() -> FastAPI:
     # The manager desk. Registered before the board, which claims `/` and every
     # allowlisted asset path under it — FastAPI matches in registration order, so anything
     # mounted after the board can be shadowed by it.
+    import api_document
     import api_house
     import api_orders
     import api_research
@@ -121,6 +122,10 @@ def create_app() -> FastAPI:
     # The research board, and the queue that puts rows on it. It reads `results.db` and
     # writes job rows; it owns no trading and touches no order path.
     app.include_router(api_research.router)
+    # The baked board document, served as JSON rather than as a `<script>`. It measures
+    # nothing and ranks nothing -- `payload.py` builds that file and this reads it -- and it
+    # deliberately does not serve the `backtest` section, which is a query one router up.
+    app.include_router(api_document.router)
 
     @app.get("/healthz", tags=["meta"], summary="Liveness, with nothing sensitive in it")
     def healthz() -> dict:

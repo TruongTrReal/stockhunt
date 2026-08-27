@@ -41,6 +41,9 @@ api_webhook.py  /v1/webhook/tradingview - the ONE route whose credential is in t
 api_house.py    /v1/house - the catalog, and promoting a backtested rule to the desk
 api_research.py /v1/research - the leaderboard as a QUERY, and the queue that puts rows
                 on it. Reads `results.db`; owns no trading and no order path
+api_document.py /v1/board - the BAKED document (`web/data.js`) served as JSON instead of
+                as a `<script>`, so `dashboard-next` can read it without the 3.7 MB. It
+                parses; it derives nothing, and it never serves `backtest`
 api_live.py     the per-account cut of live.json. ONE implementation of that cut
 api_board.py    the dashboard behind that session, plus /ws
 api_app.py      the ASGI app: CORS, lifespan, /healthz, the exception handler
@@ -59,6 +62,7 @@ test_orders.py      idempotency, ordering, scoping, honest status codes
 test_webhook.py     the body-credential door: scope, rotation, derived idempotency
 test_house_and_board.py  promotion, and the per-account cut
 test_research.py    the board ranks what the store holds, and a submission is queued
+test_document.py    the document endpoint serves the small half and never the heavy one
 ```
 
 ## The manager desk
@@ -100,6 +104,10 @@ GET    /v1/research/sheets         which (class, timeframe) have been scored
 POST   /v1/research/trials         score a label variant. 202 = queued, not ranked
 POST   /v1/research/strategies     submit a module. Gated on causality before scoring
 GET    /v1/research/jobs           yours;  /jobs/{id} for one
+
+GET    /v1/board/meta              the baked document's SMALL sections, ~48 KB
+GET    /v1/board/logic/{rule}      one strategy's plain-English logic, of 505 KB
+GET    /v1/board/systems           the baked paper snapshot, when /live.json has none
 
 GET    /v1/house/catalog           promotable rules. Any member may read it
 GET    /v1/house/strategies        what the house desk runs. Any member may read it
@@ -229,6 +237,42 @@ walk-forward run over a whole sheet.
 **A member sees only their own jobs, and a stranger's id answers 404 rather than 403** -- a
 403 confirms the id exists, which is the one bit an enumeration needs. The board itself is
 not cut per account: research is the same for everybody, unlike `live.json`.
+
+## `/v1/board` exists because a `<script>` is not an API
+
+`build_dashboard.py --serve` writes ONE document to `../Stockhunt Dashboard/web/data.js`, as
+`window.DASH = {...};`. The vanilla board reads it by loading that file as a `<script>` and
+taking the global, which works because that board is one page that wants all of it.
+
+`dashboard-next` cannot do that and must not want to. The file is **3.7 MB**, and 87% of it
+is the `backtest` section that the paged `/v1/research/leaderboard` exists to stop shipping.
+Fetching `data.js` from the new board would undo this afternoon's work with nothing on
+screen to say so.
+
+So `api_document.py` serves the same document, split by what a reader actually needs:
+
+| route | size | why separate |
+|---|---|---|
+| `/v1/board/meta` | ~48 KB | configuration and a handful of numbers, all of it needed before the first view renders, so it is one request |
+| `/v1/board/logic/{rule}` | one of 505 KB | exactly one detail page's worth is ever read |
+| `/v1/board/systems` | — | the FALLBACK for `/live.json`, not a second source |
+
+Three things about it:
+
+* **It parses, it does not derive.** A second builder here would be a second answer to every
+  question the board asks, and this folder owns no measurement. `payload.py` builds; this
+  reads.
+* **It will not serve `backtest`.** That section is a query now, and handing out a baked copy
+  beside the live one puts two rankings on one site -- the drift
+  `tools/test_board_equivalence.py` exists to catch, reintroduced through a different door.
+  `META_KEYS` lists what is INCLUDED rather than what is excluded, so a new heavy section in
+  `payload.py` cannot start riding along on every page load.
+* **The parse is memoised on the file's MTIME**, the same construction `api_research._curves`
+  uses one file over: a rebuild is picked up with nothing restarted, and a superseded
+  document is not held.
+
+An unbuilt board answers **503 naming the command that builds it**, not 500. A fresh clone
+is exactly that state, and it is a fact about the deployment rather than a fault here.
 
 ## Retiring keeps everything; the one exception is a row that recorded nothing
 

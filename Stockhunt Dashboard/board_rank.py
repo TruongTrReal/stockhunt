@@ -760,6 +760,52 @@ def _rank_sheet(cls: str, tf: str) -> dict | None:
             "folds": int(h["n_folds"].median()) if "n_folds" in h else None}
 
 
+def build_row(cls: str, tf: str, rule: str) -> dict | None:
+    """ONE ranked row, by label, with the sheet context a detail page prints beside it.
+
+    A detail page shows the same seven figures the leaderboard row does -- the book's
+    delta-Sharpe, its t against the sheet's own bar, what $10k became, the criteria count --
+    and until this existed the only way to reach them was to page the whole sheet looking
+    for the label. That is up to ten requests and ~500 rows to render one hero strip, which
+    is the shape of thing the paging work exists to stop.
+
+    It is cheap for exactly the reason paging became cheap: `_ranked` has already ordered
+    the population and memoised it, so this is a lookup and one `leaderboard_entry`.
+
+    `rank` is 1-based and is the row's place on the board, which is a fact about the SHEET
+    and cannot be derived from the row -- a reader who arrived from a link rather than from
+    the leaderboard has no other way to know whether they are looking at 3rd or 300th.
+
+    Returns None where the sheet does not exist OR the label is not ranked on it. Those are
+    different states to a caller, but not to this function: both mean "there is no row here",
+    and the caller that cares (an off-board rule that still has a book) is looking at the
+    robustness index rather than at this.
+
+    `assets=True`, unlike the leaderboard's default: a detail page is the one caller that
+    draws the asset-by-asset table, and one row's worth of it is ~29 KB rather than a MB.
+    """
+    pre = _ranked(cls, tf)
+    if pre is None:
+        return None
+    ordered = pre["ordered"]
+    hit = ordered.index[ordered["rule"].astype(str) == str(rule)]
+    if not len(hit):
+        return None
+    at = int(ordered.index.get_indexer([hit[0]])[0])
+    row = leaderboard_entry(next(ordered.iloc[at:at + 1].itertuples()),
+                            pre["per"], pre["per_stats"], True)
+    # The sheet's context, named the same way `build_sheet` names it, so a page can read
+    # either without a second vocabulary for one document.
+    row["rank"] = at + 1
+    row["n_ranked"] = pre["n_ranked"]
+    row["folds"] = pre["folds"]
+    row["book_bench"] = pre["book_bench"]
+    row["years"] = round(_edge_years(cls, tf) or pre["years"], 1)
+    row["noise_ceiling"] = round(noise_ceiling(pre["n_all"], pre["years"]), 2)
+    row["n_rules"] = pre["n_all"]
+    return row
+
+
 def build_sheet(cls: str, tf: str, universe: list[str],
                 offset: int = 0, limit: int | None = None,
                 assets: bool = True) -> dict | None:

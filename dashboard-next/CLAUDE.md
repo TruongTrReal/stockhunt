@@ -66,14 +66,69 @@ npm run build    # -> out/, which `paper api` serves at /next/
 `NEXT_PUBLIC_API_ORIGIN` moves the dev proxy target. `NEXT_PUBLIC_BASE_PATH` must match
 whatever path the API serves the export from — `/next` today.
 
-## What is not ported yet
+## Where the data comes from, and why it is four sources
 
-The vanilla board is ~4,300 lines across ~25 views. This carries the leaderboard and its
-paging. Still on `../Stockhunt Dashboard/web/app.js`: the strategy detail page and its
-equity charts (hand-rolled SVG, no chart library), the robustness matrix, the paper desk,
-the live tick blotter over `/ws`, and the hover/long-press column documentation.
+The vanilla board gets everything from `data.js` — one 3.7 MB document loaded as a
+`<script>` and read off a global. **This app must not do that**: 87% of that file is the
+`backtest` section the paged leaderboard exists to stop shipping, so fetching it would undo
+the paging with nothing on screen to say so.
 
-**`dist/dashboard.html` cannot be produced from here** and is not meant to be. It is one
+| source | what | notes |
+|---|---|---|
+| `/v1/research/leaderboard` | the ranked sheet | PAGED, `assets=false`. One page is one request |
+| `/v1/research/row/{cls}/{tf}/{rule}` | one row + its sheet context | the detail page's hero strip. Without it, finding one label means paging the whole sheet |
+| `/v1/board/meta` | config and headline numbers | ~46 KB, one request at start-up. Gates, timeframes, group labels, universe notes |
+| `/live.json`, `/robust.json`, `/curves/*` | the big per-view files | fetched by the one view that draws each |
+
+`/v1/board` exists because a `<script>` is not an API; `../paper api/CLAUDE.md` carries the
+reasoning. It parses the same document `payload.py` writes and derives nothing, and it
+**will not serve `backtest`** — a baked ranking beside the live one is the drift
+`tools/test_board_equivalence.py` exists to catch, coming back through a different door.
+
+## What the port had to get right, and what it deliberately changed
+
+The vanilla board's decisions are ported, not just its pixels. `../Stockhunt Dashboard/CLAUDE.md`
+is the authority on all of them; the ones easiest to undo by accident:
+
+* **The two money columns are coloured on different questions.** `$10k / book` on raw money,
+  `book vs B&H` on risk-matched skill. Colouring the first on the second tells a reader they
+  made money they did not make.
+* **One sizing on the detail page.** Every benchmark at the strategy's own volatility. There
+  is no full-size toggle, because offering the misleading reading as an equal option was
+  rejected deliberately; the full-size figures are caption prose.
+* **The chart seeds the top five on the DELIVERED order**, never on the column the reader has
+  since sorted by — "the top five" has to mean the same five whichever way the table points.
+* **`realised` and `pnl` are different questions** on a fill, and a payload with no `realised`
+  key at all is a THIRD state that prints em-dashes rather than asserting "0 closed trades".
+* **The desk is not a fund.** No desk total, no mean P&L across systems.
+* **A column without a `doc` is the one column nobody can ask about** — here that is a *type*
+  requirement, so such a column does not compile.
+
+Three things are deliberately NOT the same as the vanilla, and each is an upgrade rather
+than drift:
+
+* **The board pages.** The old one cannot; that is the whole reason this app exists.
+* **A page in flight looks different from one that has landed** — `app/busy.css`. The old
+  board never waits for anything, so it needed none of this.
+* **`Robustness` is reduced in the browser** from `/robust.json`, using
+  `payload.robustness_index`'s own definition. `board_rank` cannot know about robustness —
+  importing pandas and `stockhunt.resultsdb` and nothing else is what lets the HTTP layer
+  start without a TA-Lib build — and this app has no baked payload to copy the counts from
+  the way `loadLiveBoard` does. Verified against the baked counts before it was trusted.
+
+## Two names that are not interchangeable
+
+`us_stocks` / `us_etfs` / `cme_futures` are **class** names and are what every
+`/v1/research/*` route takes. `stocks` / `etf` / `futures` are **group** keys, and are what
+`/v1/board/meta`'s `groups`, `robust.json`'s `envs` and the `curves/board_<key>_<tf>.json`
+filenames use. `CLASS_GROUP` in `components/BoardChart.tsx` is the one mapping; import it
+rather than writing a second one.
+
+## What is not ported
+
+`dist/dashboard.html` **cannot be produced from here** and is not meant to be. It is one
 self-contained file with no server behind it; a static export is a directory, and this app
-has no data without an API to ask. That artifact stays with the vanilla builder for as
-long as it is wanted.
+has no data without an API to ask. That artifact stays with the vanilla builder.
+
+`enhanceTables` — the site-wide horizontal-scroll fade over every table — is an `app.js`
+enhancer rather than a feature of any one view. Tables still scroll via `.tbl-wrap`.
