@@ -26,6 +26,11 @@ REPO = HERE.parent
 PAPER_ENGINE = REPO / "paper trading engine"
 DASHBOARD = REPO / "Stockhunt Dashboard"
 DASHBOARD_WEB = DASHBOARD / "web"
+# The Next.js board, `next build` output. A directory of build artefacts and nothing
+# else -- which is why it is served whole rather than through `web_files.ALLOWED`:
+# that allowlist exists because `Stockhunt Dashboard/web/` also holds a build script
+# and the demo fixture, and an export has no such neighbours to protect.
+NEXT_OUT = REPO / "dashboard-next" / "out"
 ENV_FILE = REPO / ".env.local"
 
 # The repo root, so `stockhunt.*` resolves. That package is THE SHARED CORE and it is the

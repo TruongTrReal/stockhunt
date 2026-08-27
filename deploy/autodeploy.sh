@@ -121,6 +121,32 @@ else
     exit 1
 fi
 
+# The Next board, rebuilt only when its sources moved.
+#
+# NON-FATAL BY DESIGN, exactly like the payload rebuild below it. `dashboard-next/out/` is
+# gitignored, so `git reset --hard` never removes it: a failed build leaves the PREVIOUS
+# export in place and `/next/` keeps serving it. That is the whole reason this may fail
+# quietly -- a five-minute deploy loop that can be broken by a slow npm registry is a
+# board taken down by somebody else's outage.
+#
+# Conditional because `npm ci` is the expensive part and most pushes here are results
+# CSVs. Rebuilt when the app's own files moved, when `../Stockhunt Dashboard/web/app.css`
+# moved (it is COPIED in by `prebuild`, so a stylesheet change reaches this app only
+# through a rebuild), or when there is no export on disk yet.
+if command -v npm >/dev/null 2>&1; then
+    if git diff --name-only "$OLD" "$NEW" -- dashboard-next/ "Stockhunt Dashboard/web/app.css" | grep -q .        || [ ! -d "$REPO/dashboard-next/out" ]; then
+        say "building dashboard-next"
+        if (cd "$REPO/dashboard-next" && npm ci --no-audit --no-fund && npm run build)                 >>"$LOG" 2>&1; then
+            chown -R stockhunt:stockhunt "$REPO/dashboard-next/out" 2>/dev/null || true
+            say "dashboard-next built"
+        else
+            say "!! dashboard-next build FAILED (/next/ still serving the previous export)"
+        fi
+    fi
+else
+    say "!! no npm on this box -- /next/ cannot be built. Install Node 20+ and re-deploy."
+fi
+
 # Results may have moved with the code, so the board payload is rebuilt from what just
 # arrived. Failure here is not a failed deploy -- the site still serves the previous
 # payload -- so it is reported and not fatal.

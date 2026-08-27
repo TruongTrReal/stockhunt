@@ -220,6 +220,41 @@ def test_traversal_out_of_web_is_refused(client, sent):
     assert web_files.resolve(_WEB, "/curves/ibs.json") is not None      # the control
 
 
+def test_the_next_export_is_behind_the_same_login(client, sent):
+    """The Next board is a second front end, not a second security model.
+
+    An unauthenticated DOCUMENT is redirected -- somebody typed the address and deserves
+    the login screen. An unauthenticated ASSET is refused with 401, because it is a fetch
+    from a page whose session lapsed and answering it with the login HTML hands a script
+    tag a form. Same split as `_serve`, and it has to be: the export loads its own chunks.
+    """
+    r = client.get("/next/", follow_redirects=False)
+    assert r.status_code == 302 and "/login" in r.headers["location"]
+    assert client.get("/next/_next/static/chunks/main.js").status_code == 401
+
+
+def test_traversal_out_of_the_next_export_is_refused(client, sent, tmp_path):
+    """An export has no allowlist -- its chunk names are content hashes nobody can
+    enumerate -- so containment is the ONLY thing standing between this route and the
+    repo. `.env.local` is two directories above the export root."""
+    import web_files
+
+    root = tmp_path / "out"
+    (root / "_next").mkdir(parents=True)
+    (root / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (root / "_next" / "app.js").write_text("//", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("no", encoding="utf-8")
+
+    for path in ("/../secret.txt", "/_next/../../secret.txt", "/..\secret.txt",
+                 "/_next/....//secret.txt"):
+        assert web_files.resolve_export(root, path) is None, path
+
+    # The controls: a real asset, and a DIRECTORY, which `trailingSlash` makes a route.
+    assert web_files.resolve_export(root, "/_next/app.js") is not None
+    assert web_files.resolve_export(root, "/") == (root / "index.html").resolve()
+    assert web_files.resolve_export(root, "/nope.js") is None
+
+
 def test_a_missing_curve_is_a_404_not_a_500(client, sent):
     _sign_in(client, sent)
     assert client.get("/curves/nope.json").status_code == 404

@@ -13,6 +13,21 @@ thing that had gone wrong in them, a `gzip_types` list that silently skipped 4 M
 JavaScript per page load, was invisible for as long as nobody could read the file
 alongside the code that produced the responses. See `nginx/README.md`.
 
+## The Next board
+
+`dashboard-next/` is a second front end for the same API, served at **`/next/`** while the
+vanilla board keeps `/`. It is a `next build --output export`: a directory of static files,
+no Node process, so nothing new is supervised here.
+
+**It needs Node 20+ on the box.** `autodeploy.sh` builds it when `dashboard-next/` or
+`Stockhunt Dashboard/web/app.css` moved, or when there is no export yet, and **a failed
+build is not a failed deploy** -- `out/` is gitignored, so `git reset --hard` leaves the
+previous export alone and `/next/` goes on serving it. A five-minute deploy loop that a
+slow npm registry can break is a board taken down by somebody else's outage.
+
+nginx needs no change: `location /` proxies everything to 127.0.0.1:8080 and the export is
+served by the same FastAPI process, behind the same session.
+
 ## Three services and three timers
 
 | unit | what |

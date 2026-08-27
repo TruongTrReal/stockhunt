@@ -116,6 +116,52 @@ def index(request: Request) -> Response:
     return _serve(request, "/index.html")
 
 
+NEXT_OUT = api_paths.NEXT_OUT
+
+
+@router.get("/next")
+@router.get("/next/")
+@router.get("/next/{path:path}")
+def next_board(request: Request, path: str = "") -> Response:
+    """The Next.js board, served from its static export under the same login.
+
+    MOUNTED AT A SUB-PATH ON PURPOSE, and only while it is being built. `/` still serves
+    the vanilla board, so the two coexist and the new one can be wrong without taking the
+    working one down with it. Flipping it to the root is then a routing change here plus
+    `NEXT_PUBLIC_BASE_PATH` in the build, not a rewrite.
+
+    The same session gate as `_serve`, and for the same two reasons: a browser typing the
+    address gets the login screen, and a `fetch` from a page whose session just lapsed gets
+    a 401 rather than a login form that `JSON.parse` will choke on. The export's own asset
+    requests are the second case, which is why the redirect is limited to the document.
+    """
+    session = api_auth.optional_session(request)
+    if session is None:
+        if path in ("", "/") or path.endswith(".html") or path.endswith("/"):
+            return RedirectResponse("/login", status_code=status.HTTP_302_FOUND)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Sign in first.")
+
+    target = web_files.resolve_export(NEXT_OUT, "/" + path)
+    if target is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=("Not found. If this is the whole board, `dashboard-next` has not been "
+                    "built -- run `npm run build` there."))
+
+    ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+    if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
+        ctype += "; charset=utf-8"
+    response = FileResponse(target, media_type=ctype)
+    # Next writes a content hash into every filename under `_next/static`, so those may be
+    # held forever; the route documents are rewritten by each build under a stable name and
+    # must be revalidated, or a deploy leaves a browser on the previous one indefinitely.
+    immutable = "/_next/static/" in target.as_posix()
+    response.headers["Cache-Control"] = (
+        "private, max-age=31536000, immutable" if immutable else "private, no-cache")
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
+
 @router.get("/curves/{name}")
 def curve(request: Request, name: str) -> Response:
     """One strategy's equity curve, fetched by the detail view.

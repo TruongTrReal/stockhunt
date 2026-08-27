@@ -68,6 +68,34 @@ def resolve(web: Path, path: str) -> Path | None:
     return target
 
 
+def resolve_export(root: Path, path: str) -> Path | None:
+    """Map a URL path to a file in a static-export directory, or None.
+
+    THE CONTAINMENT CHECK IS THE SAME; the allowlist deliberately is not. `resolve` above
+    guards a hand-maintained directory that also holds a build script and `demo_data.js`,
+    the fixture of invented numbers that must never ship — there, naming what may be served
+    is the point. A `next build` export is generated whole and contains build artefacts
+    only, and its chunk filenames carry content hashes nobody can enumerate in advance, so
+    an allowlist would have to be regenerated on every build or it would serve a blank page.
+
+    What does NOT relax is traversal: `resolve()` plus `is_relative_to`, on the same
+    reasoning as above, because a path that walks upward out of the export lands in the
+    repo — and `.env.local` is two directories up from it.
+
+    A directory request maps to its `index.html`, which is how `output: "export"` with
+    `trailingSlash` writes a route: `/research/` is `research/index.html` on disk.
+    """
+    clean = path.split("?", 1)[0].split("#", 1)[0]
+    if clean in ("", "/"):
+        clean = "/index.html"
+    target = (root / clean.lstrip("/")).resolve()
+    if not target.is_relative_to(root.resolve()):
+        return None
+    if target.is_dir():
+        target = target / "index.html"
+    return target if target.is_file() else None
+
+
 def cache_control(name: str, private: bool = False) -> str:
     """`Cache-Control` for one served file, by what its URL promises about its contents.
 
