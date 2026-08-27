@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { api, ApiError, type Row, type Sheet, type SheetRef } from "@/lib/api";
 
 /* THE WHOLE POINT OF THIS PAGE: every ranked rule is reachable, not the top 30.
@@ -172,7 +173,14 @@ export default function ResearchPage() {
                   <tr key={`${r.rule}-${i}`}>
                     <td className="l mut">{sheet.offset + i + 1}</td>
                     <td className="l">
-                      {r.rule}
+                      {/* The label goes in a QUERY parameter, not a path segment: a pair is
+                          `LEG_A~LEG_B|op` and an overlay is `ha:chart:ibs@buy=0.3`, and
+                          those survive a query string untouched. */}
+                      <Link
+                        href={`/rule/?cls=${encodeURIComponent(cls)}&tf=${encodeURIComponent(tf)}&rule=${encodeURIComponent(r.rule)}`}
+                      >
+                        {r.rule}
+                      </Link>
                       {r.kind === "pair" && <span className="chip">pair</span>}
                     </td>
                     <td>{r.edge?.passed ?? "—"}</td>

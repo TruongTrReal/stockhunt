@@ -32,8 +32,10 @@ order path: the API's checks give a caller a fast useful error, the far side's c
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -50,6 +52,29 @@ import board_rank                                                       # noqa: 
 # this is a response-size bound rather than a taste in page lengths: uncapped on
 # us_stocks 1d it would join 190 symbols per rule across ~500 rules for one request.
 MAX_PAGE = 200
+
+# The per-rule equity curves, written by `run_book.sh --curves` beside the book sheets.
+# NOT `Stockhunt Dashboard/web/curves/`: the build copies only the rows the baked board
+# showed there, which was the top 30 -- the same cap this API exists to remove. The full
+# file has every ranked rule in it.
+CURVES_DIR = api_paths.WFO_RESULTS
+
+
+@lru_cache(maxsize=2)
+def _curves(path: str, mtime: float) -> dict:
+    """One sheet's curve file, parsed once and held.
+
+    Keyed on MTIME as well as path, so a re-run of `run_book.sh` invalidates this without
+    anybody remembering to -- the same reasoning as `board_rank`'s revision key, one layer
+    out and against a file rather than a store.
+
+    `maxsize=2` is a memory bound, not a tuning guess: `book_curves_us_stocks_1d.json` is
+    11 MB of JSON and several times that once parsed, so holding all nineteen sheets would
+    cost more than the process has. Two covers a reader paging through one sheet's rules
+    and comparing against a second.
+    """
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
 from stockhunt import resultsdb                                         # noqa: E402
 
 log = logging.getLogger("stockhunt.api.research")
@@ -235,6 +260,34 @@ def rule(cls: str, tf: str, rule: str,
     ranked, meta = board_rank._rank_assets(list(rows))
     return {"cls": cls, "tf": tf, "rule": rule,
             "stats": board_rank._asset_stats(rows) | meta, "rows": ranked}
+
+
+@router.get("/curve/{cls}/{tf}/{rule:path}", summary="One rule's equity curve")
+def curve(cls: str, tf: str, rule: str,
+          who: dict = Depends(api_auth.current_principal)) -> dict:
+    """The detail page's chart: this rule's book, its risk-matched benchmark, and the
+    metrics computed in the same `build_book` call that produced the leaderboard row.
+
+    ONE RULE OUT OF THE FILE, rather than the file. `book_curves_us_stocks_1d.json` is
+    11 MB; the browser wants one series out of it. The old board solved that by copying a
+    subset into `web/curves/` at build time -- which is why a detail page only ever
+    existed for rows the baked board had room to show. Reading the whole file here and
+    handing back one key is what lets rank 400 have a chart at all.
+    """
+    _check_sheet(cls, tf)
+    path = CURVES_DIR / f"book_curves_{cls}_{tf}.json"
+    if not path.exists():
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=(f"No curve file for {cls}/{tf}. The book run for this sheet has not "
+                    f"been done with --curves."))
+    data = _curves(str(path), path.stat().st_mtime)
+    entry = data.get(rule)
+    if entry is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"{rule!r} is not in the curve file for {cls}/{tf}.")
+    return {"cls": cls, "tf": tf, "rule": rule} | entry
 
 
 # ============================================================ submitting

@@ -97,12 +97,48 @@ export interface Sheet {
   book_bench?: { n_names?: number; years?: number } | null;
 }
 
+export interface Curve {
+  cls: string;
+  tf: string;
+  rule: string;
+  curve: number[];
+  bench: number[];
+  dates: string[];
+  metrics?: Record<string, number | null>;
+  bench_metrics?: Record<string, number | null>;
+  n_assets?: number | null;
+}
+
+export interface AssetRow {
+  symbol: string;
+  ir?: number | null;
+  years?: number | null;
+  net_cagr?: number | null;
+  bh_cagr?: number | null;
+  net_pct?: number | null;
+  bh_pct?: number | null;
+}
+
+export interface RuleDetail {
+  cls: string;
+  tf: string;
+  rule: string;
+  stats: Record<string, number | null>;
+  rows: AssetRow[];
+}
+
 export const api = {
   sheets: () => get<SheetRef[]>("sheets"),
   /** One page of one sheet. `limit: 0` returns the header alone, which is how a caller
    *  learns `n_ranked` before deciding what to ask for. */
   leaderboard: (cls: string, tf: string, offset = 0, limit?: number) =>
     get<Sheet>("leaderboard", { cls, tf, offset, limit }),
+  /** One rule's book curve and its risk-matched benchmark. The label is a PATH segment
+   *  and can contain `|` and `~`, so it is encoded rather than interpolated raw. */
+  curve: (cls: string, tf: string, rule: string) =>
+    get<Curve>(`curve/${cls}/${tf}/${encodeURIComponent(rule)}`),
+  rule: (cls: string, tf: string, rule: string) =>
+    get<RuleDetail>(`rule/${cls}/${tf}/${encodeURIComponent(rule)}`),
 };
 
 /** The API caps a page at 200 rows because each one carries its asset-by-asset table. */

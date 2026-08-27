@@ -31,6 +31,12 @@ DASHBOARD_WEB = DASHBOARD / "web"
 # that allowlist exists because `Stockhunt Dashboard/web/` also holds a build script
 # and the demo fixture, and an export has no such neighbours to protect.
 NEXT_OUT = REPO / "dashboard-next" / "out"
+# The walk-forward result sheets. Declared HERE rather than imported from
+# `dash_config`, which is where the dashboard keeps the same constant: that module
+# imports `backtest engine/config.py`, and this bootstrap not pulling the trading
+# stack into an HTTP process is the property the whole layout rests on. A `Path` is
+# cheap to state twice; an import is not.
+WFO_RESULTS = REPO / "walk-forward optimization" / "results"
 ENV_FILE = REPO / ".env.local"
 
 # The repo root, so `stockhunt.*` resolves. That package is THE SHARED CORE and it is the
