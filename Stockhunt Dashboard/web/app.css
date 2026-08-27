@@ -18,6 +18,22 @@
   --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
   --col:clamp(16px,4vw,34px);
 
+  /* THE RAIL: how wide the page is allowed to get. `none` is full-bleed — the content
+     spans the viewport less `--col` on each side.
+
+     It was 1240px, which is a PROSE measure, and most of this site is not prose: a
+     nineteen-column leaderboard, stat strips, chart panels and a 190-row asset grid all
+     had to be read through a column narrower than the screen they were on, and the widest
+     of them scrolled sideways inside it. The paragraphs that genuinely are prose set their
+     own measure in `ch` (`.lede`, `.note`, the captions) and do not widen with this, so
+     letting the rail go is a decision about DATA only.
+
+     It is a token because it is stated in three files. The masthead is duplicated into
+     `paper api/web/desk.html` and `docs.html`, which are self-contained by design and
+     cannot link this stylesheet; the three copies must stay dimensionally identical or the
+     nav visibly jumps when you cross between the two processes. Change this, change those. */
+  --rail:none;
+
   /* THE SERIES PALETTE — line identity on the research chart, and nothing else.
      This stylesheet's opening argument is that colour on this page carries meaning:
      green gained, red lost. Six lines on one axis need six identities, which is a
@@ -72,7 +88,7 @@ a:focus-visible,button:focus-visible{outline:1.5px solid var(--ink);outline-offs
 
 /* ---------- masthead ---------- */
 .top{border-bottom:1px solid var(--hair);}
-.top-in{max-width:1240px;margin:0 auto;padding:18px var(--col) 0;
+.top-in{max-width:var(--rail);margin:0 auto;padding:18px var(--col) 0;
   display:flex;flex-direction:column;gap:14px;}
 .brand{font-size:13px;letter-spacing:.02em;color:var(--muted);}
 .brand b{color:var(--ink);font-weight:600;}
@@ -91,11 +107,11 @@ a:focus-visible,button:focus-visible{outline:1.5px solid var(--ink);outline-offs
 .nav-link.on{color:var(--ink);border-bottom-color:var(--ink);}
 .top-meta{display:none;}
 
-/* 940px was a prose measure applied to a whole page, most of which is not prose. The
-   paragraphs that *are* prose carry their own `max-width` in ch and are unaffected by
-   this; what widens is everything measured in data — tables, stat strips, chart panels,
-   the asset grid. */
-.page{max-width:1240px;margin:0 auto;padding:40px var(--col) 96px;
+/* 940px was a prose measure applied to a whole page, most of which is not prose; 1240px
+   was the same mistake with a bigger number. The paragraphs that *are* prose carry their
+   own `max-width` in ch and are unaffected by this; what widens is everything measured in
+   data — tables, stat strips, chart panels, the asset grid. See `--rail`. */
+.page{max-width:var(--rail);margin:0 auto;padding:40px var(--col) 96px;
   display:flex;flex-direction:column;gap:52px;}
 @media (max-width:600px){.page{padding-top:30px;gap:40px;}}
 
@@ -234,6 +250,10 @@ h2{font-size:15px;font-weight:600;letter-spacing:-.005em;color:var(--ink);margin
     /* max() guards the case where the viewport is barely wider than the page: without it
        the "breakout" would compute narrower than the column it is breaking out of and
        pull the table inwards. */
+    /* Self-neutralising since the rail went full-bleed: on any viewport where the page
+       is already this wide, `max(100%, ...)` resolves to 100% and the breakout is a no-op.
+       It stays because it is what a NARROWER `--rail` would need, and reinstating one is a
+       one-token change that should not also require restoring this. */
     --bleed:max(100%,min(calc(100vw - 2 * var(--col) - 22px),1720px));
     width:var(--bleed);
     margin-left:calc((100% - var(--bleed)) / 2);

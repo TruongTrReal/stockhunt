@@ -808,7 +808,7 @@ def build_row(cls: str, tf: str, rule: str) -> dict | None:
 
 def build_sheet(cls: str, tf: str, universe: list[str],
                 offset: int = 0, limit: int | None = None,
-                assets: bool = True) -> dict | None:
+                assets: bool = True, q: str = "") -> dict | None:
     """One leaderboard per (class, timeframe), singles and pairs ranked together.
 
     They were two lists until they were not. A pair of rules joined by `or` is a strategy
@@ -850,8 +850,26 @@ def build_sheet(cls: str, tf: str, universe: list[str],
     # and 84 KB without -- and a leaderboard draws none of them, so on a link with 200ms
     # of latency that is most of the wait a reader experiences. `assets=True` by default;
     # see `leaderboard_entry` for why the default is that way round.
+    # SEARCH FILTERS THE SHEET, NOT THE PAGE, and that distinction is the whole feature.
+    # Filtering in the browser can only ever reach the fifty rows already fetched, so
+    # searching a 493-row sheet from page 1 finds nothing on page 6 and silently reports
+    # that nothing matches -- which is indistinguishable from a rule that is not there.
+    # Matching here, BEFORE the window, means a query searches every ranked candidate.
+    #
+    # It matches on the label alone: that is what a reader types, and it is the only field
+    # that is a name rather than a measurement. Case-insensitive substring, so `doji` finds
+    # `CDLDOJI~CORREL|or` and `mc_` finds the whole mined family.
+    needle = str(q or "").strip().lower()
+    if needle:
+        ordered = ordered[ordered["rule"].astype(str).str.lower().str.contains(
+            needle, regex=False)]
+    # What the PAGER counts. `n_ranked` above stays the whole ranked population, because it
+    # describes the sheet and the header prints it beside `n_rules`; this describes the
+    # result set the reader is actually walking. With no query they are equal, which is why
+    # a client can page on this one unconditionally.
+    n_matched = int(len(ordered))
     lim = top_n() if limit is None else max(0, int(limit))
-    off = min(max(0, int(offset)), n_ranked)
+    off = min(max(0, int(offset)), n_matched)
     top = ordered.iloc[off:off + lim]
     rows = [leaderboard_entry(r, per, per_stats, assets) for r in top.itertuples()]
 
@@ -887,6 +905,10 @@ def build_sheet(cls: str, tf: str, universe: list[str],
             # rules were searched, and that is the number everything else is deflated
             # against.
             "n_ranked": n_ranked, "offset": off, "limit": lim,
+            # The query, echoed, and how many of the ranked rows it left. A client pages on
+            # `n_matched`; `n_ranked` is what the header says the sheet holds. Echoing `q`
+            # is what lets a page tell "no matches" apart from "no rows on this sheet".
+            "q": needle, "n_matched": n_matched,
             "folds": pre["folds"],
             "universe": universe, "rows": rows,
             "n_rules": n_all, "n_singles": n_singles, "n_pairs": n_pairs,

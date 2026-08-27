@@ -201,6 +201,10 @@ def leaderboard(cls: str, tf: str,
                 assets: bool = Query(True,
                                      description="include each row's per-asset table; "
                                                  "false makes a page ~12x smaller"),
+                q: str = Query("", max_length=120,
+                               description="filter on the rule label, case-insensitive "
+                                           "substring, applied to the WHOLE sheet before "
+                                           "paging"),
                 who: dict = Depends(api_auth.current_principal)) -> dict:
     """The sheet as the board renders it, ranked at the moment you ask.
 
@@ -223,10 +227,18 @@ def leaderboard(cls: str, tf: str,
     computed server-side either way. A client that wants the table asks
     `/v1/research/rule/{cls}/{tf}/{rule}` for the one rule it is showing. Defaults to true
     so that nothing reading `per_asset` off this route changes underneath.
+
+    `q` FILTERS THE SHEET, NOT THE PAGE. A client filtering the rows it already has can only
+    ever search the fifty in front of it, so a search from page 1 misses everything on page
+    6 and reports "no matches" — which reads exactly like a rule that does not exist.
+    Matching here happens before the window, so a query reaches every ranked candidate. It
+    matches the label only: that is what a reader types, and the one field that is a name
+    rather than a measurement. `n_matched` is what a pager counts; `n_ranked` stays the
+    whole ranked population, because that is what the header reports beside `n_rules`.
     """
     _check_sheet(cls, tf)
     sheet = board_rank.build_sheet(cls, tf, board_rank.universes().get(cls, []),
-                                   offset=offset, limit=limit, assets=assets)
+                                   offset=offset, limit=limit, assets=assets, q=q)
     if sheet is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
                             detail=f"No rankable rows for {cls}/{tf}.")

@@ -26,6 +26,13 @@
     --sans:ui-sans-serif,system-ui,"Segoe UI",-apple-system,"Helvetica Neue",sans-serif;
     --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
     --col:clamp(16px,4vw,34px);
+  /* THE RAIL, and it must match `Stockhunt Dashboard/web/app.css`'s `--rail`. This page is
+     self-contained by design -- it must not link a stylesheet out of a build-output
+     directory -- so the value is copied, not shared. Switching between here and the board
+     is a real navigation between two processes: if the two rails differ, the masthead
+     visibly jumps. Change one, change all three. */
+  --rail:none;
+
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -44,7 +51,7 @@
      that differs by a few pixels shows up as the nav moving when you switch pages. Same
      rule as there: the active link recolours and underlines, and never re-weights. */
   .top{border-bottom:1px solid var(--hair)}
-  .top-in{max-width:1240px;margin:0 auto;padding:18px var(--col) 0;
+  .top-in{max-width:var(--rail);margin:0 auto;padding:18px var(--col) 0;
           display:flex;flex-direction:column;gap:14px}
   .brand{font-size:13px;letter-spacing:.02em;color:var(--muted)}
   .brand b{color:var(--ink);font-weight:600}
@@ -56,7 +63,7 @@
 
   /* On the same rail as the masthead, so the table of contents starts where the nav does
      rather than 100px to the right of it. */
-  .wrap{display:flex;gap:44px;max-width:1240px;margin:0 auto;padding:34px var(--col) 100px}
+  .wrap{display:flex;gap:44px;max-width:var(--rail);margin:0 auto;padding:34px var(--col) 100px}
   .toc{width:196px;flex:0 0 auto;position:sticky;top:24px;align-self:flex-start;
        font-size:13px;max-height:calc(100vh - 48px);overflow-y:auto}
   .toc a{display:block;color:var(--muted);text-decoration:none;padding:4px 0;

@@ -43,6 +43,13 @@
     --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;
     /* The board's gutter and rail, to the pixel. See the masthead note below. */
     --col:clamp(16px,4vw,34px);
+  /* THE RAIL, and it must match `Stockhunt Dashboard/web/app.css`'s `--rail`. This page is
+     self-contained by design -- it must not link a stylesheet out of a build-output
+     directory -- so the value is copied, not shared. Switching between here and the board
+     is a real navigation between two processes: if the two rails differ, the masthead
+     visibly jumps. Change one, change all three. */
+  --rail:none;
+
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -74,7 +81,7 @@
      than centred on its own. And `.on` never changes font-weight: bolding the active link
      re-measures it and shifts every link after it. */
   .top{border-bottom:1px solid var(--hair)}
-  .top-in{max-width:1240px;margin:0 auto;padding:18px var(--col) 0;
+  .top-in{max-width:var(--rail);margin:0 auto;padding:18px var(--col) 0;
           display:flex;flex-direction:column;gap:14px}
   .brand{font-size:13px;letter-spacing:.02em;color:var(--muted)}
   .brand b{color:var(--ink);font-weight:600}
@@ -84,7 +91,7 @@
   .nav a:hover{color:var(--ink)}
   .nav a.on{color:var(--ink);border-bottom-color:var(--ink)}
   /* Named `page`, not `rail` — the wizard overlay already owns `.rail` for its header. */
-  .page{max-width:1240px;margin:0 auto;padding:34px var(--col) 0}
+  .page{max-width:var(--rail);margin:0 auto;padding:34px var(--col) 0}
   main{max-width:820px}
   h1{font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
   .who{color:var(--muted);font-size:13px;font-family:var(--mono);margin-bottom:30px}

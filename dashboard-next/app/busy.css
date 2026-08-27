@@ -55,3 +55,48 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------- the numbered pager
+ *
+ * `.lb-tools` is the vanilla board's control row and is shared; the numbered strip is new
+ * here, because the old board has nothing to page. It lives in THIS file rather than in
+ * `board.css` for the usual reason — that stylesheet is a build-time copy and editing it
+ * would be edited over on the next build.
+ */
+.lb-pager {
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+/* Its own gap, tighter than the row's: these read as one control, and at the row's 18px
+ * they read as eight separate buttons that happen to be numbers. */
+.pg-nums {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+/* Tabular figures so the strip does not shift as the digits change under it — `1` and `8`
+ * are different widths in the proportional face, and a control that resizes while you page
+ * through it drags every button after it sideways. */
+.pg-num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.4em;
+  text-align: center;
+}
+
+/* The current page is not a link to itself. It stays enabled so the strip does not change
+ * shape around it, and `aria-current="page"` is what actually says which one it is. */
+.pg-num.on {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  cursor: default;
+}
+
+.pg-gap {
+  color: var(--muted);
+  font-size: 13.5px;
+  user-select: none;
+}

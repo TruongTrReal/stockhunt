@@ -138,6 +138,13 @@ export interface Sheet {
   n_ranked: number;
   offset: number;
   limit: number;
+  /** The query the sheet was filtered on, echoed. Empty when none was sent — which is what
+   *  lets a page tell "nothing matched THAT" apart from "this sheet has no rows". */
+  q?: string;
+  /** How many ranked rows the query left, and WHAT A PAGER COUNTS. Equal to `n_ranked` when
+   *  no query was sent, so a client can page on it unconditionally. `n_ranked` stays the
+   *  whole ranked population because that is what the header reports beside `n_rules`. */
+  n_matched?: number;
   n_rules: number;
   n_singles: number;
   n_pairs: number;
@@ -260,6 +267,11 @@ export const api = {
   /** One page of one sheet. `limit: 0` returns the header alone, which is how a caller
    *  learns `n_ranked` before deciding what to ask for.
    *
+   *  `q` FILTERS THE SHEET, NOT THE PAGE. Matching in the browser can only reach the rows
+   *  already fetched, so a search from page 1 of 493 misses everything on page 6 and reports
+   *  "no matches" — which reads exactly like a rule that does not exist. The API matches
+   *  every ranked candidate before it takes the window, and answers with `n_matched`.
+   *
    *  `assets: false` is not optional here in practice. Each row's per-asset table is ~94%
    *  of its bytes and this app never renders one off a leaderboard — the detail page asks
    *  for the single rule it is showing. Sending them anyway made a page of 50 rows 987 KB
@@ -267,8 +279,9 @@ export const api = {
    *  those tables are summarised into (median asset, breadth, `asset_n`) is computed
    *  server-side and still arrives. Pass `assets: true` only for a caller that draws the
    *  tables themselves. */
-  leaderboard: (cls: string, tf: string, offset = 0, limit?: number, assets = false) =>
-    get<Sheet>("leaderboard", { cls, tf, offset, limit, assets }),
+  leaderboard: (cls: string, tf: string, offset = 0, limit?: number, assets = false,
+                q = "") =>
+    get<Sheet>("leaderboard", { cls, tf, offset, limit, assets, q: q || undefined }),
   /** One rule's book curve and its risk-matched benchmark. The label is a PATH segment
    *  and can contain `|` and `~`, so it is encoded rather than interpolated raw. */
   curve: (cls: string, tf: string, rule: string) =>

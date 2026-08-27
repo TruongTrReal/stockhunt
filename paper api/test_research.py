@@ -353,3 +353,64 @@ def test_an_unranked_label_is_a_404_that_points_somewhere(client):
 
 def test_a_row_needs_a_session(client):
     assert client.get(f"/v1/research/row/{CLS}/{TF}/alpha").status_code == 401
+
+
+# ------------------------------------------------------------------ search is server-side
+
+def test_search_filters_the_whole_sheet_and_not_the_page(client):
+    """The failure this exists to prevent is a silent one.
+
+    Filtering in the browser reaches only the rows already fetched, so a search from page 1
+    of a 493-row sheet finds nothing that sits on page 6 — and "no matches" is
+    indistinguishable from "no such rule". Matching before the window means a query reaches
+    every ranked candidate.
+    """
+    head = key_for("m@example.com")
+    q = f"/v1/research/leaderboard?cls={CLS}&tf={TF}&limit=1"
+    # `beta` is the SECOND row, so a page-1-sized window would never contain it.
+    body = client.get(f"{q}&q=beta", headers=head).json()
+    assert [r["rule"] for r in body["rows"]] == ["beta"]
+    assert body["n_matched"] == 1
+
+
+def test_a_query_leaves_the_population_statistics_alone(client):
+    """Same invariant as paging: the header describes the SHEET, not the result set.
+
+    `n_rules` is the number every `dsr` on the sheet is deflated against. If a search moved
+    it, a reader who typed something would be told the search space was smaller than it was.
+    """
+    head = key_for("m@example.com")
+    q = f"/v1/research/leaderboard?cls={CLS}&tf={TF}"
+    whole = client.get(q, headers=head).json()
+    found = client.get(f"{q}&q=alpha", headers=head).json()
+    for k in ("n_rules", "n_ranked", "noise_ceiling", "exposure_corr", "n_singles"):
+        assert found[k] == whole[k], k
+    # ...and only `n_matched` moves.
+    assert whole["n_matched"] == 2 and found["n_matched"] == 1
+
+
+def test_search_is_case_insensitive_substring(client):
+    head = key_for("m@example.com")
+    q = f"/v1/research/leaderboard?cls={CLS}&tf={TF}"
+    assert client.get(f"{q}&q=ALPH", headers=head).json()["n_matched"] == 1
+    assert client.get(f"{q}&q=a", headers=head).json()["n_matched"] == 2
+
+
+def test_a_query_that_matches_nothing_is_an_empty_sheet_not_a_404(client):
+    """A reader has to be able to tell "nothing matched" from "this sheet is not scored"."""
+    head = key_for("m@example.com")
+    r = client.get(f"/v1/research/leaderboard?cls={CLS}&tf={TF}&q=zzzz", headers=head)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["rows"] == [] and body["n_matched"] == 0
+    # The echo is what lets the page say WHICH query found nothing.
+    assert body["q"] == "zzzz"
+    assert body["n_ranked"] == 2
+
+
+def test_no_query_pages_exactly_as_before(client):
+    """`n_matched` equals `n_ranked` with no query, so a client can page on it always."""
+    head = key_for("m@example.com")
+    body = client.get(f"/v1/research/leaderboard?cls={CLS}&tf={TF}", headers=head).json()
+    assert body["n_matched"] == body["n_ranked"] == 2
+    assert body["q"] == ""

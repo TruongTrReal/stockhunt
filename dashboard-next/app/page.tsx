@@ -36,6 +36,32 @@ import {
 
 const PAGE_SIZE = 50;
 
+/* Which page numbers the strip draws: both ends, a run around the current page, and `null`
+ * where the sequence is broken. At most nine entries, so the control cannot wrap however
+ * deep the sheet is. */
+function pageWindow(page: number, last: number): (number | null)[] {
+  if (last <= 6) return Array.from({ length: last + 1 }, (_, i) => i);
+  const near = new Set<number>([0, last, page]);
+  for (const d of [-2, -1, 1, 2]) {
+    const n = page + d;
+    if (n > 0 && n < last) near.add(n);
+  }
+  // Keep the strip a stable width near the ends, where the window is one-sided and would
+  // otherwise render four numbers on page 1 and seven on page 5 — a control that changes
+  // width as you page through it drags every button after it sideways.
+  if (page <= 2) [1, 2, 3, 4].forEach((n) => n < last && near.add(n));
+  if (page >= last - 2) [1, 2, 3, 4].forEach((n) => last - n > 0 && near.add(last - n));
+
+  const out: (number | null)[] = [];
+  let prev = -1;
+  for (const n of [...near].sort((a, b) => a - b)) {
+    if (prev >= 0 && n > prev + 1) out.push(null);
+    out.push(n);
+    prev = n;
+  }
+  return out;
+}
+
 /* The pill strip's short labels. The group's own DESCRIPTIVE label — "Top 100 US stocks,
  * point-in-time" — is a different string and comes from `/v1/board/meta`'s `groups`; it is
  * what the Universe stat and the Universe section say, exactly as on the vanilla board. A
@@ -68,6 +94,13 @@ export default function ResearchPage() {
   const [adv, setAdv] = useState(true);
   const [sort, setSort] = useState<Sort | null>(null);
   const [query, setQuery] = useState("");
+  /* THE QUERY IS SENT, NOT APPLIED HERE, and that is the difference between searching this
+     sheet and searching this page. Filtering the fifty rows in hand can only ever find what
+     is already on screen, so a search from page 1 of 493 misses everything on page 6 and
+     says "no matches" — which reads exactly like a rule that does not exist.
+     `sent` lags `query` by a beat so that typing costs one request rather than one per
+     keystroke; the input stays on `query`, so it never feels delayed. */
+  const [sent, setSent] = useState("");
   const [narrow, setNarrow] = useState(false);
   const [criteria, setCriteria] = useState<Gate[]>([]);
   const [metaTfs, setMetaTfs] = useState<string[] | null>(null);
@@ -124,11 +157,24 @@ export default function ResearchPage() {
   }, []);
 
   useEffect(() => {
+    const id = setTimeout(() => {
+      setSent((prev) => {
+        // A query change invalidates the page number for the same reason a filter change
+        // does — page 7 is nowhere on a three-match result set, and landing on an empty
+        // page reads as "no matches" rather than "you were deep in the unfiltered sheet".
+        if (prev !== query.trim()) setPage(0);
+        return query.trim();
+      });
+    }, 250);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  useEffect(() => {
     let live = true;
     setLoading(true);
     setError(null);
     api
-      .leaderboard(cls, tf, page * PAGE_SIZE, PAGE_SIZE)
+      .leaderboard(cls, tf, page * PAGE_SIZE, PAGE_SIZE, false, sent)
       .then((s) => {
         if (live) setSheet(s as unknown as BoardSheet);
       })
@@ -144,7 +190,7 @@ export default function ResearchPage() {
     return () => {
       live = false;
     };
-  }, [cls, tf, page]);
+  }, [cls, tf, page, sent]);
 
   /* A SHEET OPENS WITH ITS TOP FIVE ALREADY DRAWN, and they are the DELIVERED five —
    * `Standard`, ties on `book vs B&H` — not the column the reader has since sorted by.
@@ -278,17 +324,18 @@ export default function ResearchPage() {
 
   const entries = useMemo(() => {
     if (!sheet) return [];
-    const q = query.trim().toLowerCase();
-    let list = lbOrder({ ...sheet, rows }, benchEdge, sort);
-    // The search FILTERS the rows on this page; it cannot reach the rules the ranking cut
-    // or the pages either side of this one. The benchmark row stays whatever the query,
-    // because it is the bar, not a match.
-    if (q) list = list.filter((e) => e.bench || stemName(e.row!.rule).toLowerCase().includes(q));
-    return list;
-  }, [sheet, rows, benchEdge, sort, query]);
+    // NO CLIENT-SIDE FILTER. `q` went to the API, which matched every ranked candidate
+    // before it took this window, so these rows ARE the matches — filtering them again
+    // would only be able to remove some of them.
+    return lbOrder({ ...sheet, rows }, benchEdge, sort);
+  }, [sheet, rows, benchEdge, sort]);
 
   const shown = entries.filter((e) => !e.bench).length;
-  const lastPage = sheet ? Math.max(0, Math.ceil(sheet.n_ranked / PAGE_SIZE) - 1) : 0;
+  /* `n_matched` and NOT `n_ranked`: the pager counts the result set the reader is walking,
+     which is the whole ranked population only while the search box is empty. `n_ranked`
+     stays what the header reports beside `n_rules`, because that describes the sheet. */
+  const matched = sheet?.n_matched ?? sheet?.n_ranked ?? 0;
+  const lastPage = sheet ? Math.max(0, Math.ceil(matched / PAGE_SIZE) - 1) : 0;
   const best = head && head.key === `${cls}|${tf}` ? head.best : (sheet?.rows[0] ?? null);
   const bb = sheet?.book_bench ?? null;
 
@@ -312,6 +359,96 @@ export default function ResearchPage() {
         ? "book vs B&H"
         : "Sharpe";
   const by = sort ? LB_COLS[sort.i].h : null;
+
+  /* ONE pager, rendered twice — above the table and below it.
+   *
+   * A fifty-row table is taller than the screen, so a control that exists only underneath
+   * it makes "next" a scroll away from wherever the reader stopped, and somebody who has
+   * just landed at the TOP of page 6 has to travel the whole table to leave it. Two calls
+   * to one component rather than two implementations: they cannot drift, and the numbered
+   * strip is fiddly enough that a second copy of it would.
+   *
+   * Every control is disabled while a page is in flight. Queueing clicks would start
+   * fetches whose answers arrive out of order, and the guard that drops a stale response
+   * would then leave the reader on a page they had clicked past.
+   *
+   * THE STATUS LINE READS FROM ONE PLACE AT A TIME. `page` is what was asked for and
+   * `sheet.offset` is what arrived, so mid-flight the two disagree — the counter said
+   * "page 2 of 10" beside "rows 1–50", which reads as a broken pager rather than a working
+   * one waiting. Waiting names what it is waiting for and no rows; landed says which rows
+   * these are.
+   */
+  function Pager() {
+    if (!sheet) return null;
+    return (
+      <div className="lb-tools lb-pager">
+        <button className="pill" disabled={loading || page === 0} onClick={() => setPage(0)}>
+          ‹‹ first
+        </button>
+        <button
+          className="pill"
+          disabled={loading || page === 0}
+          onClick={() => setPage(page - 1)}
+        >
+          ‹ prev
+        </button>
+
+        {/* The numbered strip, and it is a WINDOW rather than every number. Ten pages fit;
+            a 1,000-row sheet is twenty and would wrap the control onto three lines. Both
+            ends stay pinned because "back to the start" and "how deep does this go" are the
+            two questions a number strip is actually asked, and the gap is drawn so nobody
+            reads 1 2 3 … 10 as ten consecutive pages. */}
+        <span className="pg-nums">
+          {pageWindow(page, lastPage).map((n, i) =>
+            n === null ? (
+              <span key={`gap${i}`} className="pg-gap" aria-hidden="true">
+                …
+              </span>
+            ) : (
+              <button
+                key={n}
+                className={`pill pg-num${n === page ? " on" : ""}`}
+                disabled={loading}
+                aria-current={n === page ? "page" : undefined}
+                aria-label={`page ${n + 1}`}
+                onClick={() => setPage(n)}
+              >
+                {n + 1}
+              </button>
+            ),
+          )}
+        </span>
+
+        <button
+          className="pill"
+          disabled={loading || page >= lastPage}
+          onClick={() => setPage(page + 1)}
+        >
+          next ›
+        </button>
+        <button
+          className="pill"
+          disabled={loading || page >= lastPage}
+          onClick={() => setPage(lastPage)}
+        >
+          last ››
+        </button>
+
+        {loading ? (
+          <span className="sec-note busy-note">
+            loading page {page + 1} of {lastPage + 1}…
+          </span>
+        ) : (
+          <span className="sec-note">
+            rows {sheet.offset + 1}–{sheet.offset + sheet.rows.length} of{" "}
+            {matched.toLocaleString()}
+            {sheet.q ? ` matching “${sheet.q}”` : ""} · page {page + 1} of{" "}
+            {lastPage + 1}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -545,6 +682,8 @@ export default function ResearchPage() {
                 which closes it again. */}
             {panel}
 
+            <Pager />
+
             <div className={`tbl-wrap${loading ? " is-busy" : ""}`} aria-busy={loading} ref={boxRef}>
               <table>
                 <thead>
@@ -600,52 +739,7 @@ export default function ResearchPage() {
               </table>
             </div>
 
-            {/* THE STATUS LINE READS FROM ONE PLACE AT A TIME, and that is the whole point
-                of the `loading` branch. `page` is what was asked for and `sheet.offset` is
-                what arrived, so while a fetch is in flight the two disagree — the counter
-                said "page 2 of 10" beside "rows 1–50", which reads as a broken pager rather
-                than a working one mid-request. Waiting says what it is waiting for and
-                names no rows; landed says which rows these are.
-
-                Every control is disabled while a page is in flight. Queueing clicks would
-                start fetches whose answers arrive out of order, and the guard that drops a
-                stale response would then leave the reader on a page they had clicked past. */}
-            <div className="lb-tools" style={{ marginTop: 18 }}>
-              <button className="pill" disabled={loading || page === 0} onClick={() => setPage(0)}>
-                ‹‹ first
-              </button>
-              <button
-                className="pill"
-                disabled={loading || page === 0}
-                onClick={() => setPage(page - 1)}
-              >
-                ‹ prev
-              </button>
-              {loading ? (
-                <span className="sec-note busy-note">
-                  loading page {page + 1} of {lastPage + 1}…
-                </span>
-              ) : (
-                <span className="sec-note">
-                  rows {sheet.offset + 1}–{sheet.offset + sheet.rows.length} of{" "}
-                  {sheet.n_ranked.toLocaleString()} · page {page + 1} of {lastPage + 1}
-                </span>
-              )}
-              <button
-                className="pill"
-                disabled={loading || page >= lastPage}
-                onClick={() => setPage(page + 1)}
-              >
-                next ›
-              </button>
-              <button
-                className="pill"
-                disabled={loading || page >= lastPage}
-                onClick={() => setPage(lastPage)}
-              >
-                last ››
-              </button>
-            </div>
+            <Pager />
           </section>
 
           <section className="sec">
