@@ -87,6 +87,13 @@ walk-forward optimization/  what prices SELECTION: rolling re-fit, variants, pre
 paper trading engine/       the live desk: Nautilus sandbox on live Twelve Data bars
    |                        top 3 rules x 4 classes x 2 timeframes, each leg selecting
    |                        from its OWN wf_summary sheet -> publishes live.json
+   |                        alpaca_mirror.py: A SECOND, OPTIONAL PROCESS, and the one
+   |                        place a REAL BROKER is involved. It drives Alpaca paper
+   |                        accounts to a scaled copy of the desk's book, so real fills
+   |                        can be compared against the sandbox's bar-close ones. Reads
+   |                        paper_state.json, imports no Nautilus, changes no published
+   |                        number. Equities, ETFs and crypto only -- Alpaca sells no
+   |                        metals, no FX and no futures
    |                        ALSO runs other people's strategies: desk_control is a
    |                        Nautilus Controller that attaches registrations to the
    |                        RUNNING node and drains their orders. catalog.py publishes
@@ -515,7 +522,7 @@ Collecting either from the root would make `pytest` require `fastapi` or
 
 ```powershell
 cd "paper api";            ..\.venv\Scripts\python -m pytest -q
-cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py test_fill_pnl.py -q
+cd "paper trading engine"; ..\.venv\Scripts\python -m pytest test_accounts.py test_desk_orders.py test_feed_timeframes.py test_book.py test_book_desk.py test_paper_metrics.py test_fill_pnl.py test_alpaca_map.py test_alpaca_mirror.py -q
 ```
 
 The engine's files are named explicitly because the same folder also holds `__main__`
@@ -565,6 +572,9 @@ python migrate_owner.py --check               # what schema is paper.db on?
 python catalog.py                             # which rules may be promoted -> catalog.json
 python run_paper.py                           # the live desk: top 3 rules per class,
                                               #   plus every registration in desk.db
+python alpaca_mirror.py --check               # the SECOND record: is Alpaca reachable,
+                                              #   and which symbols will it trade?
+python alpaca_mirror.py --once --dry-run      # ...what it would send. Then drop --dry-run
 
 cd "../Stockhunt Dashboard"
 python build_dashboard.py --serve --dist      # both artifacts

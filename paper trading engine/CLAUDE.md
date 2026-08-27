@@ -44,6 +44,13 @@ td_nautilus.py    TwelveDataLiveClient + instrument factories
 live_ws.py        LiveHub: upstream tick socket -> paper_state.mark() -> browser socket
 backtest_paper.py the same strategy through a BacktestEngine on cached bars
 parity_live.py    measures the rolling window each rule needs to match the full series
+alpaca_mirror.py  A SECOND, OPTIONAL PROCESS. Drives Alpaca paper accounts to a scaled
+                  copy of this desk's book, so a real broker's fills can be compared
+                  against the sandbox's bar-close ones. Reads paper_state.json, imports
+                  no Nautilus, and cannot affect the desk
+alpaca_client.py  Alpaca REST. The paper host is a CONSTANT with no env override
+alpaca_map.py     target - held = delta. Pure functions, the desk_orders.py pattern
+alpaca_store.py   state/alpaca.db - what the broker did, and at what price
 test_decide_early.py    a book that decides BEFORE the bell matches the backtest
 test_store.py           a restart resumes instead of resetting
 test_runtime_attach.py  a strategy can join a RUNNING trader. Gate for the whole design
@@ -51,6 +58,69 @@ test_member_desk.py     ledger -> running trader -> fill -> book -> record, end 
 test_accounts.py        two accounts on one cell keep separate books  (pytest)
 test_desk_orders.py     the rules that decide whether money moves        (pytest)
 test_fill_pnl.py        None vs 0.0: what closed nothing against what closed at cost
+test_alpaca_map.py      the mirror's arithmetic, offline                 (pytest)
+test_alpaca_mirror.py   the mirror converges, is idempotent, and refuses (pytest)
+```
+
+## The second record: Alpaca
+
+This desk fills its own orders. `SandboxExecutionClient` prices a fill from the Twelve Data
+bar that produced the signal, so every fill lands at that bar's **close** — the same price
+the backtest assumed, which is what makes the live record comparable to the sheet and what
+makes the live record unable to check itself. Whether those fills exist at a real venue, at
+a real spread, at a real time of day, is not a question the sandbox can answer about itself.
+
+`alpaca_mirror.py` asks it. It is a **separate process** that reads `paper_state.json`,
+computes this desk's net exposure per symbol, and drives an Alpaca paper account to a
+proportional copy. Nothing in `paper.db`, on the board, or in any published number changes:
+Alpaca is a second record, not a replacement for the first.
+
+Four things about it are load-bearing:
+
+* **It reconciles a position, it does not forward an order.** Alpaca paper hands out a
+  random partial fill 10% of the time and rejects on asset eligibility, so a fill-forwarder
+  drifts within a day and nothing says which fill diverged. Computing a target and sending
+  the difference makes a missed cycle cost latency and never correctness, and makes a
+  rejected order retry itself next pass. It is `desk_control.tick()`'s design, one process out.
+* **Out of process, deliberately.** No HTTP client enters the Nautilus node, and an Alpaca
+  outage or rate limit cannot stop the desk. Same separation `stockhunt/deskdb.py` buys
+  between the API and the desk.
+* **Three classes, three accounts, three key pairs.** `us_stocks`, `us_etfs` and `crypto`
+  each get their own Alpaca paper account, so their buying power is separate and their P&Ls
+  are separately readable. `commodities` and `cme_futures` are **not mirrored at all** —
+  Alpaca sells no spot metals, no FX and no futures — and `alpaca_client.UNSUPPORTED` says
+  so by name rather than leaving them merely absent.
+* **The target is scaled.** Each class runs six $100,000 books against one $100,000 account,
+  so every target is multiplied by `alpaca_equity / desk_equity`. Without it the mirror is a
+  stream of rejected buys.
+
+**The decide-early books have one honest divergence and it is recorded, not hidden.** They
+compute at 15:55 ET and trade the close; Alpaca **rejects `cls` (market-on-close) orders
+after 15:50 ET**, so the mirror can only send a market `day` order that fills at the 15:55
+price rather than in the closing auction. Do not "fix" this by moving
+`DECIDE_EARLY_MINUTES` — 5 is what was measured against the 5m cache, and changing it to
+suit a broker's cutoff breaks the correspondence with the backtest. The gap goes in
+`alpaca.db`'s `slip_bp` column instead, which is the number the whole process exists for.
+
+Outside the session the mirror sends **no** equity order; it records the plan and applies it
+on the next open. A market order queued overnight fills at a price nobody decided on, which
+is the mistake `desk_orders.STALE_BARS` refuses one process over. Crypto has no such gate.
+
+```powershell
+python alpaca_mirror.py --check                 # credentials, equity, symbol coverage
+python alpaca_mirror.py --once --dry-run        # plan every class, send nothing
+python alpaca_mirror.py --once --class us_etfs  # one class, for real
+python alpaca_mirror.py --report                # fill price against the desk's mark
+```
+
+Credentials come from the environment, falling back to `.env.local` at the repo root — the
+same order `td_live.api_key` uses: `ALPACA_STOCKS_KEY_ID`/`_SECRET`,
+`ALPACA_ETFS_KEY_ID`/`_SECRET`, `ALPACA_CRYPTO_KEY_ID`/`_SECRET`.
+
+The long run goes through bash, detached, for the reason in the root `CLAUDE.md`:
+
+```bash
+nohup python -u alpaca_mirror.py > logs/alpaca_mirror.log 2>&1 &
 ```
 
 ## Two kinds of strategy, one record

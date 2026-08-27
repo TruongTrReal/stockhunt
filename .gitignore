@@ -71,6 +71,13 @@ engine-bakeoff/_probe_store/
 *.db-wal
 *.db-shm
 
+# --- the broker-side copy ---
+# What Alpaca did with a mirror of that record. Not tracked, and the difference from
+# paper.db is which side owns the truth: this one is REGENERABLE -- delete it and the next
+# `alpaca_mirror.py` cycle reconciles the account from scratch -- and it is a third party's
+# view of a book this repo already commits in full.
+paper trading engine/state/alpaca.db
+
 # --- the results store ---
 # The opposite case to paper.db, and the difference is where the truth lives. This one is
 # BUILT from the tracked result CSVs by `tools/ingest_results.py` and is regenerable in ten
