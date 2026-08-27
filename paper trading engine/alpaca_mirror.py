@@ -222,6 +222,11 @@ def run_cycle(cls: str, client: alpaca_client.AlpacaClient, snapshot: dict,
         + (f"; {len(plan.clamped)} negative target(s) clamped" if plan.clamped else ""))
     if plan.untradable:
         log(f"[{cls}] Alpaca will not trade: {', '.join(sorted(plan.untradable))}")
+    # Not an Alpaca coverage gap and must not be reported as one: this is a book on THIS
+    # desk whose published shape has no per-name units to mirror. Its exposure is real and
+    # unmirrored, so the second record is incomplete by exactly this much.
+    for symbol, reason in alpaca_map.unmirrorable(snapshot, cls):
+        log(f"[{cls}] NOT MIRRORED - book '{symbol}' {reason}")
     for symbol, reason in plan.skipped:
         log(f"[{cls}] skip {symbol}: {reason}")
 
@@ -296,6 +301,8 @@ def check(state_path: Path) -> int:
             print(f"  desk equity  : ${desk_eq:,.2f}  ->  scale x{ratio:.4f}")
             print(f"  desk holds   : {len(targets)} name(s) "
                   f"{', '.join(sorted(targets)[:8])}{' ...' if len(targets) > 8 else ''}")
+            for symbol, reason in alpaca_map.unmirrorable(snapshot, cls):
+                print(f"  NOT MIRRORED : '{symbol}' {reason}")
     return 1 if failures else 0
 
 

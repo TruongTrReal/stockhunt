@@ -106,6 +106,43 @@ def _live(strategy: dict) -> bool:
     return strategy.get("status") == "running"
 
 
+def _tickers(field: str | None) -> list[str]:
+    """The instruments named in one `symbol` field, which may hold several.
+
+    The same read-side repair `paper_state.feed_symbols` makes, for the same reason: a
+    MEMBER's `symbol` is whatever they typed at registration, and the live desk carries
+    registrations like `"QQQ, IWM, XLK, TLT"` in that field. Splitting on the comma is
+    safe because no ticker contains one -- crypto pairs use `/` (`BTC/USD`).
+    """
+    if not field:
+        return []
+    return [part.strip() for part in str(field).split(",") if part.strip()]
+
+
+def unmirrorable(snapshot: dict, cls: str) -> list[tuple[str, str]]:
+    """Running books this process cannot mirror, and why. `(symbol, reason)`.
+
+    One shape, and it is not hypothetical: a member registration whose `symbol` names
+    several instruments while `units` is their SUM. `paper_state` repairs the same field
+    for marking by splitting it, but splitting cannot recover a per-name breakdown that
+    was never published, so there is no honest target to compute here.
+
+    Reported rather than silently dropped. The exposure is real -- a multi-name member on
+    the live ETF desk is a whole $100,000 book -- so its absence from Alpaca has to be
+    visible, or the second record looks complete while missing a leg.
+    """
+    out: list[tuple[str, str]] = []
+    for s in snapshot.get("strategies", []):
+        if s.get("cls") != cls or not _live(s) or s.get("kind") == "book":
+            continue
+        names = _tickers(s.get("symbol"))
+        if len(names) > 1 and (s.get("units") or 0.0):
+            out.append((str(s.get("symbol")),
+                        f"names {len(names)} instruments and publishes no per-name "
+                        f"units, so its {float(s['units']):g} unit(s) cannot be split"))
+    return out
+
+
 def desk_targets(snapshot: dict, cls: str) -> dict[str, float]:
     """Net units per symbol across every running book of one class.
 
@@ -132,7 +169,11 @@ def desk_targets(snapshot: dict, cls: str) -> dict[str, float]:
         else:
             sym = s.get("symbol")
             units = s.get("units") or 0.0
-            if sym and units:
+            # A member's `symbol` may name several instruments while `units` is their sum
+            # (see `unmirrorable`). Summing it under the joined string invents a target
+            # for a ticker that does not exist, which then reports itself as an ALPACA
+            # coverage problem -- blaming the broker for a shape the desk chose.
+            if sym and units and len(_tickers(sym)) == 1:
                 out[sym] = out.get(sym, 0.0) + float(units)
     return {k: v for k, v in out.items() if abs(v) > DUST_UNITS}
 
@@ -168,7 +209,9 @@ def desk_marks(snapshot: dict, cls: str) -> dict[str, float]:
                     out[h["symbol"]] = float(mark)
         else:
             mark = s.get("mark_price")
-            if s.get("symbol") and mark:
+            # Same multi-instrument field as in `desk_targets`. A mark filed under the
+            # joined string prices nothing, and there is no target for it either.
+            if s.get("symbol") and mark and len(_tickers(s["symbol"])) == 1:
                 out[s["symbol"]] = float(mark)
     return out
 

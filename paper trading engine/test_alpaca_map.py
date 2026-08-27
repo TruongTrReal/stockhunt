@@ -82,6 +82,53 @@ def test_desk_targets_reads_a_single_instrument_system():
     assert m.desk_targets(s, "us_stocks") == {"SOXL": 12.5}
 
 
+def test_a_multi_ticker_member_is_not_summed_into_a_fake_symbol():
+    """The live ETF desk carries exactly this row.
+
+    A member registers with whatever they typed in `symbol`, and one on the running desk
+    reads `"QQQ, IWM, XLK, TLT"` with `units` the SUM across those four names. Summing it
+    invents a target for a ticker nobody lists, which Alpaca then refuses -- and the
+    refusal reads as a BROKER coverage gap for a shape this desk chose.
+    """
+    s = snap({"kind": "member", "cls": "us_etfs", "status": "running",
+              "symbol": "QQQ, IWM, XLK, TLT", "units": 329.0, "equity": 100_289.52})
+    assert m.desk_targets(s, "us_etfs") == {}
+    assert m.desk_marks(s, "us_etfs") == {}
+
+
+def test_a_multi_ticker_member_is_reported_as_unmirrorable():
+    """Skipping it silently would leave a whole $100,000 book missing from the second
+    record with nothing saying so."""
+    s = snap({"kind": "member", "cls": "us_etfs", "status": "running",
+              "symbol": "QQQ, IWM, XLK, TLT", "units": 329.0, "equity": 100_289.52})
+    (symbol, reason), = m.unmirrorable(s, "us_etfs")
+    assert symbol == "QQQ, IWM, XLK, TLT"
+    assert "4 instruments" in reason and "329" in reason
+
+
+def test_a_single_ticker_member_is_mirrored_normally():
+    """The repair must not swallow the ordinary case it sits next to."""
+    s = snap({"kind": "member", "cls": "us_etfs", "status": "running",
+              "symbol": "SPY", "units": 40.0, "mark_price": 500.0, "equity": 100_000.0})
+    assert m.desk_targets(s, "us_etfs") == {"SPY": 40.0}
+    assert m.desk_marks(s, "us_etfs") == {"SPY": 500.0}
+    assert m.unmirrorable(s, "us_etfs") == []
+
+
+def test_a_book_is_never_reported_unmirrorable_for_its_label():
+    """A book's `symbol` is a LABEL ("5 names") and its units are a NAME COUNT, but its
+    per-name quantities are published in `holdings`, so it mirrors fine."""
+    s = snap(book("us_etfs", "1d", [("SPY", 10.0, 500.0), ("QQQ", 5.0, 400.0)]))
+    assert m.unmirrorable(s, "us_etfs") == []
+    assert m.desk_targets(s, "us_etfs") == {"SPY": 10.0, "QQQ": 5.0}
+
+
+def test_a_stopped_multi_ticker_member_is_not_reported():
+    s = snap({"kind": "member", "cls": "us_etfs", "status": "stopped",
+              "symbol": "QQQ, IWM", "units": 100.0, "equity": 100_000.0})
+    assert m.unmirrorable(s, "us_etfs") == []
+
+
 def test_desk_equity_falls_back_to_capital_when_unmarked():
     s = snap(
         book("us_etfs", "1d", [("SPY", 1.0, 500.0)], equity=110_000.0),
