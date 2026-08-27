@@ -138,16 +138,20 @@ def build_board() -> dict:
 def _evict(rev: int) -> None:
     """Drop every sheet-level memo left over from a superseded revision.
 
-    `_BOARD_CACHE` has always cleared itself; the three caches below never did, and under
-    a builder that runs once and exits that was invisible. Behind an endpoint it is a leak
+    `_BOARD_CACHE` has always cleared itself; the caches below never did, and under a
+    builder that runs once and exits that was invisible. Behind an endpoint it is a leak
     rather than a cache: `_RM_CACHE` holds the per-asset rows for every sheet on the board
     -- 435,012 of them on the deployed store -- so each write to the store used to add a
     second full copy and keep the first one for the life of the process.
 
+    `_SHEET_CACHE` is swept here for the same reason and on the same key, but it is not the
+    same weight: it holds one ordered frame and one list of REFERENCES per rule, pointing
+    at the row dicts `_RM_CACHE` already owns.
+
     Called from inside the lock, before a rebuild, which is the one moment every one of
     them is about to be repopulated anyway.
     """
-    for cache in (_RM_CACHE, _EDGE_CACHE, _BOOK_CACHE):
+    for cache in (_RM_CACHE, _EDGE_CACHE, _BOOK_CACHE, _SHEET_CACHE):
         for key in [k for k in cache if k[-1] != rev]:
             del cache[key]
 
@@ -165,6 +169,12 @@ def _evict(rev: int) -> None:
 # the freshness contract changes -- this calls the same `build_board()` every reader
 # calls, and the revision is still what decides whether a rebuild happens. It only moves
 # the cost off the critical path of whoever asked first.
+#
+# It warms EVERY PAGE, not the first one. `build_board` calls `build_sheet` for each sheet
+# and `build_sheet` ranks through `_ranked`, so one pass leaves the ordered population
+# memoised for every class and timeframe on the board. A reader asking for page 7 of
+# us_stocks 1d then pays a slice and fifty `leaderboard_entry` calls, the same as page 1 --
+# there is no separate per-page warm-up to write, and there is nothing for one to do.
 #
 # The poll is what catches a write from ANOTHER PROCESS: `research_worker.py` scores a
 # submitted rule in its own interpreter, and this one learns about it exactly the way a
@@ -461,24 +471,56 @@ def _asset_stats(rows: list[dict]) -> dict:
             "net_pct": med("net_pct"), "bh_pct": med("bh_pct"), "years": med("years")}
 
 
-def build_sheet(cls: str, tf: str, universe: list[str],
-                offset: int = 0, limit: int | None = None) -> dict | None:
-    """One leaderboard per (class, timeframe), singles and pairs ranked together.
+_SHEET_CACHE: dict[tuple, dict | None] = {}
+_SHEET_LOCK = threading.Lock()
 
-    They were two lists until they were not. A pair of rules joined by `or` is a strategy
-    in the same sense a single rule is — the same walk-forward calendar, the same folds,
-    the same gates — and splitting the page by which sweep emitted a row asks the reader to
-    care about a detail of this repo's plumbing. What genuinely differs between sheets is
-    the price series, the cost grid and the benchmark, so class and timeframe stay as the
-    two axes and nothing else does.
 
-    The cost of merging is that pairs then take most of the top of the equity sheets — 22 of
-    the top 25 on 1d stocks — and they do it on exposure, not skill. That is why every row
-    now carries `long_frac`, singles included (`walkforward.py` emits it as of this change),
-    and why the trial count and the noise ceiling are computed over the merged population
-    rather than one list at a time: ranking 385 candidates and reporting the ceiling for 245
-    of them would understate what luck alone reaches.
+def _ranked(cls: str, tf: str) -> dict | None:
+    """The whole sheet, ranked, memoised per store revision. Everything but the page.
+
+    **This is what makes paging cheap, and paging is what made it necessary.** Ranking a
+    sheet costs 3.7s warm and 11s cold on us_stocks 1d, and none of that cost depends on
+    which fifty rows are being asked for: the per-asset layer is merged and sorted for
+    every rule, breadth and the median asset are computed for every rule, and only then is
+    the population ordered. `build_sheet` used to redo all of it per call, so turning to
+    page 2 paid the full price a second time -- ~15s on the deployed two-core box, with
+    the table showing the previous page throughout. `limit=0`, which fetches no rows at
+    all, cost exactly as much as a full page.
+
+    Splitting it here leaves `build_sheet` with the part that genuinely varies: the
+    window, `leaderboard_entry` over it, and the header. The first page of a sheet pays
+    the ranking; every other page of that sheet is a slice and a few hundred
+    `leaderboard_entry` calls.
+
+    Keyed on `_ckey`, so the revision decides freshness exactly as it does for the three
+    caches beside it, and `_evict` sweeps it with them. It is cheap to hold: `_rank_assets`
+    sorts REFERENCES to the row dicts `_RM_CACHE` already owns, so what is added here is
+    one list of pointers and one small stats dict per rule, not a second copy of the
+    per-asset layer.
+
+    A sheet that does not exist memoises as `None`. That is the answer for a class and
+    timeframe the verdict stage has never run, and re-deriving it per request means
+    re-reading `wf_summary` to be told nothing is there again.
+
+    Serialised on a lock for the reason `build_board` is: two readers arriving together on
+    a cold sheet would otherwise each rank all of it, and on a two-core box the second copy
+    is not free -- it is competing with the first for the cores that would have finished it.
     """
+    key = _ckey(cls, tf)
+    if key in _SHEET_CACHE:
+        return _SHEET_CACHE[key]
+    with _SHEET_LOCK:
+        # Re-read under the lock: whoever held it may have been ranking this very sheet,
+        # in which case the work is done and this is a dictionary lookup after all.
+        if key in _SHEET_CACHE:
+            return _SHEET_CACHE[key]
+        out = _rank_sheet(cls, tf)
+        _SHEET_CACHE[key] = out
+        return out
+
+
+def _rank_sheet(cls: str, tf: str) -> dict | None:
+    """Rank one sheet whole. Call `_ranked`, which memoises this; never this directly."""
     df = _wf_frame(cls, tf, "single")
     if df.empty:
         return None
@@ -710,6 +752,44 @@ def build_sheet(cls: str, tf: str, universe: list[str],
     ordered = scoped.sort_values(["edge_rank", "edge_tie"], ascending=False,
                                  kind="stable")
     n_ranked = int(len(ordered))
+    return {"ordered": ordered, "n_ranked": n_ranked, "per": per, "per_stats": per_stats,
+            "years": years, "corr": corr, "book": book, "book_bench": book_bench,
+            "edge": edge, "n_all": n_all, "n_singles": n_singles, "n_pairs": n_pairs,
+            "n_cat": n_cat, "n_unscored": dropped, "n_nobook": n_nobook,
+            "n_flat": n_flat, "n_closet": n_closet,
+            "folds": int(h["n_folds"].median()) if "n_folds" in h else None}
+
+
+def build_sheet(cls: str, tf: str, universe: list[str],
+                offset: int = 0, limit: int | None = None,
+                assets: bool = True) -> dict | None:
+    """One leaderboard per (class, timeframe), singles and pairs ranked together.
+
+    They were two lists until they were not. A pair of rules joined by `or` is a strategy
+    in the same sense a single rule is — the same walk-forward calendar, the same folds,
+    the same gates — and splitting the page by which sweep emitted a row asks the reader to
+    care about a detail of this repo's plumbing. What genuinely differs between sheets is
+    the price series, the cost grid and the benchmark, so class and timeframe stay as the
+    two axes and nothing else does.
+
+    The cost of merging is that pairs then take most of the top of the equity sheets — 22 of
+    the top 25 on 1d stocks — and they do it on exposure, not skill. That is why every row
+    now carries `long_frac`, singles included (`walkforward.py` emits it as of this change),
+    and why the trial count and the noise ceiling are computed over the merged population
+    rather than one list at a time: ranking 385 candidates and reporting the ceiling for 245
+    of them would understate what luck alone reaches.
+    """
+    pre = _ranked(cls, tf)
+    if pre is None:
+        return None
+    ordered, per, per_stats = pre["ordered"], pre["per"], pre["per_stats"]
+    years, corr, book, book_bench, edge = (pre["years"], pre["corr"], pre["book"],
+                                           pre["book_bench"], pre["edge"])
+    n_all, n_singles = pre["n_all"], pre["n_singles"]
+    n_pairs, n_cat = pre["n_pairs"], pre["n_cat"]
+    dropped, n_nobook = pre["n_unscored"], pre["n_nobook"]
+    n_flat, n_closet = pre["n_flat"], pre["n_closet"]
+    n_ranked = pre["n_ranked"]
     # PAGED AFTER THE SORT, never before: the ranking is over the whole scoped set and a
     # page is a window onto it. `leaderboard_entry` is the expensive call -- it joins the
     # per-asset table, which is 94% of a row's bytes -- so only the window pays for it.
@@ -717,10 +797,17 @@ def build_sheet(cls: str, tf: str, universe: list[str],
     # `limit=None` means `top_n()`, so every caller written before this parameter existed
     # gets exactly what it got before. `limit=0` returns the header and no rows, which is
     # how a client learns `n_ranked` before deciding what to ask for.
+    #
+    # `assets=False` is the OTHER half of the size question, and it is worth separating
+    # from the first: `limit` decides how many rows are sent, `assets` decides how big a
+    # row is. Measured on us_stocks 1d, a page of 50 is 987 KB with the per-asset tables
+    # and 84 KB without -- and a leaderboard draws none of them, so on a link with 200ms
+    # of latency that is most of the wait a reader experiences. `assets=True` by default;
+    # see `leaderboard_entry` for why the default is that way round.
     lim = top_n() if limit is None else max(0, int(limit))
     off = min(max(0, int(offset)), n_ranked)
     top = ordered.iloc[off:off + lim]
-    rows = [leaderboard_entry(r, per, per_stats) for r in top.itertuples()]
+    rows = [leaderboard_entry(r, per, per_stats, assets) for r in top.itertuples()]
 
     scored = [r for r in rows if r.get("edge")]
     # The header describes the sheet the VERDICT was computed on, not the one the stale
@@ -754,7 +841,7 @@ def build_sheet(cls: str, tf: str, universe: list[str],
             # rules were searched, and that is the number everything else is deflated
             # against.
             "n_ranked": n_ranked, "offset": off, "limit": lim,
-            "folds": int(h["n_folds"].median()) if "n_folds" in h else None,
+            "folds": pre["folds"],
             "universe": universe, "rows": rows,
             "n_rules": n_all, "n_singles": n_singles, "n_pairs": n_pairs,
             "n_catalog": n_cat,
@@ -1210,13 +1297,26 @@ def _edge_index(cls: str, tf: str) -> dict:
     return out
 
 
-def leaderboard_entry(r, per: dict, per_stats: dict | None = None) -> dict:
+def leaderboard_entry(r, per: dict, per_stats: dict | None = None,
+                      assets: bool = True) -> dict:
     """One row of the merged leaderboard, singles and pairs on identical keys.
 
     `kind` is the only thing that separates them and it exists for two honest reasons: a
     pair has an operator worth naming, and it has no asset-by-asset breakdown — `combo_wf.py`
     records leg-correlation diagnostics instead of per-symbol rows — so its detail page has
     to say so rather than render an empty table.
+
+    `assets=False` ships the row WITHOUT `per_asset`, and it is a transport option rather
+    than a different measurement: every summary that rests on those rows — the median asset,
+    breadth, `asset_unranked` — is computed from `per_stats` and is on the row either way.
+    It exists because that one list is ~94% of a row's bytes and a leaderboard never draws
+    it; a client that also wants the table asks for the rule, which is what the detail page
+    does. `asset_n` still says how many names are behind the summary, so a row that omitted
+    the table cannot be mistaken for one that has no names.
+
+    The default is True because the baked payload carries these rows and the vanilla board
+    reads its detail page out of them. Anything reading `per_asset` off a leaderboard needs
+    to keep working unchanged; only a caller that has said it does not want them loses them.
     """
     kind = str(getattr(r, "kind", "single"))
     st = (per_stats or {}).get(str(r.rule)) or {}
@@ -1262,7 +1362,8 @@ def leaderboard_entry(r, per: dict, per_stats: dict | None = None) -> dict:
         # span, its own benchmark — see `_book_index`. None where no book run covers it.
         "book": getattr(r, "book_rec", None),
         "wf_mode": text(getattr(r, "wf_mode", None)) or "fixed",
-        "per_asset": per.get(str(r.rule), []) if kind != "pair" else [],
+        "per_asset": (per.get(str(r.rule), [])
+                      if assets and kind != "pair" else []),
         # Breadth over the FULL universe, and `per_asset` is now that same full list. It
         # still comes off `_asset_stats` rather than being counted on the site, because the
         # denominator there is the names that were *scored* — a rule with no per-asset

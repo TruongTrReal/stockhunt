@@ -88,6 +88,12 @@ export default function ResearchPage() {
     // a 60-row one, and landing on an empty page reads as "no results" rather than "you
     // were deep in the last one".
     setPage(0);
+    // ...and it invalidates the SHEET, which a page turn does not. Holding the old one
+    // through the fetch would leave crypto's rows dimmed under a heading that says stocks,
+    // and — worse, because it is not dimmed — an unchanged header quoting the old sheet's
+    // candidate count, luck threshold and fold count. Page turns keep their rows on screen
+    // precisely because those things do not move between pages of one sheet.
+    setSheet(null);
     (which === "cls" ? setCls : setTf)(next);
   }, []);
 
@@ -132,6 +138,13 @@ export default function ResearchPage() {
 
       {error && <div className="note">{error}</div>}
 
+      {/* The FIRST load has nothing to dim, so it needs a line of its own. Without it the
+          page rendered its heading and then nothing at all until the sheet landed, which
+          on a cold sheet is several seconds of a screen that looks finished and empty. */}
+      {!error && !sheet && loading && (
+        <div className="note busy-note">Ranking {CLASS_LABEL[cls] ?? cls} at {tf}…</div>
+      )}
+
       {!error && !sheet && !loading && (
         <div className="note">
           No scored sheet for <b>{CLASS_LABEL[cls] ?? cls}</b> at {tf}. The verdict stage
@@ -151,7 +164,7 @@ export default function ResearchPage() {
             </span>
           </div>
 
-          <div className="tbl-wrap">
+          <div className={`tbl-wrap${loading ? " is-busy" : ""}`} aria-busy={loading}>
             <table>
               <thead>
                 <tr>
@@ -207,27 +220,51 @@ export default function ResearchPage() {
             </table>
           </div>
 
+          {/* THE STATUS LINE READS FROM ONE PLACE AT A TIME, and that is the whole point of
+              the `loading` branch. `page` is what was asked for and `sheet.offset` is what
+              arrived, so while a fetch is in flight the two disagree — the counter said
+              "page 2 of 10" beside "rows 1–50", which reads as a broken pager rather than a
+              working one mid-request. Waiting says what it is waiting for and names no rows;
+              landed says which rows these are. Neither ever describes the other's state.
+
+              Every control is disabled while a page is in flight. Queueing clicks would
+              start fetches whose answers arrive out of order, and the guard that drops a
+              stale response would then leave the reader on a page they had clicked past. */}
           <div className="lb-tools" style={{ marginTop: 18 }}>
-            <button className="pill" disabled={page === 0} onClick={() => setPage(0)}>
-              ‹‹ first
-            </button>
-            <button className="pill" disabled={page === 0} onClick={() => setPage(page - 1)}>
-              ‹ prev
-            </button>
-            <span className="sec-note">
-              rows {sheet.offset + 1}–{sheet.offset + sheet.rows.length} of{" "}
-              {sheet.n_ranked.toLocaleString()} · page {page + 1} of {lastPage + 1}
-            </span>
             <button
               className="pill"
-              disabled={page >= lastPage}
+              disabled={loading || page === 0}
+              onClick={() => setPage(0)}
+            >
+              ‹‹ first
+            </button>
+            <button
+              className="pill"
+              disabled={loading || page === 0}
+              onClick={() => setPage(page - 1)}
+            >
+              ‹ prev
+            </button>
+            {loading ? (
+              <span className="sec-note busy-note">
+                loading page {page + 1} of {lastPage + 1}…
+              </span>
+            ) : (
+              <span className="sec-note">
+                rows {sheet.offset + 1}–{sheet.offset + sheet.rows.length} of{" "}
+                {sheet.n_ranked.toLocaleString()} · page {page + 1} of {lastPage + 1}
+              </span>
+            )}
+            <button
+              className="pill"
+              disabled={loading || page >= lastPage}
               onClick={() => setPage(page + 1)}
             >
               next ›
             </button>
             <button
               className="pill"
-              disabled={page >= lastPage}
+              disabled={loading || page >= lastPage}
               onClick={() => setPage(lastPage)}
             >
               last ››

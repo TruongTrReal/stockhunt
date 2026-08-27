@@ -1,0 +1,57 @@
+/* The small amount of CSS this app OWNS, as opposed to `board.css`, which is a build-time
+ * copy of `../Stockhunt Dashboard/web/app.css` and must not be edited here.
+ *
+ * All of it exists for one problem: a page of this leaderboard is a request, and a request
+ * that is in flight has to look different from one that has landed. The vanilla board never
+ * needed this because its rows were baked into the payload — there was nothing to wait for.
+ *
+ * Nothing in here is loaded by the vanilla board, so `.pill:disabled` below cannot change
+ * how that board's controls read.
+ */
+
+/* The rows already on screen stay on screen while the next page is fetched — a spinner in
+ * their place would throw away the reader's context and jump the page height by 50 rows.
+ * Dimmed and inert instead: still legible, visibly not current, and not clickable, so a
+ * link followed mid-fetch cannot open a row that is about to be replaced.
+ */
+.is-busy {
+  opacity: 0.34;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+}
+
+/* Disabled has to LOOK disabled. `.pill` styles hover and `.on` but never `:disabled`, so
+ * "‹ prev" on page 1 was indistinguishable from a working button and read as a dead click.
+ */
+.pill:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.pill:disabled:hover {
+  color: inherit;
+}
+
+/* The one moving thing on the page, and it is deliberately quiet: a slow pulse on the
+ * status line rather than a spinner, because the wait it describes is normally a few
+ * hundred milliseconds and a spinner appearing for that long is noise.
+ */
+.busy-note {
+  animation: busy-pulse 1.1s ease-in-out infinite;
+}
+@keyframes busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .busy-note {
+    animation: none;
+  }
+  .is-busy {
+    transition: none;
+  }
+}

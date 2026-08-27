@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./board.css";
+import "./busy.css";
 
 /* `board.css` is COPIED from `../Stockhunt Dashboard/web/app.css` by the `prebuild` and
  * `predev` scripts, and is gitignored. It is not a fork: that stylesheet is 730 hand-tuned
@@ -8,6 +9,9 @@ import "./board.css";
  * series hues deliberately contain neither, and the order of those six is a CVD safety
  * mechanism rather than decoration. A second copy would drift from it silently and take
  * that argument with it. One source of truth, copied at build time.
+ *
+ * `busy.css` is the opposite: a short file this app owns, holding the states the vanilla
+ * board has no use for because it never waits for anything.
  */
 
 export const metadata: Metadata = {

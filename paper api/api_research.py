@@ -198,6 +198,9 @@ def leaderboard(cls: str, tf: str,
                 limit: int = Query(None, ge=0, le=MAX_PAGE,
                                    description="rows to return; omit for the board's own "
                                                "depth, 0 for the header alone"),
+                assets: bool = Query(True,
+                                     description="include each row's per-asset table; "
+                                                 "false makes a page ~12x smaller"),
                 who: dict = Depends(api_auth.current_principal)) -> dict:
     """The sheet as the board renders it, ranked at the moment you ask.
 
@@ -212,10 +215,18 @@ def leaderboard(cls: str, tf: str,
     so paging forward never changes what the header says the ranking was drawn from. The
     last page's index is `n_ranked` -- NOT `n_rules`, which also counts the candidates
     dropped before ranking (unscored, no book, never traded, closet trackers).
+
+    `assets=false` drops the per-asset table from each row, which is ~94% of its bytes and
+    nothing a leaderboard draws: a page of 50 on us_stocks 1d goes from 987 KB to 84 KB,
+    measured. The summaries over
+    those rows -- median asset, breadth, `asset_n` -- are unaffected, because they are
+    computed server-side either way. A client that wants the table asks
+    `/v1/research/rule/{cls}/{tf}/{rule}` for the one rule it is showing. Defaults to true
+    so that nothing reading `per_asset` off this route changes underneath.
     """
     _check_sheet(cls, tf)
     sheet = board_rank.build_sheet(cls, tf, board_rank.universes().get(cls, []),
-                                   offset=offset, limit=limit)
+                                   offset=offset, limit=limit, assets=assets)
     if sheet is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
                             detail=f"No rankable rows for {cls}/{tf}.")

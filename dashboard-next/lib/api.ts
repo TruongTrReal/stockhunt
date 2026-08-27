@@ -16,7 +16,10 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+async function get<T>(
+  path: string,
+  params?: Record<string, string | number | boolean | undefined>,
+): Promise<T> {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params ?? {})) {
     if (v !== undefined && v !== null) qs.set(k, String(v));
@@ -130,9 +133,17 @@ export interface RuleDetail {
 export const api = {
   sheets: () => get<SheetRef[]>("sheets"),
   /** One page of one sheet. `limit: 0` returns the header alone, which is how a caller
-   *  learns `n_ranked` before deciding what to ask for. */
-  leaderboard: (cls: string, tf: string, offset = 0, limit?: number) =>
-    get<Sheet>("leaderboard", { cls, tf, offset, limit }),
+   *  learns `n_ranked` before deciding what to ask for.
+   *
+   *  `assets: false` is not optional here in practice. Each row's per-asset table is ~94%
+   *  of its bytes and this app never renders one off a leaderboard — the detail page asks
+   *  for the single rule it is showing. Sending them anyway made a page of 50 rows 987 KB
+   *  instead of 84 KB, which on a link with real latency is most of the wait. Everything
+   *  those tables are summarised into (median asset, breadth, `asset_n`) is computed
+   *  server-side and still arrives. Pass `assets: true` only for a caller that draws the
+   *  tables themselves. */
+  leaderboard: (cls: string, tf: string, offset = 0, limit?: number, assets = false) =>
+    get<Sheet>("leaderboard", { cls, tf, offset, limit, assets }),
   /** One rule's book curve and its risk-matched benchmark. The label is a PATH segment
    *  and can contain `|` and `~`, so it is encoded rather than interpolated raw. */
   curve: (cls: string, tf: string, rule: string) =>
