@@ -461,7 +461,8 @@ def _asset_stats(rows: list[dict]) -> dict:
             "net_pct": med("net_pct"), "bh_pct": med("bh_pct"), "years": med("years")}
 
 
-def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
+def build_sheet(cls: str, tf: str, universe: list[str],
+                offset: int = 0, limit: int | None = None) -> dict | None:
     """One leaderboard per (class, timeframe), singles and pairs ranked together.
 
     They were two lists until they were not. A pair of rules joined by `or` is a strategy
@@ -706,8 +707,19 @@ def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
     # Two keys, stable: criteria cleared first, then the money at equal risk. `nlargest`
     # takes one column, and a stable sort is what makes the second key the tiebreak rather
     # than an accident of row order.
-    top = scoped.sort_values(["edge_rank", "edge_tie"], ascending=False,
-                             kind="stable").head(top_n())
+    ordered = scoped.sort_values(["edge_rank", "edge_tie"], ascending=False,
+                                 kind="stable")
+    n_ranked = int(len(ordered))
+    # PAGED AFTER THE SORT, never before: the ranking is over the whole scoped set and a
+    # page is a window onto it. `leaderboard_entry` is the expensive call -- it joins the
+    # per-asset table, which is 94% of a row's bytes -- so only the window pays for it.
+    #
+    # `limit=None` means `top_n()`, so every caller written before this parameter existed
+    # gets exactly what it got before. `limit=0` returns the header and no rows, which is
+    # how a client learns `n_ranked` before deciding what to ask for.
+    lim = top_n() if limit is None else max(0, int(limit))
+    off = min(max(0, int(offset)), n_ranked)
+    top = ordered.iloc[off:off + lim]
     rows = [leaderboard_entry(r, per, per_stats) for r in top.itertuples()]
 
     scored = [r for r in rows if r.get("edge")]
@@ -732,6 +744,16 @@ def build_sheet(cls: str, tf: str, universe: list[str]) -> dict | None:
             "n_nobook_dropped": n_nobook,
             "n_flat_dropped": n_flat,
             "n_closet_dropped": n_closet,
+            # What a pager needs, and it is NOT `n_rules`. `n_rules` is the whole candidate
+            # population including the rows the standard never scored, the ones with no
+            # book, the ones that never opened a position and the closet trackers;
+            # `n_ranked` is how many survived all of that to be ordered, which is the last
+            # page's index. Every OTHER field here stays defined over the whole population,
+            # so page 4 describes the same sheet page 1 does -- a statistic that moved with
+            # the page would make two screens of one leaderboard disagree about how many
+            # rules were searched, and that is the number everything else is deflated
+            # against.
+            "n_ranked": n_ranked, "offset": off, "limit": lim,
             "folds": int(h["n_folds"].median()) if "n_folds" in h else None,
             "universe": universe, "rows": rows,
             "n_rules": n_all, "n_singles": n_singles, "n_pairs": n_pairs,

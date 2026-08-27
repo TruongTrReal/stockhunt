@@ -123,6 +123,40 @@ def test_the_board_needs_a_session(client):
     assert client.get(f"/v1/research/leaderboard?cls={CLS}&tf={TF}").status_code == 401
 
 
+def test_the_leaderboard_pages_without_moving_the_sheet_under_the_reader(client):
+    """A page is a window on the ROWS. Every population statistic must survive it.
+
+    The failure this guards would look like a data bug rather than a paging one: recompute
+    `n_rules` or `noise_ceiling` over the page instead of over the population, and page 2
+    tells the reader a different number of rules was searched than page 1 did. That number
+    is what every `dsr` on the sheet is deflated against, so two screens of one leaderboard
+    would disagree about how much to believe.
+    """
+    head = key_for("m@example.com")
+    q = f"/v1/research/leaderboard?cls={CLS}&tf={TF}"
+    first = client.get(f"{q}&offset=0&limit=1", headers=head).json()
+    second = client.get(f"{q}&offset=1&limit=1", headers=head).json()
+    assert [r["rule"] for r in first["rows"]] == ["alpha"]
+    assert [r["rule"] for r in second["rows"]] == ["beta"]
+    for k in ("n_rules", "n_ranked", "noise_ceiling", "exposure_corr", "years", "universe"):
+        assert first[k] == second[k], f"{k} moved between pages"
+
+    # `limit=0` is the cheap probe: how deep is this sheet, before asking for any of it.
+    header_only = client.get(f"{q}&limit=0", headers=head).json()
+    assert header_only["rows"] == []
+    assert header_only["n_ranked"] == first["n_ranked"] == 2
+
+    # Past the end is empty -- not an error, and not a wrapped-around first page.
+    assert client.get(f"{q}&offset=99&limit=5", headers=head).json()["rows"] == []
+
+    # Omitting `limit` keeps the pre-pagination behaviour for every existing caller.
+    assert client.get(q, headers=head).json()["offset"] == 0
+
+    # The cap is a response-size bound, so asking past it is refused rather than served.
+    assert client.get(f"{q}&limit=100000", headers=head).status_code == 422
+    assert client.get(f"{q}&offset=-1", headers=head).status_code == 422
+
+
 def test_the_leaderboard_ranks_what_the_store_holds(client):
     r = client.get(f"/v1/research/leaderboard?cls={CLS}&tf={TF}",
                    headers=key_for("m@example.com"))

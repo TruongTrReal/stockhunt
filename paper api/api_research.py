@@ -36,7 +36,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 import api_auth
@@ -45,6 +45,11 @@ import api_paths                                                        # noqa: 
 
 api_paths.use_dashboard()
 import board_rank                                                       # noqa: E402
+
+# The most rows one request may build. Each row carries its asset-by-asset table, so
+# this is a response-size bound rather than a taste in page lengths: uncapped on
+# us_stocks 1d it would join 190 symbols per rule across ~500 rules for one request.
+MAX_PAGE = 200
 from stockhunt import resultsdb                                         # noqa: E402
 
 log = logging.getLogger("stockhunt.api.research")
@@ -164,6 +169,10 @@ def sheets(who: dict = Depends(api_auth.current_principal)) -> list[dict]:
 
 @router.get("/leaderboard", summary="One ranked sheet, computed now")
 def leaderboard(cls: str, tf: str,
+                offset: int = Query(0, ge=0, description="rows to skip"),
+                limit: int = Query(None, ge=0, le=MAX_PAGE,
+                                   description="rows to return; omit for the board's own "
+                                               "depth, 0 for the header alone"),
                 who: dict = Depends(api_auth.current_principal)) -> dict:
     """The sheet as the board renders it, ranked at the moment you ask.
 
@@ -172,9 +181,16 @@ def leaderboard(cls: str, tf: str,
     rather than read back from something a build froze. That is not a nicety: those figures
     are defined over the whole candidate population, so a single new rule changes them for
     every existing row, and a baked payload goes stale the moment one lands.
+
+    PAGED, because a sheet is ~500 rows and 94% of a row's bytes are the per-asset table
+    under it. `offset`/`limit` window the ROWS and leave every population statistic alone,
+    so paging forward never changes what the header says the ranking was drawn from. The
+    last page's index is `n_ranked` -- NOT `n_rules`, which also counts the candidates
+    dropped before ranking (unscored, no book, never traded, closet trackers).
     """
     _check_sheet(cls, tf)
-    sheet = board_rank.build_sheet(cls, tf, board_rank.universes().get(cls, []))
+    sheet = board_rank.build_sheet(cls, tf, board_rank.universes().get(cls, []),
+                                   offset=offset, limit=limit)
     if sheet is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
                             detail=f"No rankable rows for {cls}/{tf}.")
