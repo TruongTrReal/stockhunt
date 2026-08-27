@@ -150,6 +150,19 @@ fi
 # Results may have moved with the code, so the board payload is rebuilt from what just
 # arrived. Failure here is not a failed deploy -- the site still serves the previous
 # payload -- so it is reported and not fatal.
+# Ownership again, immediately before the rebuild that needs it. The chown after the reset
+# ought to be enough and on 2026-08-27 it was not: `web/index.html` came out of that deploy
+# owned by root, `stamp_cache_busters` runs as `stockhunt`, and the whole payload rebuild
+# died on `PermissionError` — leaving `data.js` rewritten but its cache-buster still
+# pointing at the previous hash, so no browser would have fetched it.
+#
+# The cause is not established. `index.html` is TRACKED and `stamp_cache_busters` rewrites
+# it on every refresh, so it is permanently dirty and every reset rewrites it as root —
+# but the chown above covers that directory and works when run by hand. Rather than leave a
+# theory in place of a fix, the guard is repeated where it is actually needed. It is
+# idempotent and costs milliseconds.
+chown -R stockhunt:stockhunt "$REPO/Stockhunt Dashboard/web" 2>/dev/null || true
+
 if sudo -u stockhunt "$REPO/refresh-board.sh" >>"$LOG" 2>&1; then
     say "board payload rebuilt"
 else
