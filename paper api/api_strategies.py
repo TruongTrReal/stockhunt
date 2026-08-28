@@ -65,6 +65,35 @@ class RegisterRequest(BaseModel):
                           "has no obvious baseline, and choosing one for you would put "
                           "this desk's opinion inside your track record.")
     allow_short: bool = False
+    capital: float | None = Field(
+        None, examples=[10000],
+        description="What the book is funded with. Defaults to the desk's standard "
+                    "book; ask for more when one unit of what you trade costs more than "
+                    "that. On cme_futures a unit is a fractional notional unit of a "
+                    "back-adjusted series, so one NQ.v.0 is ~$29,600.")
+
+    @field_validator("capital")
+    @classmethod
+    def _capital(cls, v: float | None) -> float | None:
+        """Bounded at both ends, and the two bounds exist for different reasons.
+
+        The FLOOR is the rounding argument that made this fixed in the first place: a book
+        smaller than the standard one rounds a whole share into a position that is a
+        decision rather than a rounding. The CEILING is that this is a shared sandbox
+        venue — `run_paper` funds each venue from the sum of what is registered on it, so
+        an unbounded book is a way to make every other book on that venue meaningless.
+        """
+        if v is None:
+            return None
+        if v < api_config.CAPITAL_PER_STRATEGY:
+            raise ValueError(
+                f"the smallest book is ${api_config.CAPITAL_PER_STRATEGY:,.0f} — below "
+                f"that, rounding a whole share stops being a rounding")
+        if v > api_config.MAX_CAPITAL_PER_STRATEGY:
+            raise ValueError(
+                f"the largest is ${api_config.MAX_CAPITAL_PER_STRATEGY:,.0f}; this is a "
+                f"shared sandbox venue and every book on it is funded from the same total")
+        return float(v)
 
     @field_validator("name")
     @classmethod
@@ -156,6 +185,7 @@ class LimitsOut(BaseModel):
     name_max: int
     symbols_max: int
     capital_per_strategy: float
+    max_capital_per_strategy: float
     max_strategies: int
     max_orders_per_minute: int
     # Per class, the symbols the desk already subscribes to — empty when the desk has not
@@ -196,6 +226,7 @@ def limits(who: dict = Depends(api_auth.current_principal)) -> LimitsOut:
         name_max=NAME_MAX,
         symbols_max=SYMBOLS_MAX,
         capital_per_strategy=api_config.CAPITAL_PER_STRATEGY,
+        max_capital_per_strategy=api_config.MAX_CAPITAL_PER_STRATEGY,
         max_strategies=api_config.MAX_STRATEGIES_PER_ACCOUNT,
         max_orders_per_minute=api_config.MAX_ORDERS_PER_MINUTE,
     )
@@ -278,7 +309,7 @@ def register(body: RegisterRequest, request: Request,
 
     row = deskdb.register(
         account, body.name, body.cls, body.symbols, body.tf,
-        api_config.CAPITAL_PER_STRATEGY, kind="member",
+        body.capital or api_config.CAPITAL_PER_STRATEGY, kind="member",
         benchmark=body.benchmark, allow_short=body.allow_short)
     authdb.audit("strategy.registered", who["email"], api_auth.client_ip(request),
                  f"{row['strategy_id']} {body.cls} {','.join(body.symbols)} {body.tf}")

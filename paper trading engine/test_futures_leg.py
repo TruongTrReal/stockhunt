@@ -858,14 +858,14 @@ def test_the_caveat_tracks_the_feed_instead_of_asserting_a_constant():
     before = dict(db_live.FEED_MODE)
     try:
         db_live.FEED_MODE.update(mode="stream", why="live gateway")
-        assert desk_control._caveat("cme_futures", "1m") == ""
+        assert desk_control._feed_caveat("cme_futures", "1m") == ""
         db_live.FEED_MODE.update(mode="poll", why="the gateway did not come back")
-        caveat = desk_control._caveat("cme_futures", "1m")
+        caveat = desk_control._feed_caveat("cme_futures", "1m")
         assert "HISTORICAL archive" in caveat
         assert "the gateway did not come back" in caveat, (
             "a member told their fills are stale must be told WHY, or it reads as design")
-        assert desk_control._caveat("cme_futures", "1d") == ""
-        assert desk_control._caveat("us_stocks", "1m") == ""
+        assert desk_control._feed_caveat("cme_futures", "1d") == ""
+        assert desk_control._feed_caveat("us_stocks", "1m") == ""
     finally:
         db_live.FEED_MODE.clear()
         db_live.FEED_MODE.update(before)

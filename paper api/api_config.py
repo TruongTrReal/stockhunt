@@ -126,12 +126,30 @@ BOARD_WARM_SECONDS = float(env("API_BOARD_WARM_SECONDS", "30") or 0)
 # standing between a bug and the venue.
 MAX_STRATEGIES_PER_ACCOUNT = env_int("API_MAX_STRATEGIES", 6)
 
-# Fixed, not chosen by the caller. Equities round to whole shares, so a book has to be
-# large enough that the rounding is a rounding rather than a decision — at $435 a slice a
-# $570 share rounds 0.72 up to 1 and holds 131% of its capital. See CAPITAL_PER_SYSTEM in
-# `run_paper.py`, which this deliberately matches so a member's book and a house leg's are
-# directly comparable.
+# The DEFAULT book, and the floor under any book a caller asks for. Equities round to
+# whole shares, so a book has to be large enough that the rounding is a rounding rather
+# than a decision — at $435 a slice a $570 share rounds 0.72 up to 1 and holds 131% of its
+# capital. See CAPITAL_PER_SYSTEM in `run_paper.py`, which this deliberately matches so a
+# member's book and a house leg's are directly comparable.
 CAPITAL_PER_STRATEGY = float(env("API_CAPITAL_PER_STRATEGY", "10000") or 10000)
+
+# ...and the ceiling, because a caller may now ask for more (2026-08-28).
+#
+# **The old comment said "fixed, not chosen by the caller", and that argument only ever
+# supported a FLOOR.** Rounding is the reason a book cannot be too small; nothing in it
+# says a book may not be larger, and one class makes the fixed value unusable. On
+# `cme_futures` a "unit" is a fractional notional unit of a back-adjusted continuous
+# series, so one unit of `NQ.v.0` costs about $29,600 and one of `YM.v.0` about $53,700 —
+# against a $10,000 book. A TradingView strategy sends `{{strategy.order.contracts}}`,
+# which is an INTEGER, so every order such a member sends is refused for want of cash and
+# the reason is only visible in the ledger. That happened, for hours, on a real
+# registration.
+#
+# A ceiling still has to exist: this is a shared sandbox venue and `run_paper` funds each
+# venue from the sum of what is registered on it, so an unbounded request is a way to make
+# every other book on that venue meaningless. $1M carries two units of the most expensive
+# contract on the desk with room to hold several names at once.
+MAX_CAPITAL_PER_STRATEGY = float(env("API_MAX_CAPITAL_PER_STRATEGY", "1000000") or 1_000_000)
 
 # Orders per minute, per account. A trading API's cheapest protection: the inbox is a
 # database and a bot in a tight retry loop can fill it faster than the desk drains it.

@@ -31,6 +31,7 @@ than the one this file is named for.
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 import paper_config                                                     # noqa: F401
@@ -216,7 +217,7 @@ def test_accepting_one_minute_futures_still_says_what_is_stale():
     """A caveat, in `reason`, beside `live`. A system that runs, fills and publishes while
     quietly meaning something other than its owner thinks is the failure being avoided."""
     import desk_control
-    why = desk_control._caveat("cme_futures", "1m")
+    why = desk_control._feed_caveat("cme_futures", "1m")
     assert why.startswith("Running"), "it must not read as a refusal"
     assert "behind real time" in why and "fill PRICE" in why
 
@@ -226,7 +227,7 @@ def test_accepting_one_minute_futures_still_says_what_is_stale():
 def test_nothing_else_carries_a_caveat(cls, tf):
     """`reason` beside `live` has to stay rare, or it stops being read at all."""
     import desk_control
-    assert desk_control._caveat(cls, tf) == ""
+    assert desk_control._feed_caveat(cls, tf) == ""
 
 
 @pytest.mark.parametrize("tf", ["4h", "15m", "5m"])
@@ -440,3 +441,83 @@ def test_the_forming_bar_guard_now_sees_a_commodity_bar_as_past():
 
     fixed = td_live._to_cache_clock(vendor_stamp, "XAU/USD")[-1].tz_localize(timezone.utc)
     assert now >= fixed + duration                               # kept, correctly
+
+
+# --------------------------------------------- can this book afford one unit of that?
+#
+# The failure that produced this was invisible for hours. A member pointed TradingView at
+# `cme_futures` with the standard $10,000 book, sending `{{strategy.order.contracts}}` —
+# an INTEGER. On this leg a unit is a fractional notional unit of a back-adjusted series,
+# so one NQ.v.0 is ~$29,600. Every order was refused for want of cash, correctly and with
+# a well-worded reason — written onto the ORDER row, which nobody reads until they already
+# suspect something. The registration itself just said `live`.
+
+def _reg_for(cls, symbols, capital, tf="1d"):
+    return {"cls": cls, "tf": tf, "symbols": list(symbols), "capital": capital}
+
+
+def test_a_book_that_cannot_afford_a_unit_is_told_so(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    why = desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["NQ.v.0"], 10_000.0))
+    assert "29,600" in why and "10,000" in why
+    assert "0.34" in why, "say how much it CAN hold, not just that it cannot hold one"
+    assert "fractional notional unit, not a contract" in why
+
+
+def test_a_book_that_can_afford_it_is_told_nothing(monkeypatch):
+    """This column is only useful while it stays rare."""
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    assert desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["NQ.v.0"], 500_000.0)) == ""
+
+
+def test_it_names_the_DEAREST_symbol_and_lists_every_unaffordable_one(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "ES.v.0": pd.DataFrame({"Close": [7_700.0]}),      # affordable
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+        "YM.v.0": pd.DataFrame({"Close": [53_700.0]}),     # the dearest
+    })
+    why = desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["ES.v.0", "NQ.v.0", "YM.v.0"], 10_000.0))
+    assert "one unit of YM.v.0" in why, "the binding constraint is the dearest one"
+    assert "NQ.v.0, YM.v.0" in why and "ES.v.0" not in why.split("—")[1]
+
+
+def test_a_broken_caveat_RAISES_here_and_is_caught_where_it_can_be_logged(monkeypatch):
+    """Non-fatal and LOUD, in that order — and this test exists because of a real miss.
+
+    The helper used to wrap itself in `except Exception: return ""`. While writing it, a
+    `NameError` in this file's own stub was swallowed and the function returned "" for
+    three runs, which reads exactly like "this book can afford it". A courtesy that must
+    not fail an attach is right; a courtesy that hides a programming error is the silent
+    success this module is full of warnings about.
+
+    So the helper raises and `_attach` catches, logs and continues — the catch is where a
+    logger exists.
+    """
+    import desk_control
+    import td_loader
+
+    def boom(*a, **k):
+        raise RuntimeError("cache gone")
+
+    monkeypatch.setattr(td_loader, "load", boom)
+    with pytest.raises(RuntimeError):
+        desk_control._affordability_caveat(_reg_for("cme_futures", ["NQ.v.0"], 10_000.0))
+
+
+def test_no_symbols_or_no_capital_says_nothing(monkeypatch):
+    import desk_control
+    assert desk_control._affordability_caveat(_reg_for("us_stocks", [], 10_000.0)) == ""
+    assert desk_control._affordability_caveat(_reg_for("us_stocks", ["SPY"], 0.0)) == ""
