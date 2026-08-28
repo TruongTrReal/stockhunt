@@ -310,6 +310,14 @@ class BookStrategy(Strategy):
         live = self._bars.get(symbol) or []
         if len(live) < cache_warmup.MIN_OVERLAP:
             return                      # not enough yet; the next batch may be
+        if len(live) >= self.config.window_bars:
+            # The vendor's own window already fills the buffer, so there is nothing in
+            # front of it to add. True at `1d` and `4h`, where the request cap is decades
+            # of history — and skipping here is what keeps this feature free at the
+            # timeframes that never needed it: a parquet read per symbol PER BOOK, on a
+            # hundred-name universe, is tens of seconds of start-up bought for no bars.
+            self._spliced.add(symbol)
+            return
 
         feed_tf = self.config.signal_tf or self.config.tf
         cached = cache_warmup.load(self.config.cls, feed_tf, symbol,

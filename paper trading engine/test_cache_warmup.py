@@ -218,3 +218,17 @@ def test_a_systematic_difference_still_fails_under_the_percentile():
     live = [{**b, "Close": b["Close"] * (1.0 if i % 2 else 1.4)}
             for i, b in enumerate(cached[-200:])]
     assert cache_warmup.seam_report(cached, live)["ok"] is False
+
+
+def test_the_splice_is_skipped_when_the_vendor_window_already_fills_the_buffer():
+    """At 1d and 4h the request cap is decades, so there is nothing in front to add.
+
+    Reading a parquet per symbol PER BOOK on a hundred-name universe is tens of seconds of
+    start-up bought for zero bars, so the buffer's own length is the guard.
+    """
+    window = 100
+    live = bars("2026-01-01", window)
+    assert len(live) >= window, "the precondition the guard tests for"
+    # `splice` itself would still be correct here; the point is that it is not called.
+    merged = cache_warmup.splice(bars("2020-01-01", 500), live, 1.0, limit=window)
+    assert merged == live, "and if it were called, it would change nothing"
