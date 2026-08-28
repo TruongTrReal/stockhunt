@@ -20,8 +20,8 @@ closed bar republished once so the sandbox exchange has a market to fill against
 
 **Two feeds, one publish path.** Ongoing bars come from Databento's LIVE gateway
 (`db_stream.py`, measured 0.01s behind a bar's close) where the size allows it, and from
-the historical REST archive on a timer (`_poll`, ~8 minutes behind) where it does not or
-when the gateway is gone. The two differ only in how a raw frame is obtained: both hand
+the historical REST archive (`_poll`, which waits for the archive's own frontier to pass
+the bar — 3.5 to 13 minutes) where it does not or when the gateway is gone. The two differ only in how a raw frame is obtained: both hand
 the same `(front, behind)` pair to `_emit`, so the roll arithmetic below has no branch in
 it for which feed produced the bar, and `test_futures_leg.py`'s back-adjustment gates
 cover both without knowing.
@@ -30,7 +30,7 @@ cover both without knowing.
     1d            poller only -- `db_loader.merge_session_stubs` needs the NEXT session's
                   contract to decide about this one's Sunday stub, which is a batch
                   concept, and a daily bar gains nothing from arriving 18s after midnight
-                  UTC instead of 8 minutes after it
+                  UTC instead of a quarter of an hour after it
     no SDK,       poller, loudly. `db_stream.have_sdk` answers instead of raising for the
     no key        same reason `db_live.have_key` does
 
@@ -98,31 +98,59 @@ CLIENT_ID = ClientId("DATABENTO")
 ASSET_CLASS = "cme_futures"
 VENUE = Venue(paper_config.VENUES.get(ASSET_CLASS, "GLBX"))
 
-# Seconds after a bar boundary before the first fetch attempt.
+# Seconds after a bar boundary before the first fetch attempt — the FALLBACK, for when the
+# archive cannot be asked where it has got to.
 #
-# **Sized against a measurement, not a guess.** The historical archive lags real time by
-# about eight minutes (`db_live.ARCHIVE_LAG_SECONDS`, probed 2026-08-27 at 12:58:10 UTC:
-# the dataset ended at 12:50:00 UTC). Poll inside that window and the vendor has nothing
-# settled, `drop_forming` correctly discards what it does have, and the bar is skipped
-# with nothing in the log to say a bar was skipped rather than not yet due. Fifteen
-# minutes is that lag plus most of it again — the retry loop below covers the rest, and at
-# 1d and 1h a quarter of an hour costs a book nothing.
+# **These were sized against a sample, and the sample was lucky.** The archive frontier does
+# not trail real time smoothly: it advances in steps of roughly ten minutes, so a reading
+# taken just after a step is small and one taken just before the next step is large.
+# Re-sampled every ~28s on 2026-08-28 from 13:00:42 UTC, `metadata.get_dataset_range`'s
+# top-level end ran **10.7 -> 13.0 minutes** behind and then dropped to **3.5** as the
+# archive advanced. The earlier 5.5-7.3 minute reading was one sawtooth caught on its way
+# up; 8 minutes covers the middle of that tooth and not its peak, and 15 minutes for the
+# other sizes is a guess in the other direction.
+#
+# So the lag is no longer the thing that decides when to fetch — `_wait_for_frontier` asks
+# the archive whether it holds the bar. Nothing broke while these were wrong (the retry
+# loop below is 40 minutes of cover) but a poll inside the lag finds nothing settled and
+# says nothing about it, which is a silence this class has paid for before.
 POLL_LAG = 15 * 60
 
-# ...except at 1m, where fifteen minutes would be fifteen BARS. The lag has to clear the
-# archive frontier and nothing more, so it is sized on the worst sampled reading (7.3 min,
-# 2026-08-28) plus headroom, and the retry loop below covers the rest. A minute bar still
-# reaches the desk about eight minutes after it closed — that is the vendor's floor
-# without a LIVE subscription, and it is a property of this class that has to be said out
-# loud rather than hidden in a constant. See `desk_control._feedable`, which says it to
-# the member who registered.
-POLL_LAG_BY_TF = {"1m": 8 * 60}
+# **The per-timeframe split is gone, and that is a consequence of the fix rather than a
+# separate decision.** `{"1m": 8 * 60}` existed because the lag DECIDED when a bar arrived,
+# so a number sized for a daily bar cost fifteen bars at 1m. It no longer decides anything
+# on the normal path, and on the fallback path a lag that does not clear the measured worst
+# case (13 min) finds nothing settled and hands the whole job to the retry loop anyway. One
+# number, and it is the one that clears the measurement.
+POLL_LAG_BY_TF: dict[str, int] = {}
 
 
 def poll_lag(timeframe: str) -> int:
-    """Seconds after a bar boundary before the first fetch. Per timeframe, because a lag
-    sized for a daily bar is most of a session at 1m."""
+    """Seconds after a bar boundary before the first fetch, when the frontier is unreadable.
+
+    Only reached from `_wait_for_frontier`'s failure branch; the normal path waits for the
+    archive to say it has the bar.
+    """
     return POLL_LAG_BY_TF.get(timeframe, POLL_LAG)
+
+
+# How the frontier wait behaves. All three are about bounding a wait, not about latency:
+# the archive answers when it answers, and the only decisions here are how often to ask and
+# when to stop asking.
+#
+# `FRONTIER_FLOOR` is the sleep before the FIRST question, so a poll task does not spend a
+# request on an answer that is certainly "not yet" — the lowest reading ever taken on this
+# dataset is 3.5 minutes and the floor sits well inside it.
+# `FRONTIER_EVERY` is the ask cadence; `db_live.available_end` memoises for 60s, so half of
+# these are free and the archive is asked at most once a minute per schema across every
+# poll task on the desk.
+# `FRONTIER_MAX_WAIT` is the ceiling, and it is deliberately SHORTER than the retry loop
+# below (`MAX_RETRIES * RETRY_EVERY`, 40 minutes). A stalled archive must not wedge a poll
+# task forever, and when this gives up the existing retry path takes over unchanged — the
+# frontier wait is an optimisation on top of the backstop, never a replacement for it.
+FRONTIER_FLOOR = 60
+FRONTIER_EVERY = 30
+FRONTIER_MAX_WAIT = 20 * 60
 # If the settled bar has not appeared yet, retry on this cadence rather than waiting a
 # whole interval and losing the bar. Two minutes rather than `td_nautilus`'s one, because
 # a Databento window costs ~25 seconds of server-side symbology resolution whatever it
@@ -237,9 +265,9 @@ class DatabentoLiveClient(LiveMarketDataClient):
             self._set_mode("poll", db_live.NO_KEY)
             return
         self._log.info(f"Databento {db_live.DATASET} connected, warmup window "
-                       f"{self._window} bars, poll at close + {POLL_LAG}s "
-                       f"({POLL_LAG_BY_TF.get('1m')}s at 1m) "
-                       f"(archive lags ~{db_live.ARCHIVE_LAG_SECONDS // 60} min)")
+                       f"{self._window} bars, polls wait for the archive frontier "
+                       f"(measured 3.5-13 min behind, ceiling "
+                       f"{FRONTIER_MAX_WAIT // 60} min)")
         self._start_stream()
 
     def _start_stream(self) -> None:
@@ -494,8 +522,8 @@ class DatabentoLiveClient(LiveMarketDataClient):
                            f"(sub-second behind the close)")
             return
         self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
-        self._log.info(f"subscribed {bar_type} (poll at close + "
-                       f"{poll_lag(timeframe)}s, ~"
+        self._log.info(f"subscribed {bar_type} (polled: each bar is fetched once the "
+                       f"archive frontier has passed it, ~"
                        f"{db_live.ARCHIVE_LAG_SECONDS // 60} min behind the close)")
 
     async def _unsubscribe_bars(self, command) -> None:
@@ -559,8 +587,8 @@ class DatabentoLiveClient(LiveMarketDataClient):
                 continue
             self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
             self._log.warning(
-                f"{bar_type}: now polled at close + {poll_lag(timeframe)}s instead of "
-                f"streamed. Its bars will arrive about "
+                f"{bar_type}: now polled instead of streamed, so each bar waits for the "
+                f"archive frontier to pass it. Its bars will arrive up to "
                 f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes after they close.")
         self._streamed.clear()
 
@@ -601,13 +629,59 @@ class DatabentoLiveClient(LiveMarketDataClient):
                 self._handle_data(bar)
         return fresh.index[-1]
 
+    async def _wait_for_frontier(self, timeframe: str, bar_close: pd.Timestamp) -> str:
+        """Sleep until the archive actually holds the bar that closed at `bar_close`.
+
+        Returns what happened — `"arrived"`, `"timeout"` or `"unreadable"` — so the caller
+        can say so in the log rather than leaving a wait indistinguishable from a stall.
+
+        **The question is asked, not assumed.** `db_live.available_end(schema)` is the
+        frontier floored to that schema's own bar boundary, so `end >= bar_close` is
+        exactly "this bar is in the archive" for `1m`, `1h` and `1d` alike — measured
+        2026-08-28: at 13:03:02 the `ohlcv-1h` end read 12:00 while the top-level frontier
+        was 12:50, and at 13:03:31 both read 13:00.
+
+        A frontier that cannot be read at all (no key, an HTTP error, a vendor schema
+        change) falls back to `poll_lag` and the retry loop, which is what this desk did
+        before and is still correct — just slower and blinder. **It must never raise**: a
+        poll task that dies takes a leg's feed with it.
+        """
+        await asyncio.sleep(FRONTIER_FLOOR)
+        schema = db_live.SCHEMA[timeframe]
+        waited = FRONTIER_FLOOR
+        while waited < FRONTIER_MAX_WAIT:
+            try:
+                end = await asyncio.to_thread(db_live.available_end, schema)
+            except Exception as exc:            # noqa: BLE001 - degraded, never fatal
+                self._log.warning(
+                    f"{schema}: could not read the archive frontier ({exc}); falling back "
+                    f"to a fixed {poll_lag(timeframe)}s lag for this bar")
+                await asyncio.sleep(max(poll_lag(timeframe) - waited, 0))
+                return "unreadable"
+            if end >= bar_close:
+                return "arrived"
+            await asyncio.sleep(FRONTIER_EVERY)
+            waited += FRONTIER_EVERY
+        return "timeout"
+
     async def _poll(self, bar_type: BarType) -> None:
         timeframe = timeframe_of(bar_type)
         symbol = bar_type.instrument_id.symbol.value
         while True:
             try:
-                await asyncio.sleep(self._seconds_to_next_close(timeframe)
-                                    + poll_lag(timeframe))
+                await asyncio.sleep(self._seconds_to_next_close(timeframe))
+                # Floored AFTER the sleep, not computed before it: the sleep lands just
+                # past the boundary, so `now` floored to the interval IS the bar that has
+                # just closed. Deriving it beforehand would be one interval out whenever
+                # the loop woke a moment early.
+                bar_close = pd.Timestamp.now(tz="UTC").tz_localize(None).floor(
+                    db_live.INTERVALS[timeframe])
+                how = await self._wait_for_frontier(timeframe, bar_close)
+                if how == "timeout":
+                    self._log.warning(
+                        f"{bar_type}: the archive frontier had not reached {bar_close} "
+                        f"after {FRONTIER_MAX_WAIT // 60} minutes — trying anyway, and the "
+                        f"retry loop is the backstop")
                 for _ in range(MAX_RETRIES):
                     try:
                         front, behind = await asyncio.to_thread(

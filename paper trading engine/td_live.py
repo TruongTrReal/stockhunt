@@ -25,8 +25,17 @@ which also records the two ways of measuring it wrong.
 
 *The forming bar.* `/time_series` returns the current, still-open bar as its most recent
 row. Acting on it is look-ahead of the worst kind — the close changes after you trade. So
-every read discards the newest row unless the vendor's own clock says that bar's interval
-has fully elapsed. This is the single most important line in the file.
+every read discards the newest row unless that bar's interval has fully elapsed. This is
+the single most important line in the file, and **the whole of it is which clock the
+question is asked in**: the vendor stamps a naive wall clock, this repo's cache keeps each
+class on its own, and a test that reads a New York stamp against a UTC `now` does not fire.
+`_without_forming` and `_now_in_cache_clock` are that, in two directions — a commodity bar
+was discarded on every read, an intraday equity bar was kept while still forming.
+
+*The grid.* A restamp moves a bar's LABEL. It only moves its WINDOWS when the bar is wider
+than the offset, which is commodity `4h` and nothing else today — see `derived_from`, which
+builds that cell from `1h` instead of fetching it, so the desk trades the same buckets the
+research sheet holds.
 
 *The frozen tick timestamp.* On the WebSocket, `timestamp` repeats across a burst of ticks
 — it is the bar stamp, not the tick time. Nothing here depends on it, but any future
@@ -144,15 +153,10 @@ def _to_cache_clock(index: pd.DatetimeIndex, symbol: str) -> pd.DatetimeIndex:
     Identity for a class with no declaration and for a symbol no class claims, which is
     exactly the previous behaviour.
 
-    **It leaves the two equity classes on `America/New_York`, and that is a known defect
-    left standing deliberately.** Their cache is exchange-local, so matching it is right;
-    but it also means the forming-bar guard below compares an ET stamp against a UTC `now`,
-    which reads 4-5 hours in the PAST and therefore never fires — the desk keeps the
-    still-forming intraday equity bar. Fixing that here alone would move `ts_event` on
-    every equity bar by 4-5 hours, and `ts` is part of the fills table's natural key
-    (`store.py`), so a warm-up replay after the change would fail to collapse against
-    everything already recorded and would double the position history. It has to be done
-    together with restamping the equity cache and a decision about the existing record.
+    **It leaves the two equity classes on `America/New_York`, and that is correct** — their
+    cache is exchange-local, so matching it is the whole point of this function. What used
+    to be wrong was the COMPARISON downstream, not this conversion: see
+    `_now_in_cache_clock`.
     """
     cls = class_of(symbol)
     if cls is None:
@@ -160,26 +164,170 @@ def _to_cache_clock(index: pd.DatetimeIndex, symbol: str) -> pd.DatetimeIndex:
     return paper_config.to_cache_clock(index, cls)
 
 
-def fetch_bars(symbol: str, timeframe: str, n: int = 1500,
-               drop_forming: bool = True) -> pd.DataFrame:
-    """The last `n` CLOSED bars for one symbol, on that symbol's CACHE clock.
+def _now_in_cache_clock(symbol: str) -> pd.Timestamp:
+    """`now`, on the same wall clock this symbol's intraday bars are stamped in. Naive.
 
-    With `drop_forming` the newest row is discarded unless a full interval has elapsed
-    since it opened. Trading the forming bar would use a close that has not happened yet.
+    **The forming-bar guard has to compare two readings of one clock, and for the equity
+    classes it was comparing two different clocks.** `_to_cache_clock` leaves `us_stocks`
+    and `us_etfs` on `America/New_York`, because that is what their cache is stamped in;
+    the guard then tested that ET stamp against `datetime.now(timezone.utc)`, which is 4-5
+    hours AHEAD of it. `now < last_open + duration` was therefore true only in the small
+    hours, so on every intraday equity read the guard did not fire and **the desk kept the
+    still-forming bar** — a rule computed from a high, a low and a close that had not
+    finished happening. That is the same defect the commodity Sydney bug was, in the
+    opposite direction: there a future stamp discarded a good bar, here a past stamp keeps
+    a bad one, and keeping a bad one is the expensive half.
 
-The index is restamped onto the clock the backtest cache for that class is on, whatever
-    clock the vendor answered in — see `_to_cache_clock`. That is what keeps the live
-    record comparable to the sheet the rule was selected from, and it is what puts the
-    commodity legs back on UTC, where the forming-bar guard here, `ts_event` in
-    `td_nautilus` and `_seconds_to_next_close`'s modular arithmetic all already assumed
-    they were.
+    **The fix converts `now`, not the bar.** Moving the bar onto UTC would move `ts_event`
+    by 4-5 hours, and `ts` is part of the fills table's natural key (`store.py`), so a
+    warm-up replay after the change would stop collapsing against what is already recorded
+    and would double the position history. The bar's stamp is left exactly where the cache
+    says it belongs and the clock the question is asked in is moved instead.
+
+    Identity for the three UTC-cached classes and for a symbol no class claims, so
+    commodities, crypto and futures read exactly as they did before.
     """
-    interval, duration = INTERVALS[timeframe]
-    r = requests.get(f"{BASE_URL}/time_series", timeout=60, params={
+    now = pd.Timestamp.now(tz="UTC")
+    cls = class_of(symbol)
+    if cls is None:
+        return now.tz_localize(None)
+    return now.tz_convert(paper_config.cache_tz(cls)).tz_localize(None)
+
+
+def _without_forming(df: pd.DataFrame, symbol: str, timeframe: str) -> pd.DataFrame:
+    """Discard the newest row unless a full interval has elapsed since it opened.
+
+    The single most important line in this file, in function form so the derived path
+    below cannot grow a second copy of it that drifts.
+
+    **`now` is read on the bar's own clock, and only for the intraday sizes.** That is the
+    fix for the equity look-ahead described in `_now_in_cache_clock`, and the `1d`
+    exclusion is not a shortcut — a daily stamp is a DATE, not a wall-clock instant, so no
+    class's intraday zone applies to it. Reading `now` in ET for a daily equity bar would
+    also delay it by 4-5 hours past the once-a-day poll and its retry window
+    (`td_nautilus._poll`), so the bar would never be delivered at all: the guard would go
+    from never firing to always firing, which is the other way to lose a session.
+    """
+    if not len(df):
+        return df
+    interval_end = df.index[-1] + INTERVALS[timeframe][1]
+    if interval_end.tzinfo is not None:
+        now = pd.Timestamp.now(tz="UTC")
+    elif paper_config.TIMEFRAMES[timeframe]["intraday"]:
+        now = _now_in_cache_clock(symbol)
+    else:
+        now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    return df.iloc[:-1] if now < interval_end else df
+
+
+# Which timeframe a cell has to be BUILT from rather than fetched, because a restamp does
+# not preserve the vendor's grid.
+#
+# **A whole-hour shift moves a bar's LABEL; it only moves the GRID when the bar is wider
+# than an hour.** `1m`..`1h` cover exactly the same windows before and after the shift, so
+# they are fetched and relabelled. `4h` does not: Sydney is UTC+10/+11, `10 % 4 == 2` and
+# `11 % 4 == 3`, so a restamped 4h commodity bar lands at 03:00/07:00/11:00/... UTC — not
+# the windows `data/commodities/4h` holds, and not even the same windows as itself across a
+# DST change.
+#
+# **This is the live half of a fix that had only been applied to the cache.**
+# `migrate_cache_clock.py` rebuilt the commodity 4h cache from the corrected 1h onto the
+# real UTC grid; the desk went on fetching 4h straight from the vendor, so from the day
+# that migration shipped the live commodity 4h books were trading bars that **do not exist
+# in the research sheet they select their rules from** — measured on `results/paper.db`,
+# `00:commodities-4h-*` filled at 11:00 and 15:00 UTC, which is `hour % 4 == 3`, the Sydney
+# grid. Same source, same aggregation, same grid on both sides is the only way the forward
+# record means what the sheet means.
+#
+# `1d` is deliberately absent and must stay absent: a daily commodity bar is a third
+# convention again — the vendor's own roll-up on a fixed 21:00 UTC boundary, which
+# reproduces the daily close to ~2 bp — and a date is not a time.
+_DERIVE_SOURCE = "1h"
+
+
+def _minutes(timeframe: str) -> int:
+    return int(timeframe[:-1]) * (60 if timeframe.endswith("h") else 1)
+
+
+def derived_from(symbol: str, timeframe: str) -> str | None:
+    """The timeframe this cell must be built from, or None to ask the vendor directly.
+
+    Arithmetic rather than a list, so a timeframe added later answers for itself. It is
+    the same condition as `migrate_cache_clock.relabel_safe`, inverted: a size that divides
+    an hour survives a whole-hour restamp, and a size that does not has to be rebuilt.
+    """
+    if not paper_config.TIMEFRAMES[timeframe]["intraday"]:
+        return None                       # a daily stamp is a date; no intraday zone applies
+    cls = class_of(symbol)
+    if cls is None:
+        return None                       # unknown clock: the stamps are left alone anyway
+    if paper_config.vendor_tz(cls) == paper_config.cache_tz(cls):
+        return None                       # nothing is restamped, so nothing moves off grid
+    if 60 % _minutes(timeframe) == 0:
+        return None
+    return _DERIVE_SOURCE
+
+
+def _pinned_country(symbol: str) -> bool:
+    """Do this symbol's bars have to come from a US listing?
+
+    Equities and ETFs only, which is the same set `td_loader.US_LISTED_CLASSES` names. A
+    pair (`BTC/USD`, `XAU/USD`) has no country and pinning one returns nothing; a CME
+    future never reaches this module at all.
+
+    An UNKNOWN symbol is pinned too, and that is the deliberate half: an open registration
+    is admitted by `symbol_resolve`, which only ever admits equities and ETFs it proved are
+    US-listed, plus pairs — and a pair is excluded by the separator test above it. So the
+    default that costs nothing when wrong is the strict one.
+    """
+    if "/" in symbol:
+        return False
+    try:
+        return paper_config.class_of(symbol) in ("us_stocks", "us_etfs")
+    except SystemExit:
+        # Not on a leg the desk holds — an open symbol resolved at runtime. Pin it.
+        return True
+
+
+def _fetch_raw(symbol: str, timeframe: str, n: int) -> pd.DataFrame:
+    """One `/time_series` call, restamped onto the cache clock. No forming-bar test."""
+    interval, _ = INTERVALS[timeframe]
+    params = {
         "symbol": symbol, "interval": interval, "outputsize": min(n + 2, OUTPUT_SIZE),
         "adjust": "all", "order": "ASC", "apikey": api_key(),
-    })
-    r.raise_for_status()
+    }
+    # **`country` is pinned on equities and ETFs, exactly as `td_loader._request` does.**
+    #
+    # The root `CLAUDE.md` calls that the fix AT THE SOURCE, and until 2026-08-28 the live
+    # bar path did not have it — only the fetch that fills the cache did. Unpinned, Twelve
+    # Data does not answer "no" for a ticker with no US listing; it returns SOMEBODY ELSE,
+    # as a full, internally consistent series that passes every bar-level check. Probed:
+    # `CTRA` unpinned comes back on `IDX` in `IDR` — the Indonesian namesake that once
+    # ranked as the 3rd largest US stock here.
+    #
+    # It was LATENT rather than live, and the distinction is worth keeping: the three known
+    # impostors are already out of `paper_config.UNIVERSE`, and pinned-vs-unpinned was
+    # verified identical on 16 universe names with the pin breaking none of 45. The hole was
+    # the OPEN path — `symbol_resolve` proves a symbol's identity WITH the pin and the bars
+    # were then fetched WITHOUT it, so a name with both a US and a foreign listing could be
+    # admitted as one and fed as the other. Sampling cannot close that; the pin can.
+    if _pinned_country(symbol):
+        params["country"] = "United States"
+    r = requests.get(f"{BASE_URL}/time_series", timeout=60, params=params)
+    if r.status_code != 200:
+        # NOT `raise_for_status()`, and the reason is a leak I put here myself and then
+        # measured: `requests` builds its message from the full URL, so the exception text
+        # reads `...&apikey=<the key>&country=United+States`. That string reaches the desk
+        # log and, for an open registration, the `reason` column on the manager console.
+        # `symbol_resolve` had the identical defect and scrubs it; this path must too.
+        #
+        # A 404 here is also the ORDINARY answer now rather than a transport failure: with
+        # `country` pinned, a ticker with no US listing is refused by the vendor instead of
+        # being served as a foreign namesake. So it is worth a sentence that says which of
+        # those happened.
+        detail = "no US listing for this symbol" if r.status_code == 404 else                  f"HTTP {r.status_code}"
+        raise RuntimeError(f"{symbol} {timeframe}: {detail} "
+                           f"(Twelve Data {'refused the pinned request' if _pinned_country(symbol) else 'refused the request'})")
     payload = r.json()
     if payload.get("status") == "error" or "values" not in payload:
         raise RuntimeError(f"{symbol} {timeframe}: {payload}")
@@ -190,12 +338,82 @@ The index is restamped onto the clock the backtest cache for that class is on, w
     # line that was discarding every commodity bar.
     if len(df) and paper_config.TIMEFRAMES[timeframe]["intraday"]:
         df.index = _to_cache_clock(df.index, symbol)
-    if drop_forming and len(df):
-        last_open = df.index[-1]
-        if last_open.tzinfo is None:
-            last_open = last_open.tz_localize("UTC")
-        if datetime.now(timezone.utc) < last_open + duration:
-            df = df.iloc[:-1]
+    return df
+
+
+def _fetch_derived(symbol: str, timeframe: str, source: str, n: int,
+                   drop_forming: bool) -> pd.DataFrame:
+    """Build `timeframe` bars from `source` bars, on the cache's own grid.
+
+    Three things are load-bearing:
+
+    **The aggregation is `resample_intraday.resample_frame`, imported rather than
+    reimplemented.** That is the only place in the repo 2m/3m/4h are ever built, and it is
+    what wrote the commodity 4h cache this has to agree with. A second copy of
+    `label="left", closed="left", origin="start_day"` here is exactly how the live desk and
+    the sheet would drift apart again, quietly, in six months.
+
+    **The source's own forming bar is always dropped**, whatever the caller asked for: a
+    bucket assembled from an unfinished hour carries a close that has not happened, which
+    is the same look-ahead one grid finer.
+
+    **A bucket is settled when the SOURCE has settled through its end**, not merely when
+    the wall clock has passed it. At the 4h boundary plus the poll lag the vendor has
+    usually published the bucket's last hour and usually is not good enough — a bucket
+    published one hour short has the wrong high, low and close and nothing downstream can
+    tell. The wall-clock clause behind it is the escape hatch for a source that will never
+    arrive (the market shut mid-bucket, which is every Friday on spot metals), so a bucket
+    is held for at most one extra source interval rather than forever.
+    """
+    import resample_intraday                                          # noqa: PLC0415
+
+    step = INTERVALS[timeframe][1] // INTERVALS[source][1]
+    base = _without_forming(_fetch_raw(symbol, source, n * step + step), symbol, source)
+    if not len(base):
+        return base
+    out = resample_intraday.resample_frame(base, _minutes(timeframe))
+    if drop_forming and len(out):
+        bucket_end = out.index[-1] + INTERVALS[timeframe][1]
+        covered_to = base.index[-1] + INTERVALS[source][1]
+        stale_enough = _now_in_cache_clock(symbol) >= bucket_end + INTERVALS[source][1]
+        if covered_to < bucket_end and not stale_enough:
+            out = out.iloc[:-1]
+    return out.tail(n)
+
+
+def fetch_bars(symbol: str, timeframe: str, n: int = 1500,
+               drop_forming: bool = True) -> pd.DataFrame:
+    """The last `n` CLOSED bars for one symbol, on that symbol's CACHE clock and grid.
+
+    With `drop_forming` the newest row is discarded unless a full interval has elapsed
+    since it opened. Trading the forming bar would use a close that has not happened yet.
+
+    The index is restamped onto the clock the backtest cache for that class is on, whatever
+    clock the vendor answered in — see `_to_cache_clock`. That is what keeps the live
+    record comparable to the sheet the rule was selected from, and it is what puts the
+    commodity legs back on UTC, where the forming-bar guard here, `ts_event` in
+    `td_nautilus` and `_seconds_to_next_close`'s modular arithmetic all already assumed
+    they were.
+
+    A restamp fixes a LABEL and not a GRID, so a cell `derived_from` names is built from a
+    finer timeframe instead of fetched — see there. Today that is commodity `4h` and
+    nothing else.
+
+    **The warm-up is shallower on a derived cell and that is the one cost.** A single
+    vendor call is capped at `OUTPUT_SIZE` (5,000 bars), so 4h built from 1h tops out at
+    1,250 bars against the 1,500 `DEFAULT_WINDOW_BARS` asks for. That still clears
+    `paper_config.MEASURED_WINDOW_BARS` (1,000), which is the number `parity_live.py`
+    measured as the point a recursive rule reproduces the full series, so the signal is
+    unaffected; it is written down here because "asked for 1,500, got 1,250" is otherwise
+    the kind of silent shortfall this file exists to prevent.
+    """
+    source = derived_from(symbol, timeframe)
+    if source is not None:
+        return _fetch_derived(symbol, timeframe, source, n, drop_forming)
+
+    df = _fetch_raw(symbol, timeframe, n)
+    if drop_forming:
+        df = _without_forming(df, symbol, timeframe)
     return df.tail(n)
 
 
@@ -378,6 +596,14 @@ def fetch_bars_many(symbols: list[str], timeframe: str, n: int = 1500,
     A symbol that errors is omitted from the result rather than raising, because one
     delisted or mistyped name must not cost the other ninety-nine their bars. The caller
     sees a short dict and can say which are missing.
+
+    **Nothing in the repo calls this today, and it must not be wired up as it stands.** It
+    predates `config.INTRADAY_CLOCK`: it neither restamps onto the cache clock nor asks the
+    bar's own clock for `now`, so it carries BOTH defects `fetch_bars` was fixed for — the
+    commodity legs one bar behind, and the intraday equity legs keeping the forming bar. It
+    also does not know about `derived_from`, so it would hand back commodity 4h on the
+    vendor's Sydney grid. Route it through `_fetch_raw`, `_without_forming` and
+    `derived_from` before using it for anything.
     """
     interval, duration = INTERVALS[timeframe]
     out: dict[str, pd.DataFrame] = {}

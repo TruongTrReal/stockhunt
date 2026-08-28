@@ -17,6 +17,10 @@ asserts it directly rather than by reading the code.
 2. **The signal equals the reference.** IBS rebuilt from session-so-far ranges offline,
    compared decision for decision with what the running strategy did. An exact match,
    because a position is discrete and "nearly the same signal" is a different trade.
+   There are TWO references and the difference between them is a real one: the sheet's
+   prices are `adjust=all` floats and the desk's are quantised to the instrument's own
+   precision, so a threshold rule can land on opposite sides of 0.2. Such a decision is
+   named and counted rather than tolerated — see the note beside `flips` in `main`.
 3. **One decision per name per session** — 78 five-minute bars a day must not become 78
    rebalances, and the record must stay one curve point a session.
 4. **The book identity still holds**: cash plus every slice equals equity, to the cent.
@@ -45,9 +49,25 @@ paper_state.MIRROR_PATH = None
 
 import config as bt                                                     # noqa: E402
 import td_nautilus                                                      # noqa: E402
+import book_strategy                                                    # noqa: E402
 from backtest_paper import build_bars                                   # noqa: E402
 from book_strategy import BookStrategy, BookStrategyConfig              # noqa: E402
 from strategies._indicators import _state_machine                       # noqa: E402
+
+# THE CACHE THIS GATE REPLAYS IS THE CACHE A LIVE BOOK WARMS FROM, and offline they are one
+# file. `book_strategy.on_start` seeds `_bars` from `cache_warmup.load`, whose newest bar is
+# the newest bar in `data/stocks/5m` — which is also the LAST bar this gate feeds through
+# the engine. `_append` refuses any bar at or before the buffer's last timestamp, so every
+# replayed bar was rejected as already seen, the buffer never advanced, and all 200 sessions
+# were decided on one folded frame. The gate went on printing 1,200 decisions and went on
+# matching its own reference, because both sides had collapsed onto the final session:
+# nothing failed loudly, the gate simply stopped testing anything.
+#
+# **Live this cannot happen and the strategy is not the thing to change.** A live book's
+# cache is by construction older than its feed — that is what warming from it is for. A
+# replay of the cache against itself is a property of running offline, so the seed is
+# switched off HERE. `test_book.py` covers the warm-up path itself.
+book_strategy.cache_warmup.load = lambda *a, **k: []
 
 from nautilus_trader.backtest.engine import BacktestEngine              # noqa: E402
 from nautilus_trader.config import BacktestEngineConfig, LoggingConfig  # noqa: E402
@@ -93,11 +113,19 @@ def _decide_index(idx: pd.DatetimeIndex, lead: int) -> pd.DatetimeIndex:
     return naive.tz_localize(MARKET_TZ)
 
 
-def reference_positions(df: pd.DataFrame, lead: int) -> pd.Series:
-    """IBS on the session SO FAR, offline. The thing the live path must reproduce."""
+def reference_positions(df: pd.DataFrame, lead: int,
+                        price_precision: int | None = None) -> pd.Series:
+    """IBS on the session SO FAR, offline. The thing the live path must reproduce.
+
+    `price_precision` rounds the bars first, which is not a tolerance and not an
+    approximation — it is the SECOND reference, computed on the prices the desk actually
+    sees. See the note beside `flips` in `main` for why there have to be two.
+    """
     local = df.index.tz_convert(MARKET_TZ)
     keep = local <= _decide_index(df.index, lead)
     e = df[keep]
+    if price_precision is not None:
+        e = e.round(price_precision)
     day = e.index.tz_convert(MARKET_TZ).date
     g = e.groupby(day)
     s = pd.DataFrame({"High": g["High"].max(), "Low": g["Low"].min(),
@@ -105,6 +133,19 @@ def reference_positions(df: pd.DataFrame, lead: int) -> pd.Series:
     rng = (s.High - s.Low).to_numpy()
     val = np.divide(s.Close - s.Low, rng, out=np.full(len(s), 0.5), where=rng > 0)
     return pd.Series(_state_machine(val < 0.2, val > 0.8), index=s.index)
+
+
+def session_ibs(df: pd.DataFrame, lead: int, day, price_precision: int | None = None):
+    """The IBS one session was decided on, for reporting a disagreement in numbers."""
+    local = df.index.tz_convert(MARKET_TZ)
+    e = df[(local <= _decide_index(df.index, lead))
+           & (df.index.tz_convert(MARKET_TZ).date == day)]
+    if not len(e):
+        return None
+    if price_precision is not None:
+        e = e.round(price_precision)
+    hi, lo, close = e["High"].max(), e["Low"].min(), e["Close"].iloc[-1]
+    return 0.5 if hi <= lo else float((close - lo) / (hi - lo))
 
 
 def _full_sessions(df: pd.DataFrame, sessions: int) -> pd.DataFrame:
@@ -227,19 +268,54 @@ def main() -> int:
         problems.append(f"{len(r['leaks'])} folded sessions used a post-cutoff price")
 
     mismatch = checked = 0
+    flips = []
     for symbol in r["names"]:
-        ref = reference_positions(r["frames"][symbol], a.lead)
+        frame = r["frames"][symbol]
+        prec = td_nautilus.equity_instrument(symbol, VENUE).price_precision
+        ref = reference_positions(frame, a.lead)
+        ref_q = reference_positions(frame, a.lead, price_precision=prec)
         for sym, day, got in r["decisions"]:
             if sym != symbol or day not in ref.index:
                 continue
             checked += 1
-            if abs(float(ref.loc[day]) - float(got)) > 1e-9:
-                mismatch += 1
-    print(f"  signal parity: {checked - mismatch}/{checked} decisions match the reference")
+            if abs(float(ref.loc[day]) - float(got)) <= 1e-9:
+                continue
+            if (day in ref_q.index
+                    and abs(float(ref_q.loc[day]) - float(got)) <= 1e-9):
+                flips.append((symbol, day, prec,
+                              session_ibs(frame, a.lead, day),
+                              session_ibs(frame, a.lead, day, price_precision=prec),
+                              float(ref.loc[day]), float(got)))
+                continue
+            mismatch += 1
+    print(f"  signal parity: {checked - mismatch - len(flips)}/{checked} decisions match "
+          f"the sheet's prices, {checked - mismatch}/{checked} match the desk's")
     if checked == 0:
         problems.append("no decision could be compared with the reference")
     if mismatch:
         problems.append(f"{mismatch} of {checked} decisions differ from the backtest")
+
+    # A DECISION THE DESK AND THE SHEET DISAGREE ABOUT BECAUSE THEY SEE DIFFERENT PRICES.
+    #
+    # A Nautilus `Price` carries the instrument's own precision — two decimals on an equity
+    # — so `td_nautilus._to_bar` quantises every bar to the cent before a rule ever sees it.
+    # The research does not: `data/stocks/5m` holds `adjust=all` back-adjusted floats, and a
+    # split or a dividend leaves a name quoting 88.019997 rather than 88.02. That is ~1bp,
+    # invisible in any P&L, and IBS is a THRESHOLD rule — so on a session whose IBS lands
+    # within a cent's worth of 0.2 or 0.8 the two round to opposite sides of it and the desk
+    # takes a position the sheet does not.
+    #
+    # **Reported by name, not tolerated and not fixed here.** Widening the tolerance would
+    # hide it; raising the instrument's precision would change every live fill price and
+    # every number already in `results/paper.db`, which is a decision with a record behind
+    # it and not a line in a gate. What this must never do is fail for a DIFFERENT reason
+    # and be read as "oh, the rounding thing again" — hence the second reference, which
+    # only excuses a decision the desk's own prices actually produce.
+    if flips:
+        print(f"  price rounding: {len(flips)} decision(s) flipped by the cent grid")
+        for sym, day, prec, raw, quant, want, got in flips:
+            print(f"                 {sym} {day}: IBS {raw:.6f} on the sheet's prices, "
+                  f"{quant:.6f} at {prec}dp — sheet {want:.0f}, desk {got:.0f}")
 
     seen, dupes = set(), 0
     for sym, day, _ in r["decisions"]:
@@ -259,7 +335,11 @@ def main() -> int:
         for p in problems:
             print(f"  FAIL  {p}")
         return 1
-    print("  PASS  the early-deciding book reproduces the backtest signal exactly")
+    if flips:
+        print(f"  PASS  the early-deciding book reproduces the backtest signal on every "
+              f"decision but {len(flips)}, which the cent grid flipped (named above)")
+    else:
+        print("  PASS  the early-deciding book reproduces the backtest signal exactly")
     return 0
 
 
