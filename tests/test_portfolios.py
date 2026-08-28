@@ -484,3 +484,38 @@ def test_a_database_created_before_portfolios_still_opens(db, tmp_path):
     assert len(portfolios.legs(pid)) == 3
     assert len(portfolios.changes(pid)) == 3
     assert deskdb.registration("str_00_older")["capital"] == 100_000.0
+
+
+# ----------------------------------------------------------- names Nautilus can carry
+
+def test_a_leg_name_is_always_ascii(db):
+    """The bug that took the live desk down eleven times in a restart loop.
+
+    A leg's name reaches Nautilus through `StrategyId`, and its Rust constructor does not
+    raise on a non-ASCII character — it PANICS, which aborts the process. So nine baskets
+    named `Top 5 — us_stocks 1d` did not produce nine bad registrations, they produced a
+    desk that could not stay up, taking every unrelated book down with it.
+
+    Folded at `_leg_name` rather than at the caller, because a member may type anything.
+    """
+    pf = portfolios.create("00", "Top 5 — us_stocks 1d", "manual")
+    portfolios.apply_membership(pf["portfolio_id"],
+                                [("us_stocks", "1d", "MININDEX~MA_50|or")],
+                                reason="test")
+    for leg in portfolios.legs(pf["portfolio_id"]):
+        assert leg["name"].isascii(), leg["name"]
+        assert leg["strategy_id"].isascii(), leg["strategy_id"]
+
+
+@pytest.mark.parametrize("name", ["Top 5 — x", "café", "naïve 5", "a\u00a0b", "日本", "  "])
+def test_any_name_folds_to_something_carryable(name):
+    folded = portfolios._ascii(name)
+    assert folded, "an empty fold would collide across portfolios"
+    assert folded.isascii()
+    assert " " not in folded
+    assert "--" not in folded, "a run of odd characters must not become a run of hyphens"
+
+
+def test_the_fold_keeps_names_distinct():
+    """Folding must not collapse two baskets onto one registration."""
+    assert portfolios._ascii("top5-us_stocks-1d") != portfolios._ascii("top5-us_etfs-1d")

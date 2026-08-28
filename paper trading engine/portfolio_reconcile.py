@@ -58,8 +58,15 @@ def name_for(cls: str, tf: str, n: int) -> str:
     this string is the key that makes re-running safe: the same sheet must produce the
     same name on every pass or the second run creates a second basket holding the same
     five rules on another $100,000.
+
+    **ASCII, lower case, no spaces, and that is not cosmetic.** A leg's name reaches
+    Nautilus through `StrategyId`, whose Rust constructor PANICS on a non-ASCII character
+    -- not an exception a Python `try` can catch, a process abort. Naming these baskets
+    with an em-dash took the live desk down eleven times in a restart loop before it was
+    identified. `portfolios._leg_name` folds the name too, so a portfolio named by hand
+    cannot repeat it; this keeps the generated ones clean at the source.
     """
-    return f"Top {n} — {cls} {tf}"
+    return f"top{n}-{cls}-{tf}"
 
 
 def existing(account: str) -> list[dict]:

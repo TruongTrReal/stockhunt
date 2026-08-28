@@ -49,16 +49,36 @@ def _pid(account: str, name: str) -> str:
     return f"pf_{account}_{name}"
 
 
-def _leg_name(pf: dict, cls: str, tf: str, rule: str) -> str:
-    """What a leg is called in `registrations`, which is UNIQUE on (account, name).
+def _ascii(text: str) -> str:
+    """Fold a name into something a Nautilus identifier can actually carry.
 
-    The portfolio's name is in there because two portfolios on one account may hold the
-    same rule, and the `pf-` prefix is because a hand-promoted book is already called
-    `us_stocks-1d-ibs`. Without both, adding a leg would silently ADOPT that book:
-    `register` is idempotent on the name, so it would return the existing row and put a
-    strategy nobody meant to move under this portfolio's resize and its toggle.
+    `StrategyId`'s Rust constructor PANICS on a non-ASCII character — a process abort, not
+    an exception any Python `try` can catch — so a name with an em-dash in it does not
+    produce a bad registration, it takes the whole desk down in a restart loop. That is
+    what happened on 2026-08-28: nine baskets named with an em-dash, eleven restarts, and
+    every other book on the desk down with them.
+
+    So the fold is here, at the one place a leg is named, rather than at the caller. Any
+    non-ASCII run becomes a hyphen and whitespace collapses, which keeps a hand-typed
+    portfolio name — a member may choose anything — from ever reaching the node intact.
     """
-    return f"pf-{pf['name']}-{cls}-{tf}-{rule.lower()}"
+    out = []
+    for ch in str(text):
+        out.append(ch if (ch.isascii() and (ch.isalnum() or ch in "-_.")) else "-")
+    folded = "".join(out).strip("-").lower()
+    while "--" in folded:
+        folded = folded.replace("--", "-")
+    return folded or "portfolio"
+
+
+def _leg_name(pf: dict, cls: str, tf: str, rule: str) -> str:
+    """The registration name for one leg, and it is the diff's key.
+
+    `deskdb.register` is idempotent on `(account, name)`, so this string decides whether a
+    nightly reconcile re-uses a leg or creates a second one. It carries the portfolio so a
+    basket cannot adopt a hand-promoted book that happens to hold the same rule.
+    """
+    return _ascii(f"pf-{pf['name']}-{cls}-{tf}-{rule}")
 
 
 def _must(portfolio_id: str, account: str | None = None) -> dict:
