@@ -297,10 +297,16 @@ def test_the_console_opens_for_a_signed_in_reader(client, monkeypatch):
     # must never be hand-edited.
     assert api_board.DESK_PAGE.parent == api_board.api_paths.WEB
     assert "<title>Manager desk" in body
-    # The board's three-way toggle is carried here too. Losing it on this page strands a
-    # reader: `/desk` is a real page, not a hash route, so the back-and-forth the board's
-    # own nav provides does not come with it.
-    for href in ('href="/#/paper"', 'href="/#/backtest"', 'href="/desk"'):
+    # The board's nav is carried here too. Losing an entry on this page strands a reader:
+    # `/desk` is a real page served by this process, not a route inside the board app, so
+    # the back-and-forth the board's own nav provides does not come with it — which is
+    # exactly how `Portfolios` came to vanish the moment somebody opened the console.
+    #
+    # The hrefs are the CANONICAL ones, not the old `/#/paper` hash routes: those were the
+    # vanilla board's addresses and the export now answers on real paths. This list and
+    # `dashboard-next/components/Nav.tsx` are two copies of one menu, and this assertion is
+    # the only thing that notices when they drift.
+    for href in ('href="/paper"', 'href="/portfolio"', 'href="/"', 'href="/desk"'):
         assert href in body, href
 
 
