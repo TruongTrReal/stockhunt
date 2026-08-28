@@ -465,6 +465,7 @@
     <table><thead><tr>
       <th>Rule</th><th>Symbol</th><th>tf</th><th>Desk says</th><th></th>
     </tr></thead><tbody id="house"></tbody></table>
+    <p class="note" id="house-note"></p>
   </div>
 
   <h2>Elsewhere</h2>
@@ -1950,17 +1951,42 @@ const symbolList = v => {
   try { return JSON.parse(v || "[]"); } catch { return []; }
 };
 
+/* WHAT THE HOUSE DESK RUNS, and that is not the same as every row it has ever held.
+ *
+ * This listed the whole table, retired rows included, and offered every one of them a
+ * Retire button. After the switch-over that was 33 dead books above the 45 legs actually
+ * trading — so the section that answers "what is the desk doing" answered it with mostly
+ * history, and the top action on the page was a no-op: retiring something already retired
+ * changes nothing and still pops a confirm.
+ *
+ * Retired rows are counted rather than dropped. They ARE the record; they are just not an
+ * answer to this question, and the member half of this page already keeps them in their
+ * own block for exactly that reason. */
+/* Which basket a leg belongs to, READ off the row rather than parsed out of its id.
+ * `portfolio_id` is `pf_<account>_<name>` and the registration carries it; picking the
+ * name out of the strategy_id looked simpler and was wrong, because the id concatenates
+ * the basket name and the cell and nothing separates them — every leg came back as
+ * `top5`. An id is a key, not a record. */
+const PORTFOLIO_OF = s => String(s.portfolio_id || "").replace(/^pf_\d+_/, "");
+
 async function loadHouse() {
-  const rows = await j("GET", "/v1/house/strategies");
+  const all = await j("GET", "/v1/house/strategies");
+  const rows = all.filter(s => s.state !== "retired");
+  const dead = all.length - rows.length;
+  el("house-note").textContent = dead
+    ? `${dead} retired, kept in the record and not shown here.`
+    : "";
   el("house").innerHTML = rows.length ? rows.map(s => `
     <tr>
-      <td class="mono">${esc(s.rule || "—")}</td>
+      <td class="mono">${esc(s.rule || "—")}${PORTFOLIO_OF(s)
+        ? `<div class="note">in ${esc(PORTFOLIO_OF(s))}</div>` : ""}</td>
       <td class="mono">${esc(symbolList(s.symbols).join(", ")
         || (s.kind === "book" ? `the whole ${s.cls || "class"}` : "—"))}</td>
       <td>${esc(s.tf)}</td>
       <td>${stateTag(s.state)}${s.reason ? `<div class="note">${esc(s.reason)}</div>` : ""}</td>
-      <td><button class="ghost small" data-house="${esc(s.strategy_id)}">Retire</button></td>
-    </tr>`).join("") : `<tr><td colspan="5" class="empty">Nothing promoted yet.</td></tr>`;
+      <td>${DONE.includes(s.state) ? ""
+        : `<button class="ghost small" data-house="${esc(s.strategy_id)}">Retire</button>`}</td>
+    </tr>`).join("") : `<tr><td colspan="5" class="empty">Nothing running.</td></tr>`;
 }
 
 el("house").addEventListener("click", async ev => {
