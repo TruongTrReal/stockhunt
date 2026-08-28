@@ -85,7 +85,7 @@ import type { Live } from "@/lib/api";
  * `cls` and `tf` now scope ONLY the loose registrations. A portfolio may hold legs from
  * several classes at once — that is what a basket is — so an asset-class pill cannot filter
  * one without deciding, silently, what a partly-matching basket means. */
-const pf = { cls: "us_stocks", tf: "1d", who: "mine" };
+const pf = { cls: "us_stocks", tf: "1d", who: "mine", pcls: "all" };
 
 export const systemHref = (cls: string, tf: string, rule: string) =>
   `/paper/sys/?cls=${encodeURIComponent(cls)}&tf=${encodeURIComponent(tf)}&rule=${encodeURIComponent(slug(rule))}`;
@@ -384,8 +384,21 @@ export default function PaperPage() {
 
   /* THE PORTFOLIOS, under the same Whose split the systems use. Retired ones sink rather
      than disappear: a basket that has been switched off still holds a record. */
+  /* Which classes a basket touches. A `follow` portfolio tracks exactly one sheet and is
+     therefore one class; a manual one may hold legs from several, and it matches if ANY of
+     them is the class asked for. That is why the strip carries an "All" and defaults to it
+     — a pill that silently hid a basket because only three of its five legs were equities
+     would be answering a different question from the one it appears to ask. */
+  const classesOf = (p: Portfolio) => {
+    const out = new Set<string>();
+    if (p.source_cls) out.add(String(p.source_cls));
+    legsOf(p).forEach((l) => l.cls && out.add(String(l.cls)));
+    return out;
+  };
+
   const pRows = portfolios
     .filter((p) => !hasAccount(doc) || (pf.who === "mine" ? mineP(p) : !mineP(p)))
+    .filter((p) => pf.pcls === "all" || classesOf(p).has(pf.pcls))
     .sort(
       (a, b) =>
         Number(isRetired(a)) - Number(isRetired(b)) || a.name.localeCompare(b.name),
@@ -447,7 +460,7 @@ export default function PaperPage() {
     (a, b) => at(a) - at(b) || a.localeCompare(b),
   );
 
-  const pick = (which: "cls" | "tf" | "who", value: string) => {
+  const pick = (which: "cls" | "tf" | "who" | "pcls", value: string) => {
     pf[which] = value;
     // A filter click is the reader acting, which is the one thing that re-ranks.
     frozenAt.current = "";
@@ -546,6 +559,36 @@ export default function PaperPage() {
             correlations and its switch
           </span>
         </div>
+
+        {/* THE ASSET STRIP FOR THE BASKETS. It carries an "All" and the loose list's does
+            not, and the difference is real rather than cosmetic: a system belongs to
+            exactly one class, so that strip is a choice between them, while a basket can
+            span several and "all" is the only honest default. A `follow` basket names its
+            sheet, so for the nine the desk runs this is simply the class each one tracks. */}
+        {classes.length > 1 && (
+          <div className="filters">
+            <span className="f-group">
+              <span className="f-label">Asset</span>
+              <button
+                type="button"
+                className={`pill${pf.pcls === "all" ? " on" : ""}`}
+                onClick={() => pick("pcls", "all")}
+              >
+                All
+              </button>
+              {classes.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className={`pill${pf.pcls === c ? " on" : ""}`}
+                  onClick={() => pick("pcls", c)}
+                >
+                  {classLabel(c)}
+                </button>
+              ))}
+            </span>
+          </div>
+        )}
 
         {pRows.length ? (
           pRows.map((p) => (
