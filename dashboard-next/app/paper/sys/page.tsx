@@ -182,7 +182,19 @@ function MetricsSection({
     <section className="sec">
       <div className="sec-head">
         <h2>Performance metrics</h2>
-        <span className="sec-note">the live record itself — no benchmark column</span>
+        <span
+          className="sec-note explains"
+          title={
+            "Measured over the closed bars of this record only — a record this short " +
+            "describes the execution path, not the rule.\n\n" +
+            "There is deliberately no buy-and-hold column: the comparison that decides " +
+            "whether a strategy is worth running is the risk-matched one over decades, on " +
+            "the backtest page. These are the desk's own live arithmetic and are not " +
+            "directly comparable with the research figures."
+          }
+        >
+          the live record itself — no benchmark column
+        </span>
       </div>
       <div className="tbl-wrap metrics-box">
         <table>
@@ -190,33 +202,22 @@ function MetricsSection({
             <tr>
               <th className="l">Metric</th>
               <th>Value</th>
-              <th className="l">What it means</th>
             </tr>
           </thead>
           <tbody>
             {liveMetricRows(m).map(([name, val, help]) => (
               <tr key={name}>
-                <td className="l">{name}</td>
-                <td className="num">{val}</td>
-                <td
-                  className="l"
-                  style={{ whiteSpace: "normal", color: "var(--muted)", fontSize: "12.5px" }}
-                >
-                  {help}
+                {/* The explanation is on the name, not standing beside it in a column of
+                    its own. Same move as the research metrics table: a reader who does not
+                    recognise a row asks, and one who does should not read past the answer
+                    on every visit. */}
+                <td className="l">
+                  <span className="explains" title={help}>{name}</span>
                 </td>
+                <td className="num">{val}</td>
               </tr>
             ))}
           </tbody>
-          <caption>
-            Measured over {m.bars} closed bar{m.bars === 1 ? "" : "s"} of{" "}
-            {replay ? "replay" : "paper trading"}
-            {m.capped ? ` and the last ${shown} fills the board carries` : ""} — a record
-            this short describes the execution path, not the rule. There is deliberately no
-            buy-and-hold column: the comparison that decides whether a strategy is worth
-            running is the risk-matched one over decades, on the{" "}
-            <Link href="/">backtest</Link> page. These are the desk&apos;s own live
-            arithmetic and are not directly comparable with the research figures.
-          </caption>
         </table>
       </div>
     </section>
@@ -285,8 +286,26 @@ function FillsSection({
                   <th className="l">Side</th>
                   <th>Qty</th>
                   <th>Price</th>
-                  <th>Realised P&amp;L</th>
-                  <th>Book P&amp;L</th>
+                  <th>
+                    <span
+                      className="explains"
+                      title={"What this ONE FILL closed, against what the closed part cost. "
+                             + "Blank on a fill that opened or added, because it closed "
+                             + "nothing. The trade statistics above count only this column."}
+                    >
+                      Realised P&amp;L
+                    </span>
+                  </th>
+                  <th>
+                    <span
+                      className="explains"
+                      title={"The whole book's mark at that moment, so every name filling in "
+                             + "the same second carries the same value. Never sum it with "
+                             + "the column beside it: they answer different questions."}
+                    >
+                      Book P&amp;L
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -313,14 +332,6 @@ function FillsSection({
                   </tr>
                 ))}
               </tbody>
-              <caption>
-                Two different numbers, deliberately side by side. <b>Realised P&amp;L</b> is
-                what that one fill closed, against what the closed part cost — blank on a
-                fill that opened or added, because it closed nothing. <b>Book P&amp;L</b> is
-                the whole book&apos;s mark at that moment, so every name filling in the same
-                second carries the same value. The trade statistics above count only the
-                first column.
-              </caption>
             </table>
           </div>
         </>
@@ -503,6 +514,12 @@ function SystemView() {
           </div>
         </div>
 
+        {/* TWO COLUMNS THAT FLOW INDEPENDENTLY. The record and the numbers OF that record
+            are two views of one thing and a reader moves between them; stacked, the second
+            was a screen below the first. `.d-col` is the same pair the research detail page
+            uses -- see `app/busy.css` -- so the two pages scan the same way. */}
+        <div className="d-split">
+        <div className="d-col">
         <section className="sec">
           <div className="sec-head">
             <h2>{replay ? "Replayed record" : "Live record"}</h2>
@@ -539,6 +556,9 @@ function SystemView() {
           </div>
         </section>
 
+        </div>
+
+        <div className="d-col">
         <MetricsSection rows={rows} curve={live} cls={cls} tf={tf} replay={replay} />
 
         <section className="sec">
@@ -554,11 +574,17 @@ function SystemView() {
                 ))}
               </div>
               <p className="sec-note pnl-caveat">
-                Those two are <b>simulated</b>, not traded: this rule over the same
-                instruments&apos; recent history. They say how it <em>would</em> have gone;
-                the record above is what it did. Whether it beats holding is the multi-year
-                question, and it is answered on the backtest page, not by three months of
-                either line.
+                <span
+                  className="explains"
+                  title={
+                    "This rule over the same instruments' recent history. They say how it " +
+                    "WOULD have gone; the record above is what it did. Whether it beats " +
+                    "holding is the multi-year question, answered on the backtest page and " +
+                    "not by three months of either line."
+                  }
+                >
+                  simulated, not traded
+                </span>
               </p>
             </>
           ) : (
@@ -569,6 +595,11 @@ function SystemView() {
           )}
         </section>
 
+        </div>
+        </div>
+
+        {/* Full width, both of them: nine columns of holdings and seven of fills do not fit
+            half a rail, and squeezing a table is how it starts scrolling sideways again. */}
         <FillsSection rows={rows} cls={cls} tf={tf} rule={rule} />
 
         {/* ONE SECTION PER UNIVERSE, and the note above each table is why this page carries
@@ -660,23 +691,31 @@ function SystemView() {
       {/* CHECKED, NOT ASSUMED. The desk runs promotions whose leaderboard row was cut, and
           a link that bounces the reader back to the leaderboard is worse than a sentence
           saying the page is not there. `useBacktestHref` asks the API. */}
-      <div className="note">
+      {/* CHECKED, NOT ASSUMED -- the desk runs promotions whose leaderboard row was cut,
+          and a link that bounces the reader back to the board is worse than a sentence
+          saying the page is not there. `useBacktestHref` asks the API. One line: the
+          caveat is true and was three lines of it. */}
+      <p className="sec-note">
         {href ? (
           <>
-            Whether this rule actually works is the multi-year question, and it is not
-            answered here — see <Link href={href}>the walk-forward result for {rule}</Link>.
-            What this page shows is{" "}
-            {replay ? "a replay over cached bars" : "days of simulated fills"}, which is
-            evidence about the execution path and about nothing else.
+            <Link href={href}>the walk-forward result for {rule}</Link> is the multi-year
+            question · this page is{" "}
+            <span
+              className="explains"
+              title={"Evidence about the EXECUTION PATH and about nothing else. Whether the "
+                     + "rule works is answered by the walk-forward run over decades, not by "
+                     + "days of simulated fills."}
+            >
+              {replay ? "a replay over cached bars" : "days of simulated fills"}
+            </span>
           </>
         ) : (
           <>
-            Whether this rule actually works is the multi-year question, answered in{" "}
-            <Link href="/">Backtest</Link> — this rule has no row on the{" "}
-            {classLabel(cls)} {tf} leaderboard, so there is no page to link to.
+            No walk-forward row for this rule on the sheet it trades ·{" "}
+            <Link href="/">the board</Link> is where that question is answered
           </>
         )}
-      </div>
+      </p>
     </>
   );
 }

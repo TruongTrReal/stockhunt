@@ -130,9 +130,20 @@ function StrategyView() {
               </span>
             </div>
             <p className="sec-note">
-              {replay
-                ? `Historical bars, so this is long enough to look at — but it is the same period the research already scored, not new evidence. Its job here is to prove bars arrive, signals compute and orders fill.`
-                : `Far too short to judge the rule. Its job is to prove bars arrive, signals compute and orders fill.`}
+              <span
+                className="explains"
+                title={
+                  replay
+                    ? "Historical bars, so this is long enough to look at — but it is the "
+                      + "same period the research already scored, not new evidence. Its job "
+                      + "here is to prove bars arrive, signals compute and orders fill."
+                    : "Its job is to prove bars arrive, signals compute and orders fill. "
+                      + "Whether the rule works is the multi-year question, answered by the "
+                      + "walk-forward run and not by days of fills."
+                }
+              >
+                {replay ? "the period the research already scored" : "too short to judge the rule"}
+              </span>
             </p>
           </div>
         ) : (
@@ -193,10 +204,9 @@ function StrategyView() {
         </div>
       </section>
 
-      <div className="note">
-        Looking for whether this rule actually works? That is the multi-year question — see{" "}
-        <Link href="/">the backtest for {s.rule}</Link>.
-      </div>
+      <p className="sec-note">
+        <Link href="/">the backtest for {s.rule}</Link> is the multi-year question
+      </p>
     </>
   );
 }

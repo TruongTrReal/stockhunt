@@ -96,11 +96,20 @@ export function StaleBanner({ doc }: { doc: Live | null }) {
 export function ReplayBanner({ doc }: { doc: Live | null }) {
   if (!isReplay(doc)) return null;
   return (
+    /* STILL A BANNER, not a tooltip. Everything else on these pages moved to hover, and
+       this one may not: it is the label that stops a screenshot of a 283% replay being read
+       as a live result, and a warning nobody can see is not a warning. What it does lose is
+       three of its four lines. */
     <div className="note">
-      <b>Replay, not live.</b> These figures come from running the live strategy over cached
-      historical bars inside Nautilus — the run that proves bars, signals, orders and fills
-      all connect. Nothing is trading against a live feed yet, so read the P&amp;L as a test
-      of the execution path and nothing else.
+      <b>Replay, not live.</b>{" "}
+      <span
+        className="explains"
+        title={"Run over cached historical bars inside Nautilus — the run that proves bars, "
+               + "signals, orders and fills all connect. Nothing is trading against a live "
+               + "feed yet, so read the P&L as a test of the execution path and nothing else."}
+      >
+        cached bars, not a live feed — the P&amp;L tests the execution path
+      </span>
     </div>
   );
 }
