@@ -22,8 +22,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from config import (CLASSES, DATA_DIR, MIN_PRICE_USD, RESULTS_DIR, TIMEFRAMES, cache_dir,
-                    safe_symbol)
+from config import (CANDIDATE_TZS, CLASSES, DATA_DIR, MIN_PRICE_USD, RESULTS_DIR,
+                    TIMEFRAMES, cache_dir, cache_tz, safe_symbol, session_anchor_tz)
 import td_loader
 
 
@@ -282,6 +282,98 @@ def gap_break(df: pd.DataFrame, max_gap_days: int) -> pd.Timestamp | None:
     return idx[int(gaps[gaps > max_gap_days].index[-1])]
 
 
+# How long a hole has to be to count as a weekly session boundary rather than a lunch
+# break or a holiday. 12 hours clears the ~1h CME settlement pause on spot metals and the
+# overnight gap on anything that closes, and is far under the ~48h a weekend leaves.
+SESSION_GAP_HOURS = 12
+# The verdict is RELATIVE, not absolute, and the absolute version had to be abandoned to
+# get it right. A first cut failed any series whose reopen did not concentrate on one
+# (weekday, hour) bucket at 60%, and that is not the same question: `XPT/USD` reads 0.596
+# on its own correct clock because platinum keeps more irregular holidays than gold, while
+# `WTI` reads 0.542 on a clock that is ten hours wrong. An absolute floor cannot separate a
+# ragged market from a wrong timezone; the comparison against every OTHER candidate zone
+# can, and it is what identified `Australia/Sydney` in the first place rather than merely
+# suspecting it — 0.46 declared against 0.80 there.
+#
+# So a class fails when some other zone explains its session boundary MATERIALLY better.
+CLOCK_FIT_MARGIN = 0.10
+# ...and below this, no zone explains the boundary and the series cannot be judged at all
+# — reported as unknown rather than as a pass, because a pass here would be a claim.
+CLOCK_UNJUDGEABLE = 0.45
+
+
+def clock_fit(index: pd.DatetimeIndex, read_as: str, anchor: str) -> tuple[float, str]:
+    """How sharply this series' weekly reopen lands on one instant, read in `read_as`.
+
+    Returns `(share, label)` — the fraction of reopens falling in the modal (weekday,
+    hour) bucket of the `anchor` zone, and what that bucket is.
+
+    **This is the only kind of test that can see a wrong clock, and it is worth saying
+    why no bar-level test can.** A series stamped in the wrong timezone is not malformed:
+    every bar's High brackets its own Low, the volume ties out, the instrument is the
+    right one, the sequence is complete. Only the *joint* between the stamps and the
+    world is wrong. It is the same family as the foreign namesakes and as EEM, and it
+    needs the same kind of answer — an external fact, checked against.
+
+    The external fact here is that a market reopens at a wall clock somebody published:
+    spot metals at 18:00 New York on a Sunday, Globex at 17:00 Chicago, a US equity
+    session at 09:30 New York. Read in the right zone every weekly gap ends at that one
+    instant; read an hour or ten out, the reopen smears across the year as the two zones'
+    daylight-saving calendars slide past each other.
+    """
+    if len(index) < 3:
+        return 0.0, "too few bars"
+    stamps = pd.Series(index)
+    reopen = stamps[stamps.diff() > pd.Timedelta(hours=SESSION_GAP_HOURS)]
+    if len(reopen) < 20:
+        return 0.0, "too few weekly gaps"
+    idx = pd.DatetimeIndex(reopen.values)
+    # `shift_forward`/`ambiguous=True` only ever move a handful of stamps by an hour and
+    # this is a modal statistic over hundreds; a DST edge cannot decide the answer.
+    local = (idx.tz_localize(read_as, ambiguous=True, nonexistent="shift_forward")
+             .tz_convert(anchor))
+    # Bucketed on the HOUR alone, not on (weekday, hour). The hour is the only dimension
+    # a timezone error moves, and adding the weekday makes the statistic answer a
+    # different question on a class that closes every night: `us_etfs` reopens at 09:30
+    # New York five days a week, so a (weekday, hour) mode caps at ~20% and the check
+    # would call a perfectly correct equity cache unjudgeable. On the hour alone it reads
+    # ~100%, and the commodity separation is unchanged — 0.81 on the true clock against
+    # 0.52 on UTC, exactly as it was.
+    top = pd.Series(local.hour).value_counts()
+    hour, n = int(top.index[0]), int(top.iloc[0])
+    days = pd.Series(local.dayofweek)[local.hour == hour].mode()
+    name = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][int(days.iloc[0])]
+    return n / len(local), f"{name} {hour:02d}:00 x{n}/{len(local)}"
+
+
+def clock_verdict(index: pd.DatetimeIndex, asset_class: str) -> dict | None:
+    """Does this series' observed session boundary agree with its DECLARED clock?
+
+    `None` when the class has no weekly boundary to measure (crypto is 24/7) or the
+    series is too short. Otherwise a row naming the declared clock's fit, and the
+    best-fitting candidate — which is how `Australia/Sydney` was identified rather than
+    merely suspected.
+    """
+    anchor = session_anchor_tz(asset_class)
+    if anchor is None:
+        return None
+    declared = cache_tz(asset_class)
+    fit, label = clock_fit(index, declared, anchor)
+    if not fit:
+        return None
+    best_tz, best_fit, best_label = declared, fit, label
+    for cand in CANDIDATE_TZS:
+        f, lab = clock_fit(index, cand, anchor)
+        if f > best_fit:
+            best_tz, best_fit, best_label = cand, f, lab
+    return {"declared": declared, "fit": round(fit, 3), "boundary": label,
+            "best_tz": best_tz, "best_fit": round(best_fit, 3),
+            "best_boundary": best_label,
+            "judgeable": bool(best_fit >= CLOCK_UNJUDGEABLE),
+            "ok": bool(best_fit < CLOCK_UNJUDGEABLE
+                       or best_fit - fit <= CLOCK_FIT_MARGIN)}
+
+
 def peak_dollar_volume(df: pd.DataFrame) -> float | None:
     """Best rolling-1y median of dollars traded per DAY. None when it cannot be judged.
 
@@ -481,11 +573,63 @@ def main() -> None:
                     default=list(CLASSES))
     ap.add_argument("--tf", dest="timeframes", nargs="+", choices=list(TIMEFRAMES),
                     default=list(TIMEFRAMES))
+    ap.add_argument("--check-clock", action="store_true",
+                    help="does each class's DECLARED intraday clock match the session "
+                         "boundary its bars actually show? Offline. Catches a timezone "
+                         "the vendor never declared, which no bar-level test can see.")
     ap.add_argument("--probe-listing", action="store_true",
                     help="ask Twelve Data whether each equity ticker has a US listing at "
                          "all, and cache the verdict. Network + ~1-3 credits per symbol. "
                          "Catches a FAT impostor, which no bar-level test can see.")
     args = ap.parse_args()
+
+    if args.check_clock:
+        # Read the parquet directly rather than through `td_loader.load`. The clock is a
+        # property of the FILE, and `load` applies `BACKTEST_START`, the quarantine and
+        # each class's head cut — every one of which could trim away the weekly gaps this
+        # measures, and none of which changes what zone the stamps are in.
+        rows = []
+        for asset_class in args.classes:
+            for timeframe in args.timeframes:
+                if not TIMEFRAMES[timeframe]["intraday"]:
+                    continue
+                # Only sizes at or under an hour can answer this, and the reason is the
+                # test's own arithmetic rather than anything about the data. A bar is
+                # labelled by its OPEN, so the reopen shows up on the label of whatever
+                # bar contains it; converting that label into the anchor zone moves it by
+                # one hour across the anchor's own DST change. Under an hour that wobble
+                # lands on separate buckets and the modal one is still the boundary. At
+                # 4h it does not: the true 22:00/23:00 UTC reopen sits inside the SAME
+                # 20:00 UTC bucket all year, so the raw UTC label is sharper than the
+                # anchor-local one and the test scores the correct cache as wrong. The
+                # clock is a property of the CLASS, not of a sheet — every size came from
+                # the same vendor stamps — so the fine sheets settle it for all of them.
+                if 60 % (int(timeframe[:-1]) * (60 if timeframe.endswith("h") else 1)):
+                    continue
+                for path in sorted(cache_dir(asset_class, timeframe).glob("*.parquet")):
+                    v = clock_verdict(pd.read_parquet(path).index, asset_class)
+                    if v:
+                        rows.append({"class": asset_class, "timeframe": timeframe,
+                                     "symbol": path.stem, **v})
+        if not rows:
+            print("no intraday series with a measurable weekly session boundary")
+            return
+        clocks = pd.DataFrame(rows)
+        bad = clocks[~clocks["ok"]]
+        print("=== declared intraday clock vs observed session boundary ===")
+        print(clocks.to_string(index=False))
+        if not bad.empty:
+            print(f"\n{len(bad)} of {len(clocks)} series CONTRADICT their declared clock. "
+                  f"A wrong clock is not a malformed bar - fix it in "
+                  f"`config.INTRADAY_CLOCK` and restamp the cache with "
+                  f"`migrate_cache_clock.py --write`, then rerun this.")
+            raise SystemExit(1)
+        unjudged = int((~clocks["judgeable"]).sum())
+        print(f"\nall {len(clocks)} series agree with `config.INTRADAY_CLOCK`"
+              + (f" ({unjudged} could not be judged: no zone concentrates their session "
+                 f"boundary, so this is 'not contradicted', not 'confirmed')"
+                 if unjudged else ""))
+        return
 
     if args.probe_listing:
         import td_loader as _td

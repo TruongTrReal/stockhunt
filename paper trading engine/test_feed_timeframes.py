@@ -31,6 +31,7 @@ than the one this file is named for.
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 import paper_config                                                     # noqa: F401
@@ -216,7 +217,7 @@ def test_accepting_one_minute_futures_still_says_what_is_stale():
     """A caveat, in `reason`, beside `live`. A system that runs, fills and publishes while
     quietly meaning something other than its owner thinks is the failure being avoided."""
     import desk_control
-    why = desk_control._caveat("cme_futures", "1m")
+    why = desk_control._feed_caveat("cme_futures", "1m")
     assert why.startswith("Running"), "it must not read as a refusal"
     assert "behind real time" in why and "fill PRICE" in why
 
@@ -226,7 +227,7 @@ def test_accepting_one_minute_futures_still_says_what_is_stale():
 def test_nothing_else_carries_a_caveat(cls, tf):
     """`reason` beside `live` has to stay rare, or it stops being read at all."""
     import desk_control
-    assert desk_control._caveat(cls, tf) == ""
+    assert desk_control._feed_caveat(cls, tf) == ""
 
 
 @pytest.mark.parametrize("tf", ["4h", "15m", "5m"])
@@ -384,3 +385,139 @@ def test_a_name_that_is_not_a_timeframe_still_falls_back_to_a_day():
     import desk_orders
     assert desk_orders.bar_seconds("bogus") == 86_400
     assert desk_orders.bar_seconds("") == 86_400
+
+
+# --------------------------------------------------------------------------- the clock
+#
+# Same family of failure as the one this file is named for, one layer down: the desk and
+# the sheet it selects from disagreed about what a timestamp MEANT, and nothing said so.
+# Twelve Data stamps commodity intraday bars in `Australia/Sydney` and declares nothing;
+# read as UTC they are 10-11 hours in the future, so `fetch_bars`' forming-bar guard never
+# fired and the commodity legs ran permanently one bar behind. Silent, and green.
+
+def test_live_bars_land_on_the_same_clock_as_the_backtest_cache():
+    import pandas as pd
+
+    idx = pd.DatetimeIndex(["2025-07-15 08:00", "2025-07-15 09:00"])
+    for symbol in ("SPY", "BTC/USD", "ES.v.0"):
+        assert list(td_live._to_cache_clock(idx, symbol)) == list(idx)
+    # Southern-hemisphere winter: Sydney is UTC+10, so the vendor's 08:00 is 22:00 the
+    # day before. In January it would be 11 hours, which is why this is a tz conversion
+    # and not a subtraction.
+    metal = td_live._to_cache_clock(idx, "XAU/USD")
+    assert list(metal) == list(idx - pd.Timedelta(hours=10))
+    assert list(td_live._to_cache_clock(
+        pd.DatetimeIndex(["2025-01-15 08:00"]), "XAU/USD")) == [
+            pd.Timestamp("2025-01-14 21:00")]
+
+
+def test_an_unknown_symbol_does_not_kill_the_process():
+    """A member may register anything the vendor prices. `paper_config.class_of` exits on
+    a symbol outside the forward-test universe, which is right where the desk uses it and
+    fatal on a path that only wants to know a timezone."""
+    import pandas as pd
+
+    assert td_live.class_of("NOT-A-TICKER") is None
+    idx = pd.DatetimeIndex(["2025-07-15 08:00"])
+    assert list(td_live._to_cache_clock(idx, "NOT-A-TICKER")) == list(idx)
+
+
+def test_the_forming_bar_guard_now_sees_a_commodity_bar_as_past():
+    """The measured symptom, as arithmetic rather than as a network call.
+
+    A commodity bar that closed an hour ago is stamped 10-11 hours AHEAD of `now` by the
+    vendor. Against that stamp `now < open + duration` is always true, so the newest row
+    was dropped on every read. On the cache clock it is behind `now`, and it is kept.
+    """
+    import pandas as pd
+    from datetime import timezone
+
+    now = pd.Timestamp("2025-07-14 23:30", tz="UTC")
+    vendor_stamp = pd.DatetimeIndex(["2025-07-15 08:00"])       # = 22:00 UTC, 90m ago
+    duration = td_live.INTERVALS["1h"][1]
+
+    raw = vendor_stamp[-1].tz_localize(timezone.utc)
+    assert now < raw + duration                                  # dropped, wrongly
+
+    fixed = td_live._to_cache_clock(vendor_stamp, "XAU/USD")[-1].tz_localize(timezone.utc)
+    assert now >= fixed + duration                               # kept, correctly
+
+
+# --------------------------------------------- can this book afford one unit of that?
+#
+# The failure that produced this was invisible for hours. A member pointed TradingView at
+# `cme_futures` with the standard $10,000 book, sending `{{strategy.order.contracts}}` —
+# an INTEGER. On this leg a unit is a fractional notional unit of a back-adjusted series,
+# so one NQ.v.0 is ~$29,600. Every order was refused for want of cash, correctly and with
+# a well-worded reason — written onto the ORDER row, which nobody reads until they already
+# suspect something. The registration itself just said `live`.
+
+def _reg_for(cls, symbols, capital, tf="1d"):
+    return {"cls": cls, "tf": tf, "symbols": list(symbols), "capital": capital}
+
+
+def test_a_book_that_cannot_afford_a_unit_is_told_so(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    why = desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["NQ.v.0"], 10_000.0))
+    assert "29,600" in why and "10,000" in why
+    assert "0.34" in why, "say how much it CAN hold, not just that it cannot hold one"
+    assert "fractional notional unit, not a contract" in why
+
+
+def test_a_book_that_can_afford_it_is_told_nothing(monkeypatch):
+    """This column is only useful while it stays rare."""
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    assert desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["NQ.v.0"], 500_000.0)) == ""
+
+
+def test_it_names_the_DEAREST_symbol_and_lists_every_unaffordable_one(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "ES.v.0": pd.DataFrame({"Close": [7_700.0]}),      # affordable
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+        "YM.v.0": pd.DataFrame({"Close": [53_700.0]}),     # the dearest
+    })
+    why = desk_control._affordability_caveat(
+        _reg_for("cme_futures", ["ES.v.0", "NQ.v.0", "YM.v.0"], 10_000.0))
+    assert "one unit of YM.v.0" in why, "the binding constraint is the dearest one"
+    assert "NQ.v.0, YM.v.0" in why and "ES.v.0" not in why.split("—")[1]
+
+
+def test_a_broken_caveat_RAISES_here_and_is_caught_where_it_can_be_logged(monkeypatch):
+    """Non-fatal and LOUD, in that order — and this test exists because of a real miss.
+
+    The helper used to wrap itself in `except Exception: return ""`. While writing it, a
+    `NameError` in this file's own stub was swallowed and the function returned "" for
+    three runs, which reads exactly like "this book can afford it". A courtesy that must
+    not fail an attach is right; a courtesy that hides a programming error is the silent
+    success this module is full of warnings about.
+
+    So the helper raises and `_attach` catches, logs and continues — the catch is where a
+    logger exists.
+    """
+    import desk_control
+    import td_loader
+
+    def boom(*a, **k):
+        raise RuntimeError("cache gone")
+
+    monkeypatch.setattr(td_loader, "load", boom)
+    with pytest.raises(RuntimeError):
+        desk_control._affordability_caveat(_reg_for("cme_futures", ["NQ.v.0"], 10_000.0))
+
+
+def test_no_symbols_or_no_capital_says_nothing(monkeypatch):
+    import desk_control
+    assert desk_control._affordability_caveat(_reg_for("us_stocks", [], 10_000.0)) == ""
+    assert desk_control._affordability_caveat(_reg_for("us_stocks", ["SPY"], 0.0)) == ""

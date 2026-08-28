@@ -11,6 +11,12 @@ Descends from `../top 20 stocks/td_loader.py` with three changes that matter:
 * **Crypto symbols carry a slash**, which is a path separator, so cache files use
   `config.safe_symbol` while every in-memory key stays the real symbol.
 
+**Intraday bars are restamped onto the cache's clock before they are written.** The vendor
+returns a naive wall clock and declares which zone it is only sometimes — and for
+commodities it declared `null` while stamping `Australia/Sydney`. `config.INTRADAY_CLOCK`
+is the per-class declaration and `to_cache_clock_frame` below applies it, on fetch, so the
+parquet on disk holds one convention per class instead of whatever the vendor felt like.
+
 Run::
 
     python td_loader.py                      # everything (long: ~1h, ~13k credits)
@@ -33,7 +39,7 @@ import requests
 from tqdm import tqdm
 
 from config import (BACKTEST_START, CLASSES, DATA_DIR, ENV_FILE, TIMEFRAMES, cache_dir,
-                    safe_symbol, window_spec)
+                    dst_hazard, safe_symbol, to_cache_clock, vendor_tz, window_spec)
 
 BASE_URL = "https://api.twelvedata.com/time_series"
 MAX_SYMBOLS_PER_REQUEST = 20
@@ -270,6 +276,7 @@ def fetch(asset_class: str, timeframe: str,
                     time.sleep(RETRY_DELAY_SEC)
 
     counts = {}
+    hazard = {"ambiguous": 0, "nonexistent": 0}
     for symbol, frames in collected.items():
         if not frames:
             print(f"  {symbol}: no data")
@@ -278,9 +285,44 @@ def fetch(asset_class: str, timeframe: str,
         # windows repeat a boundary bar.
         df = pd.concat(frames).sort_index()
         df = df[~df.index.duplicated(keep="first")]
+        if TIMEFRAMES[timeframe]["intraday"]:
+            df = to_cache_clock_frame(df, asset_class, hazard)
         df.to_parquet(out_dir / f"{safe_symbol(symbol)}.parquet")
         counts[symbol] = len(df)
+    if hazard["ambiguous"] or hazard["nonexistent"]:
+        print(f"  {asset_class}/{timeframe}: {hazard['ambiguous']} ambiguous and "
+              f"{hazard['nonexistent']} nonexistent stamps in "
+              f"{vendor_tz(asset_class)} - see config.AMBIGUOUS_POLICY")
     return counts
+
+
+def to_cache_clock_frame(df: pd.DataFrame, asset_class: str,
+                         hazard: dict[str, int] | None = None) -> pd.DataFrame:
+    """Restamp one intraday frame from the vendor's wall clock onto the cache's.
+
+    **This runs on FETCH, not on load, and that is the whole point.** The vendor stamps
+    commodity intraday bars in `Australia/Sydney` and declares nothing — see
+    `config.INTRADAY_CLOCK` for how that was measured. Converting at load time would
+    leave a cache that lies, and this repo does not read its cache through one door only:
+    `check_data`, `resample_intraday`, `verify_intraday_vs_daily` and every ad-hoc
+    reconciliation open the parquet directly. One convention on disk, decided once here.
+
+    Identity for the four classes whose two clocks already agree, so it is safe to call
+    on every intraday fetch rather than behind an `if asset_class == ...`.
+
+    Re-sorted and re-deduplicated after the shift because a DST transition is the one
+    place a monotonic naive index can come back out of order or collide — see
+    `config.AMBIGUOUS_POLICY`. The counts go to `hazard` so the caller can report them;
+    silently absorbing them would hide genuine information loss in the vendor's stamping.
+    """
+    if hazard is not None:
+        for k, v in dst_hazard(df.index, asset_class).items():
+            hazard[k] += v
+    out = df.copy()
+    out.index = to_cache_clock(out.index, asset_class)
+    out.index.name = df.index.name
+    out = out.sort_index()
+    return out[~out.index.duplicated(keep="first")]
 
 
 _QUARANTINE_CACHE: dict | None = None

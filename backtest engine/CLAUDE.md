@@ -41,6 +41,10 @@ python universe_screen.py --write         # ...and commit that to etf_entry.csv
 python factors.py                         # Fama-French daily -> ../data/reference/
 python check_data.py --fix                # OHLC integrity scan + repair
 python check_data.py --probe-listing      # is each ticker even the US company? (network)
+python check_data.py --check-clock        # does each class's DECLARED intraday clock
+                                          #   match the session boundary its bars show?
+python migrate_cache_clock.py --write     # ...and restamp a cache that predates the
+                                          #   declaration. Backs up first, refuses twice
 python check_data.py --class us_stocks --tf 1d
 python parity.py --n 3                    # three-engine cross-check (gate on this)
 python sweep.py --class us_stocks         # stage 1: singles
@@ -84,6 +88,9 @@ td_loader.py     Twelve Data -> ../data/<stocks|crypto|etfs|commodities>/<tf>/*.
    |             `load` reads EVERY class, whatever the vendor. `fetch` refuses any class
    |             whose spec names another `source`, and any timeframe the vendor has no
    |             product for (`interval: None`)
+migrate_cache_clock.py  a ONE-OFF: restamp an intraday cache fetched before its class's
+   |             clock was declared. `data/` is gitignored, so the alternative to this
+   |             script is a refetch. Idempotent by MEASUREMENT, not by a marker
 resample_intraday.py  2m and 3m bars, aggregated from the cached 1m. DERIVED, never
    |             fetched: Twelve Data sells no 2min/3min interval
 db_loader.py     Databento GLBX.MDP3 -> ../data/futures/1d/*.parquet. THE SECOND VENDOR,
@@ -94,7 +101,8 @@ futures_specs.py what one CME contract is WORTH: multiplier, quote scale, tick, 
    |             A price alone says nothing here -- ZC at 438 is $21,912
 futures_screen.py the CME equivalent of universe_screen: liquidity, tradable years,
    |             price grid, and a correlation gate no other class needs
-check_data.py    OHLC integrity scan, repair, and the quarantine rules
+check_data.py    OHLC integrity scan, repair, the quarantine rules, and `--check-clock`:
+   |             is each class's DECLARED intraday clock the one its bars are actually on
    |
 signals.py       the ONE way a rule name becomes a position series
    |
@@ -123,14 +131,60 @@ knows the difference — same directory layout, same parquet, same single door.
 ### Intraday timestamps are NOT on one clock across classes (measured 2026-08-23)
 
 Every intraday parquet has a tz-**naive** index, and the wall clock it carries depends on
-who sold the bars. On 2025-07-15:
+who sold the bars. **`config.INTRADAY_CLOCK` is now the declaration** — vendor clock, cache
+clock, and the zone the class's weekly reopen is fixed in — and `td_loader` converts on
+FETCH so that one convention per class reaches disk.
 
-| class | bars/day | first → last | clock |
+| class | bars/day | vendor stamps | cache holds |
 |---|---|---|---|
-| `us_stocks`, `us_etfs` | 390 | 09:30 → 15:59 | **exchange-local (ET)**, regular session only |
-| `crypto` | 1440 | 00:00 → 23:59 | UTC |
-| `commodities` | 1417 | 00:00 → 23:59 | UTC |
-| `cme_futures` | 1380 | 00:00 → 23:59 | **UTC** (`db_intraday.py` writes it) |
+| `us_stocks`, `us_etfs` | 390 | `America/New_York` | **exchange-local (ET)**, regular session only |
+| `crypto` | 1440 | `UTC` | UTC |
+| `commodities` | 1417 | **`Australia/Sydney`** | **UTC** (converted on fetch since 2026-08-28) |
+| `cme_futures` | 1380 | `UTC` | **UTC** (`db_intraday.py` writes it) |
+
+**The commodity row said UTC until 2026-08-28 and it was wrong by ten or eleven hours.**
+Twelve Data's `meta.exchange_timezone` is `America/New_York` for equities and `UTC` for
+crypto; for commodities it is **`null`**, and the stamps are Sydney's. Nothing in the cache
+or in the vendor's own metadata said so.
+
+*How it was settled.* Spot metals reopen at a published instant — **18:00 Sunday New
+York** — so the weekly gap is an external fact to check the stamps against. On
+`data/commodities/1m/XAU_USD.parquet` (2.2M bars, 2020-2026) the 278 gaps longer than 12
+hours sat at stamped hour **8** from April to October and hour **10** from November to
+March, and only one hypothesis produces a two-hour split: New York's daylight saving and
+Sydney's move in **opposite** directions.
+
+    18:00 New York EDT = 22:00 UTC = 08:00 Sydney AEST
+    18:00 New York EST = 23:00 UTC = 10:00 Sydney AEDT
+
+Localising and converting to New York decides it. As **UTC** the reopen scatters over
+05:00 (x145) and 04:00 (x98) on a **Monday**; as **`Australia/Sydney`** it lands on
+**18:00 (x224 of 278) on a Sunday (x269)**. Reproduced on 1h, 15m and 5m and on all five
+symbols. `check_data.py --check-clock` is that measurement made into a gate — see below.
+
+*What it cost, and what it did not.* Nothing that reads the bars in sequence: positions
+are **byte-identical** across the migration on 1,140 (symbol, rule) cells at 1h, 15m and
+5m, because commodities have `flatten_eod: False` and no rule on the class keys on
+time-of-day. Scores moved in the fifth significant figure only (median 1e-5 relative,
+max 2.5e-5), and entirely through `vector.bars_per_year` — the series' first and last bars
+shift by 11h and 10h respectively, so its measured span changes by exactly one hour. What
+it did cost was everything that JOINS ON TIME: the daily/intraday reconciliation, any
+cross-class alignment, and the live desk — see `../paper trading engine/CLAUDE.md`.
+
+*`1d` is a third convention and is deliberately untouched.* Grouping the corrected hourly
+bars on a fixed **21:00 UTC** boundary and labelling each session with the following
+calendar date reproduces the daily Close to a median **2.0 bp** on XAU, against 6.3 bp for
+a plain UTC day and **54 bp** for a New-York-local 17:00 boundary. It is the vendor's own
+roll-up, it is not Sydney, and a date is not a time.
+
+*The `4h` sheet is the one thing that genuinely moved.* The offset is a whole number of
+hours, so `1m`/`5m`/`15m`/`30m`/`1h` stay on the UTC grid under it and only their labels
+change — but `10 % 4 == 2` and `11 % 4 == 3`, so relabelled 4h bars would sit at
+02:00/06:00/… UTC in summer and 01:00/05:00/… in winter. `migrate_cache_clock.py` rebuilds
+them from the corrected **1h** (which covers all five symbols from 2020-01-20, where 1m
+covers three from 2020-10-01), and the sheet is ~1% longer and numerically different:
+median Sharpe change **-0.006**, p10/p90 **-0.20/+0.27**, max **1.13**. Buy-and-hold moves
+in the fourth decimal, so the class's benchmark is unchanged and only rule rankings move.
 
 Twelve Data returns exchange-local time and Databento returns UTC, and neither stamps the
 zone, so nothing in the cache announces the difference. It is invisible at 1d — a daily
@@ -290,6 +344,28 @@ once; adding a third caller means feeding it the same six inputs, never re-deriv
   look at the ratio BY YEAR. A single median hides it — `GEN`'s whole-overlap median is
   ~1.0 because only its first three years are wrong.
 
+- **A cache can be on the wrong CLOCK, and only an external fact can tell you.**
+  `check_data.py --check-clock` is the fourth member of the family with the foreign
+  namesakes, EEM and the folded GLBX sessions: the bars are well formed, the instrument is
+  right, the sequence is complete, and only the joint between the stamps and the world is
+  wrong. The external fact is that a market reopens at a wall clock somebody published —
+  spot metals 18:00 New York, Globex 17:00 Chicago, grains 19:00 Chicago, a US equity
+  session 09:30 New York — which `config.INTRADAY_CLOCK` names per class as
+  `session_anchor`. Read in the right zone every weekly gap ends at that one hour; read
+  ten hours out, the reopen smears across the year as two daylight-saving calendars slide
+  past each other.
+
+  **The verdict is relative, and an absolute one does not work.** A first cut failed any
+  series whose reopen did not concentrate at 60%, and that is a different question:
+  `XPT/USD` reads 0.61 on its own correct clock because platinum keeps more irregular
+  holidays than gold, while `WTI` read 0.54 on a clock that was ten hours wrong. So a class
+  fails when some *other* candidate zone explains its boundary materially better
+  (`CLOCK_FIT_MARGIN`), and a series no zone explains is reported **unjudgeable** rather
+  than passed. Sizes wider than an hour are skipped: a bar is labelled by its open, so at
+  4h the true 22:00/23:00 UTC reopen sits inside one 20:00 bucket all year and the raw
+  label is sharper than the anchor-local one. The clock is a property of the class, and the
+  fine sheets settle it.
+
 - **Run `check_data.py --fix` after any fetch, before sweeping.** A scoped
   `--class X --tf Y` merges into `quarantine.csv` rather than rewriting it; rows outside the
   scanned scope are preserved, rows inside are re-derived so a repaired symbol can leave.
@@ -300,9 +376,16 @@ once; adding a third caller means feeding it the same six inputs, never re-deriv
 - **Nautilus parity tolerance scales with sqrt(fills), not with equity.** Every fill rounds
   cash to the cent and a short re-sizes every bar — one 7k-bar cell produced 5,355 fills. A
   flat tolerance produces false failures; see the note in `parity.py`.
-- **`parity.py --n 5` currently exits nonzero**, and `vector-nautilus` is red on some cells.
-  Both are known and deliberate — a real short-annihilation disagreement in the first case,
-  fill-count rounding in the second. `--n 3`/`--n 4` do not sample the failing cell.
+- **`parity.py` currently exits nonzero at `--n 3` as well**, and `vector-nautilus` is red
+  on some cells. Both are known and deliberate — a real short-annihilation disagreement in
+  the first case, fill-count rounding in the second. **The old note here said `--n 3` and
+  `--n 4` do not sample the failing cell, and that is no longer true**: measured
+  2026-08-28, `--n 3` samples 120 cells and reports 17 disagreements — 16 `vector-nautilus`
+  (15 of them crypto intraday, where a cell holding shorts re-sizes every bar) and one
+  `vector-reference` at rel 1.000001 on `crypto 1m BNB/USD SQRT`, which is the same
+  short-annihilation family as the `crypto 5m AVAX/USD EMA_1000` cell the note names. The
+  sample is seeded (`--seed 20260803`), so this is reproducible rather than a bad draw.
+  Re-verify against this baseline rather than expecting a green run.
 - `report/index.html` is generated. Edit `template.html`, `report.js` or `build_payload.py`
   — never `index.html`, which is overwritten every build.
 - **The report is forced to pure ASCII** by `build_report.py`, with different escaping per

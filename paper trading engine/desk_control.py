@@ -404,7 +404,17 @@ class DeskController(Controller):
         self._attached_at[rid] = self.clock.utc_now()
         self._quiet.discard(rid)
         # A caveat, not a refusal — `reason` beside `live`. See `_caveat`.
-        deskdb.mark_registration(rid, "live", _caveat(cls, reg["tf"]) or None)
+        #
+        # Caught here rather than inside the caveat builders: a caveat is a courtesy and
+        # must never fail an attach, but a courtesy that fails SILENTLY reads exactly like
+        # one with nothing to say. So it is non-fatal and loud, in that order.
+        try:
+            caveat = _caveat(reg)
+        except Exception as exc:                   # noqa: BLE001 - reported, never fatal
+            self.log.warning(f"{rid}: could not build the registration caveat "
+                             f"({type(exc).__name__}: {exc}); attaching without one")
+            caveat = ""
+        deskdb.mark_registration(rid, "live", caveat or None)
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
 
     def _flatten(self, rid: str, strategy) -> int:
@@ -749,8 +759,74 @@ def _why_not_feedable(tf: str) -> str:
             f"live poll cannot ask for.")
 
 
-def _caveat(cls: str, tf: str) -> str:
-    """What is TRUE but surprising about a registration the desk is about to ACCEPT.
+def _caveat(reg: dict) -> str:
+    """Everything TRUE but surprising about a registration the desk is about to ACCEPT.
+
+    Composed from the individual caveats rather than written as one, because they are
+    independent: a futures book can be on the slow feed, or unable to afford a unit, or
+    both, or neither. Joined with a blank line so a row carrying two still reads.
+    """
+    parts = [c for c in (_feed_caveat(reg["cls"], reg["tf"]),
+                         _affordability_caveat(reg)) if c]
+    return "\n\n".join(parts)
+
+
+def _affordability_caveat(reg: dict) -> str:
+    """Say it now if this book cannot afford one unit of what it just registered.
+
+    **This is the failure that produced it, and it was invisible for hours.** A member
+    pointed a TradingView strategy at `cme_futures` with the standard $10,000 book and an
+    alert sending `{{strategy.order.contracts}}`, which is an INTEGER. On this leg a unit
+    is a fractional notional unit of a back-adjusted continuous series, so one `NQ.v.0` is
+    ~$29,600 and one `YM.v.0` ~$53,700. Every order was refused for want of cash, the
+    refusal was correct and well-worded — *"not enough cash: NQ.v.0 2 at 29,616.50 costs
+    59,233.00"* — and it was written into the ORDER row, which nobody reads until they
+    already suspect something. The registration itself said `live`.
+
+    So the arithmetic is done once, at attach, against the row the owner is looking at.
+    It is a caveat and never a refusal: a book that cannot afford a whole unit can still
+    afford a fractional one, and choosing sizes is the member's business, not the desk's.
+
+    Priced off the CACHED daily close, not off the vendor. It runs inside `tick()`, so a
+    network call here would let a slow vendor stall the controller — and a price a day old
+    is ample for "can $10,000 buy something that costs $29,600".
+    """
+    symbols = list(reg.get("symbols") or [])
+    capital = float(reg.get("capital") or 0.0)
+    if not symbols or capital <= 0:
+        return ""
+    # NOT wrapped in a broad `except` any more, and the reason is that the broad one bit
+    # me while writing this: a `NameError` in the test's own stub was swallowed and the
+    # function returned "" three runs in a row, reading exactly like "this book can afford
+    # it". A courtesy that cannot fail an attach is right; a courtesy that hides a
+    # programming error is the same silent-success failure this file is full of warnings
+    # about. `_attach` catches and LOGS instead — expected absence returns "" below, and
+    # anything unexpected is somebody's bug and should be visible.
+    import td_loader
+    bars = td_loader.load(reg["cls"], "1d", symbols)
+    unit = {}
+    for sym in symbols:
+        frame = bars.get(sym)
+        # An absent symbol or an empty frame is expected — the cache need not hold a name
+        # the desk trades live — and is the one case that is genuinely nothing to say.
+        if frame is not None and len(frame):
+            unit[sym] = float(frame["Close"].iloc[-1])
+    dear = {s: p for s, p in unit.items() if p > capital}
+    if not dear:
+        return ""
+    worst, price = max(dear.items(), key=lambda kv: kv[1])
+    affordable = capital / price
+    names = ", ".join(sorted(dear))
+    return (f"Running, but note the size this book can carry: one unit of {worst} costs "
+            f"about ${price:,.0f} and this book is ${capital:,.0f}, so the most it can "
+            f"hold is {affordable:.2f}. On {'these' if len(dear) > 1 else 'this'} symbol"
+            f"{'s' if len(dear) > 1 else ''} — {names} — a whole-number size will be "
+            f"refused for want of cash. A unit here is a fractional notional unit, not a "
+            f"contract, so send fractional sizes or register with more capital.")
+
+
+def _feed_caveat(cls: str, tf: str) -> str:
+    """What is TRUE but surprising about the FEED a registration will run on.
 
     Written into `reason` beside `live`, a column that until now only ever carried a
     refusal. A caveat is not a refusal and must not read as one — but a member whose fills

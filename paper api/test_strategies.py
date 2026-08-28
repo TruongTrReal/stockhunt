@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import api_config
 import api_paths                                                        # noqa: F401
 import authdb
 from stockhunt import deskdb
@@ -194,11 +195,16 @@ def test_a_registration_starts_pending_not_live(client):
     assert body["strategy_id"].startswith("str_")
 
 
-def test_capital_is_fixed_by_the_desk_not_chosen_by_the_caller(client):
-    r = register(client, key_for("m@example.com"),
-                 **{"capital": 999_999_999})       # ignored: not part of the schema
-    assert r.status_code == 201
-    assert r.json()["capital"] == 10_000.0
+def test_capital_is_BOUNDED_by_the_desk_even_though_the_caller_may_ask(client):
+    """It used to be ignored outright — "fixed, not chosen by the caller".
+
+    That argument was the whole-share rounding one, and it only ever supported a FLOOR.
+    A caller may now name a book; what it may not do is name an unbounded one, because
+    the sandbox venue is shared and funded from the sum of what is registered on it.
+    """
+    r = register(client, key_for("m@example.com"), **{"capital": 999_999_999})
+    assert r.status_code == 422
+    assert "largest" in r.text
 
 
 def test_registering_the_same_name_twice_is_one_strategy(client):
@@ -669,3 +675,48 @@ def test_the_minute_ceiling_is_the_DESK_s_check_not_this_one(client):
                  symbols=["SPY", "QQQ", "IWM"], name="minutebook")
     assert r.status_code == 201
     assert r.json()["state"] == "pending"
+
+
+# ------------------------------------------------------- a book you can size yourself
+
+def test_capital_defaults_to_the_standard_book(client):
+    r = register(client, key_for("cap1@example.test"), name="default")
+    assert r.status_code == 201
+    assert r.json()["capital"] == api_config.CAPITAL_PER_STRATEGY
+
+
+def test_a_bigger_book_can_be_asked_for(client):
+    """The reason this stopped being fixed, in one number.
+
+    On `cme_futures` a unit is a fractional notional unit of a back-adjusted series, so
+    one `NQ.v.0` is ~$29,600 against a $10,000 book — and a TradingView alert sends
+    `{{strategy.order.contracts}}`, an INTEGER. Every such order was refused for want of
+    cash, with the reason visible only on the order row.
+    """
+    r = register(client, key_for("cap2@example.test"), name="big", capital=500_000)
+    assert r.status_code == 201, r.text
+    assert r.json()["capital"] == 500_000
+
+
+def test_a_book_below_the_standard_one_is_refused(client):
+    """The floor is the rounding argument that made this fixed in the first place."""
+    r = register(client, key_for("cap3@example.test"), name="tiny", capital=100)
+    assert r.status_code == 422
+    assert "smallest book" in r.text
+
+
+def test_a_book_above_the_ceiling_is_refused(client):
+    """The ceiling is that the sandbox venue is shared and funded from the sum of what is
+    registered on it, so an unbounded book makes every other book on it meaningless."""
+    r = register(client, key_for("cap4@example.test"), name="huge",
+                 capital=api_config.MAX_CAPITAL_PER_STRATEGY + 1)
+    assert r.status_code == 422
+    assert "largest" in r.text
+
+
+def test_the_limits_endpoint_publishes_both_bounds(client):
+    """The console states the terms before anybody registers, and never hardcodes them."""
+    r = client.get("/v1/limits", headers=auth(key_for("cap5@example.test")))
+    body = r.json()
+    assert body["capital_per_strategy"] == api_config.CAPITAL_PER_STRATEGY
+    assert body["max_capital_per_strategy"] == api_config.MAX_CAPITAL_PER_STRATEGY

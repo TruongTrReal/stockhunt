@@ -938,6 +938,33 @@ class lookup now, and commodities are a `CurrencyPair` on their own venue becaus
 settles into XAU exactly as `BTC/USD` settles into BTC. Nautilus's currency registry already
 knows XAU, XAG, XPT, XPD and WTI.
 
+**And `XAU/USD` was not on UTC either.** Twelve Data stamps commodity intraday bars in
+`Australia/Sydney` and declares nothing — `meta.exchange_timezone` is `null` for the class
+(see `config.INTRADAY_CLOCK` and `../backtest engine/CLAUDE.md` for how that was measured).
+Read as UTC, every commodity bar was 10-11 hours in the **future**, and two things here
+believed it:
+
+* **`td_live.fetch_bars` discarded the newest bar on every single read.** The forming-bar
+  guard asks whether a full interval has elapsed since the bar opened, and against a future
+  stamp it never has, so **the commodity legs ran permanently one bar behind** — silently,
+  with no error, for as long as the leg has existed. This is the reason the guard is called
+  the most important line in that file, and the reason a clock error is worse than a crash.
+* **`td_nautilus._to_bar` stamped `ts_event` from the same value**, so those bars are
+  recorded in the future in `results/paper.db`.
+
+`fetch_bars` now returns a tz-aware **UTC** index for every class, from
+`config.INTRADAY_CLOCK` via `paper_config.vendor_tz`, so the desk and the sheet it selected
+from mean the same thing by "the bar". `_seconds_to_next_close` is modular arithmetic on the
+epoch and was therefore also wrong against the vendor's Sydney-anchored 4h commodity grid —
+whole hours are fine at `1m`..`1h`, and `10 % 4 == 2` is not.
+
+**The existing record is NOT rewritten.** 24 fills and 18 curve points across six
+`commodities-1d` and `commodities-4h` systems, all on 2026-08-14/15, carry `ts` on the
+Sydney clock; their 4h stamps read 03:00/07:00/23:00, which is that grid. The prices and
+the fills are real — only their timestamps are shifted — and a trading record edited after
+the fact is worth less than one with a documented defect. Read those six sids' timestamps
+as Sydney wall clock, or ignore them.
+
 ## Selection
 
 `paper_config.top_rules()` reads the walk-forward sheet rather than a hard-coded list, so the

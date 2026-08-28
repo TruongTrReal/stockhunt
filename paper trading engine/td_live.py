@@ -91,12 +91,76 @@ def _to_frame(values: list[dict]) -> pd.DataFrame:
     return df[list(cols.values())]
 
 
+def class_of(symbol: str) -> str | None:
+    """Which configured asset class a live symbol belongs to, or None.
+
+    The RESEARCH class, not the desk leg — `config.INTRADAY_CLOCK` is keyed on the former,
+    and the two differ in reach: `paper_config.class_of` knows only the forward-test
+    universe and exits the process on anything else.
+
+    None for a symbol no class claims. A member may register anything the vendor prices and
+    the callers below read this only to decide a TIMEZONE, so the answer for an unknown
+    ticker has to be "leave the vendor's stamps alone" — which is what every one of them
+    did before this existed.
+    """
+    try:
+        return paper_config.research_class_of(symbol)
+    except (KeyError, SystemExit):
+        return None
+
+
+def _to_cache_clock(index: pd.DatetimeIndex, symbol: str) -> pd.DatetimeIndex:
+    """Vendor stamps -> the clock this symbol's BACKTEST CACHE is on. Still naive.
+
+    **The vendor stamps a naive wall clock and does not always say which one.** For
+    commodities it says nothing at all (`meta.exchange_timezone` is `null`) and stamps
+    `Australia/Sydney`; see `config.INTRADAY_CLOCK` for how that was measured.
+
+    Reading a Sydney stamp as UTC put every commodity bar 10-11 hours in the FUTURE, and
+    two things downstream believed it. `fetch_bars`' forming-bar guard asks whether a full
+    interval has elapsed since the newest bar opened — against a future stamp it never has,
+    so **the newest bar was discarded on every single read and the commodity legs of this
+    desk ran permanently one bar behind**, silently, with no error anywhere. And `_to_bar`
+    in `td_nautilus` stamped `ts_event` from the same value, so the trading record in
+    `results/paper.db` carries those bars in the future too.
+
+    **The target is the cache's clock and not simply UTC**, which is the same rule the
+    whole desk runs on: a live bar has to mean what the sheet it was selected from means.
+    Today that makes this a no-op for four of the five classes and a 10/11-hour shift for
+    commodities — `config.INTRADAY_CLOCK` is where that is decided, not here.
+
+    Identity for a class with no declaration and for a symbol no class claims, which is
+    exactly the previous behaviour.
+
+    **It leaves the two equity classes on `America/New_York`, and that is a known defect
+    left standing deliberately.** Their cache is exchange-local, so matching it is right;
+    but it also means the forming-bar guard below compares an ET stamp against a UTC `now`,
+    which reads 4-5 hours in the PAST and therefore never fires — the desk keeps the
+    still-forming intraday equity bar. Fixing that here alone would move `ts_event` on
+    every equity bar by 4-5 hours, and `ts` is part of the fills table's natural key
+    (`store.py`), so a warm-up replay after the change would fail to collapse against
+    everything already recorded and would double the position history. It has to be done
+    together with restamping the equity cache and a decision about the existing record.
+    """
+    cls = class_of(symbol)
+    if cls is None:
+        return index
+    return paper_config.to_cache_clock(index, cls)
+
+
 def fetch_bars(symbol: str, timeframe: str, n: int = 1500,
                drop_forming: bool = True) -> pd.DataFrame:
-    """The last `n` CLOSED bars for one symbol.
+    """The last `n` CLOSED bars for one symbol, on that symbol's CACHE clock.
 
     With `drop_forming` the newest row is discarded unless a full interval has elapsed
     since it opened. Trading the forming bar would use a close that has not happened yet.
+
+The index is restamped onto the clock the backtest cache for that class is on, whatever
+    clock the vendor answered in — see `_to_cache_clock`. That is what keeps the live
+    record comparable to the sheet the rule was selected from, and it is what puts the
+    commodity legs back on UTC, where the forming-bar guard here, `ts_event` in
+    `td_nautilus` and `_seconds_to_next_close`'s modular arithmetic all already assumed
+    they were.
     """
     interval, duration = INTERVALS[timeframe]
     r = requests.get(f"{BASE_URL}/time_series", timeout=60, params={
@@ -109,6 +173,11 @@ def fetch_bars(symbol: str, timeframe: str, n: int = 1500,
         raise RuntimeError(f"{symbol} {timeframe}: {payload}")
 
     df = _to_frame(payload["values"])
+    # Restamped BEFORE the forming-bar test, not after: the test compares the bar's open
+    # against `now`, so it is only meaningful once both are on the same clock. This is the
+    # line that was discarding every commodity bar.
+    if len(df) and paper_config.TIMEFRAMES[timeframe]["intraday"]:
+        df.index = _to_cache_clock(df.index, symbol)
     if drop_forming and len(df):
         last_open = df.index[-1]
         if last_open.tzinfo is None:
