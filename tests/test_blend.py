@@ -527,3 +527,25 @@ def test_the_curve_and_the_dates_are_the_same_length():
                        leg(np.full(n, 0.02), bench=np.full(n, 0.01), rule="b")])
     assert len(out["dates"]) == len(out["curve"]) == len(out["bench"])
     assert len(out["curve"]) == out["axis"]["bars"] == out["metrics"]["bars"]
+
+
+def test_a_timezone_aware_start_is_accepted():
+    """It reached the board as a bare "Internal Server Error" under every curve.
+
+    A leg's dates come from the curve files as plain date strings and are therefore naive;
+    a portfolio's `inception` is written by `deskdb.utcnow()` and carries `+00:00`.
+    Comparing the two raises, and the endpoint had no way to say anything better about it.
+    """
+    dates = pd.date_range("2020-01-01", periods=400, freq="D")
+    leg = blend.make_leg(dates, list(range(100, 500)), cls="us_stocks", tf="1d", rule="a")
+    out = blend.blend([leg, leg], capital=1000.0, start="2020-03-01T00:00:00+00:00")
+    assert out["axis"]["start"] >= "2020-03-01"
+
+
+def test_an_aware_start_lands_on_the_same_bar_as_its_naive_twin():
+    """The zone is converted, not discarded — otherwise an offset silently shifts a day."""
+    dates = pd.date_range("2020-01-01", periods=400, freq="D")
+    leg = blend.make_leg(dates, list(range(100, 500)), cls="us_stocks", tf="1d", rule="a")
+    aware = blend.blend([leg], capital=1000.0, start="2020-03-01T00:00:00+00:00")
+    naive = blend.blend([leg], capital=1000.0, start="2020-03-01")
+    assert aware["axis"]["start"] == naive["axis"]["start"]

@@ -163,6 +163,11 @@ def _view(portfolio_id: str) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such portfolio.")
     row = dict(row)
     row["legs"] = portfolios.legs(portfolio_id)
+    # The desk's state, derived from the legs rather than read from the column — nothing
+    # writes that column after creation, so a basket read `live -> pending` for its whole
+    # life while every one of its legs was running. `portfolios.state_of` is the one
+    # definition, shared with `listing`.
+    row["state"] = portfolios.state_of(row["legs"])
     return row
 
 

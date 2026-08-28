@@ -391,6 +391,36 @@ def apply_membership(portfolio_id: str, target: list[tuple[str, str, str]], reas
 
 # ----------------------------------------------------------------------------- reads
 
+def state_of(legs: list[dict]) -> str:
+    """What the DESK has actually done with this basket, derived from its legs.
+
+    Not read from the `portfolios.state` column, and the column is not written either.
+    Nothing in this process may write a desk state, and the desk cannot write this one
+    without learning what a portfolio is — which is exactly the coupling a leg being an
+    ordinary registration exists to avoid. A stored copy would therefore be a second
+    answer that nobody updates, and it was: every basket on the board read
+    `live -> pending` for as long as it existed while all forty-five of its legs were
+    running, because the column was written once at creation and never again.
+
+    A basket is only `live` when ALL of it is. `partial` is a real and different state — a
+    leg the desk refused leaves the pot split across holdings that are not all there — and
+    reporting it as `live` would be the half-switched-off basket this module's toggle
+    exists to prevent, arriving by the other door.
+    """
+    states = [str(l.get("state") or "pending") for l in legs]
+    if not states:
+        return "pending"
+    if all(s == "live" for s in states):
+        return "live"
+    if any(s == "live" for s in states):
+        return "partial"
+    if all(s == "retired" for s in states):
+        return "retired"
+    if any(s == "rejected" for s in states):
+        return "rejected"
+    return "pending"
+
+
 def get(portfolio_id: str, account: str | None = None) -> dict | None:
     """One portfolio, optionally constrained to an account.
 
@@ -433,6 +463,8 @@ def listing(account: str | None = None) -> list[dict]:
     out = []
     for row in deskdb._rows(sql + " ORDER BY created_at, portfolio_id", args):
         row["legs"] = legs(row["portfolio_id"])
+        # Derived from the legs, never read from the column. See `state_of`.
+        row["state"] = state_of(row["legs"])
         out.append(row)
     return out
 

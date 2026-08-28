@@ -21,7 +21,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CurveSpark } from "@/components/PortfolioChart";
-import { fmtMoney } from "@/lib/format";
+import { fmtMoney, fmtDate } from "@/lib/format";
 import {
   isRetired,
   legCount,
@@ -77,7 +77,7 @@ function Row({ p, spark }: { p: Portfolio; spark: ReturnType<ReturnType<typeof u
                 "no legs" and "not told" are different facts about a basket. */}
             {n == null ? "— legs" : `${n} leg${n === 1 ? "" : "s"}`} ·{" "}
             {fmtMoney(p.capital)} · rebalanced {p.rebalance ?? "monthly"}
-            {p.inception ? ` · since ${p.inception}` : ""}
+            {p.inception ? ` · since ${fmtDate(p.inception)}` : ""}
           </span>
         </span>
 

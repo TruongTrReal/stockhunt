@@ -254,6 +254,22 @@ def _n_inside(leg: dict, lo: pd.Timestamp, hi: pd.Timestamp) -> int:
     return int(((d >= lo) & (d <= hi)).sum())
 
 
+def _naive(value) -> pd.Timestamp:
+    """A timestamp on the same footing as a leg's own dates: tz-NAIVE.
+
+    The curve files carry plain date strings, so every axis in here is naive, while a
+    caller's `start` arrives from wherever it was stored — a portfolio's `inception` is
+    written by `deskdb.utcnow()` and carries `+00:00`. Comparing the two raises
+    `TypeError: Cannot compare tz-naive and tz-aware timestamps`, which reached the board
+    as a bare "Internal Server Error" under every combined curve on the site.
+
+    Converted to UTC before the zone is dropped, so an offset shifts the instant rather
+    than being discarded.
+    """
+    ts = pd.Timestamp(value)
+    return ts.tz_convert("UTC").tz_localize(None) if ts.tzinfo is not None else ts
+
+
 def _common_axis(legs: list[dict], start: pd.Timestamp | None) -> pd.DatetimeIndex:
     """The coarsest leg's dates, clipped to every leg's overlap.
 
@@ -267,11 +283,11 @@ def _common_axis(legs: list[dict], start: pd.Timestamp | None) -> pd.DatetimeInd
     spans = "; ".join(f"{_label(l)} {l['dates'][0].date()}..{l['dates'][-1].date()}"
                       for l in legs)
     if start is not None:
-        lo = max(lo, pd.Timestamp(start))
+        want = _naive(start)
+        lo = max(lo, want)
         if lo > hi:
             raise BlendError(
-                f"No shared history at or after {pd.Timestamp(start).date()}. Legs: "
-                f"{spans}.")
+                f"No shared history at or after {want.date()}. Legs: {spans}.")
     if lo >= hi:
         raise BlendError(f"The legs share no overlapping history. Legs: {spans}.")
 
@@ -409,7 +425,7 @@ def blend(legs, capital: float = 100_000.0, rebalance: str = "monthly",
     if not np.isfinite(capital) or capital <= 0:
         raise BlendError(f"Capital must be a positive number, got {capital!r}.")
 
-    axis = _common_axis(legs, None if start is None else pd.Timestamp(start))
+    axis = _common_axis(legs, None if start is None else _naive(start))
     n_bars, n_legs = axis.size, len(legs)
     years = float((axis[-1] - axis[0]).days) / DAYS_PER_YEAR
     if years <= 0:

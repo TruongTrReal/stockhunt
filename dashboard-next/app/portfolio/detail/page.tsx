@@ -26,7 +26,7 @@ import { LegCorrelation } from "@/components/LegCorrelation";
 import { LegTable } from "@/components/LegTable";
 import { PortfolioChart } from "@/components/PortfolioChart";
 import { PortfolioToggle } from "@/components/PortfolioToggle";
-import { fmtMoney, fmtNum } from "@/lib/format";
+import { fmtMoney, fmtNum, fmtDate } from "@/lib/format";
 import { useLive } from "@/lib/live";
 import {
   growthOf,
@@ -65,7 +65,7 @@ const CHANGE_COLS: ChangeCol[] = [
     doc: "When the basket changed. Append-only: nothing here is ever updated or deleted, "
        + "because a composition that can be rewritten afterwards is not a record of what "
        + "was held.",
-    cell: (c) => <td className="l">{c.at}</td>,
+    cell: (c) => <td className="l">{fmtDate(c.at)}</td>,
   },
   {
     h: "What",

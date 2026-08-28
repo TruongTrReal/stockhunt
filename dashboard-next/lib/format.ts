@@ -99,3 +99,19 @@ export const stemName = (r: unknown) => String(r).split("|")[0];
  * sweeps are concatenated — neither is an operator and neither may reach a chip. */
 export const opLabel = (o: unknown) =>
   !o || o === "nan" || o === "None" ? "" : String(o);
+
+/** A stored instant as a plain date.
+ *
+ * The ledger writes ISO-8601 UTC with an offset on it (`deskdb.utcnow`), which is exactly
+ * right for a column that is compared lexicographically and exactly wrong on a page: every
+ * portfolio row read `since 2026-08-28T14:05:43+00:00`, and every membership entry carried
+ * the same nineteen characters of noise in a narrow column.
+ *
+ * The seconds are not information here — a basket's inception and the day its holdings
+ * changed are DAYS — so this keeps the date and drops the rest. Invalid or missing input
+ * prints an em-dash rather than `Invalid Date`. */
+export const fmtDate = (v: string | null | undefined) => {
+  if (!v) return "—";
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? String(v).slice(0, 10) : new Date(t).toISOString().slice(0, 10);
+};

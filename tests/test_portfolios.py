@@ -519,3 +519,40 @@ def test_any_name_folds_to_something_carryable(name):
 def test_the_fold_keeps_names_distinct():
     """Folding must not collapse two baskets onto one registration."""
     assert portfolios._ascii("top5-us_stocks-1d") != portfolios._ascii("top5-us_etfs-1d")
+
+
+# ------------------------------------------------------- the desk's state is derived
+
+@pytest.mark.parametrize("states,expected", [
+    ([], "pending"),
+    (["live", "live", "live"], "live"),
+    (["live", "pending"], "partial"),
+    (["live", "rejected"], "partial"),
+    (["pending", "pending"], "pending"),
+    (["rejected", "pending"], "rejected"),
+    (["retired", "retired"], "retired"),
+])
+def test_the_basket_state_is_derived_from_its_legs(states, expected):
+    """Stored, it was written once at creation and never again.
+
+    Every basket on the board read `live -> pending` for its whole life while all
+    forty-five of its legs were running, because nothing may write that column: this
+    process must not write a desk state, and the desk cannot write a portfolio's without
+    learning what a portfolio is.
+    """
+    assert portfolios.state_of([{"state": s} for s in states]) == expected
+
+
+def test_a_basket_is_live_only_when_all_of_it_is(db):
+    """`partial` is a real state: the pot is split across holdings that are not all there."""
+    pf = portfolios.create("00", "half", "manual")
+    portfolios.apply_membership(pf["portfolio_id"],
+                                [("us_stocks", "1d", "a"), ("us_stocks", "1d", "b")],
+                                reason="test")
+    legs = portfolios.legs(pf["portfolio_id"])
+    deskdb.mark_registration(legs[0]["strategy_id"], "live")
+    rows = {r["portfolio_id"]: r for r in portfolios.listing()}
+    assert rows[pf["portfolio_id"]]["state"] == "partial"
+    deskdb.mark_registration(legs[1]["strategy_id"], "live")
+    rows = {r["portfolio_id"]: r for r in portfolios.listing()}
+    assert rows[pf["portfolio_id"]]["state"] == "live"
