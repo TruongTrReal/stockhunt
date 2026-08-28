@@ -1144,10 +1144,32 @@ the root `CLAUDE.md` is most emphatic about.
 **The fix converts `now`, not the bar** (`td_live._now_in_cache_clock`). Restamping the bar
 would move `ts_event` by 4-5 hours and `ts` is part of the fills table's natural key, so a
 warm-up replay would stop collapsing against everything already recorded and would double
-the position history. Measured on 2026-08-27's real bars: at 15:57 ET inside the 15:55 5m
-bar the old guard does not fire and the new one does; at 16:00 ET neither does. Identical
-frames for `crypto`, `commodities` and every daily size, checked against the previous code
-frame for frame.
+the position history. **Measured live, in session** — AAPL 5m, sampled every ~63s on 2026-08-28 as the vendor's
+bars arrived. The old code hands over the in-progress interval on every read; the new code
+hands over the newest CLOSED bar and the two converge exactly on each 5-minute boundary:
+
+```
+ET 10:03:27  vendor newest 10:00 (forming)   OLD keeps 10:00   NEW keeps 15:55 (prev day)
+ET 10:04:32  vendor newest 10:00 (forming)   OLD keeps 10:00   NEW keeps 15:55
+ET 10:05:35  vendor newest 10:00 (CLOSED)    OLD keeps 10:00   NEW keeps 10:00   <- agree
+ET 10:07:45  vendor newest 10:05 (forming)   OLD keeps 10:05   NEW keeps 10:00
+ET 10:10:54  vendor newest 10:10 (forming)   OLD keeps 10:10   NEW keeps 10:05
+ET 10:15:06  vendor newest 10:10 (CLOSED)    OLD keeps 10:10   NEW keeps 10:10   <- agree
+```
+
+**No bar is lost, only delayed to its own close.** 10:00, 10:05 and 10:10 are each delivered
+in turn; what changes is that they are delivered once they exist. The release lands within a
+second of the boundary — at 10:05:35 the 10:00 bar is out, at 10:04:32 it is not.
+
+The same thing constructed offline on 2026-08-27's bars, for when the vendor is not
+serving: at 15:57 ET inside the 15:55 5m bar the old guard does not fire and the new one
+does; at 16:00 ET neither does. Identical frames for `crypto`, `commodities` and every daily
+size, checked against the previous code frame for frame.
+
+**The vendor's own publication lag is a separate fact and it is large.** Nothing at all was
+served for 2026-08-28 until 10:03 ET — 33 minutes after the open — while crypto and
+commodity intraday were current to the minute. That is a freshness property of the key, not
+of this guard, and it is worth knowing before reading any latency number off the equity legs.
 
 **`1d` is deliberately outside this.** A daily stamp is a DATE, not a wall-clock instant, so
 no intraday zone applies to it — and reading `now` in ET for a daily equity bar would push
