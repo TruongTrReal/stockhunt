@@ -208,3 +208,33 @@ def test_futures_refuse_one_minute_before_the_budget_is_consulted():
     can, why = desk_control._feedable("cme_futures", "1m")
     assert not can
     assert "Databento" in why and "1d" in why
+    assert "ceiling" not in why and "fewer names" not in why
+
+
+def test_the_one_minute_refusal_answers_the_question_that_was_ASKED():
+    """One sentence used to explain 4h and 15m to everybody, including 1m askers.
+
+    Read as a reply to "may I have 1m?", the old text said the archive has no 4h or 15m
+    schema *and that the sheets at those sizes were cut from cached 1m bars* — which names
+    1m as the thing those came FROM and reads as a yes. It is the most confusing possible
+    answer to the request actually made.
+
+    The real reason for 1m is FRESHNESS, not the archive: `ohlcv-1m` exists and is what
+    `data/futures/1m` was fetched from; what is missing is that the historical endpoint
+    lags real time, so the bar would arrive ~15 bars stale.
+    """
+    import desk_control
+    _, why = desk_control._feedable("cme_futures", "1m")
+    assert "4h" not in why and "15m" not in why, "do not explain a size nobody asked for"
+    assert "stale" in why, "name the actual defect"
+    assert "LIVE" in why, "and what would fix it, since it is a subscription not a bug"
+
+
+@pytest.mark.parametrize("tf", ["4h", "15m", "5m"])
+def test_a_missing_schema_says_so_about_ITSELF(tf):
+    """...and the sizes that really have no schema still say that, naming their own."""
+    import desk_control
+    can, why = desk_control._feedable("cme_futures", tf)
+    assert not can
+    assert f"no {tf} schema" in why
+    assert "stale" not in why, "these are absent, not late — a different problem"

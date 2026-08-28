@@ -103,6 +103,13 @@
   th{text-align:left;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
      color:var(--muted);font-weight:500;padding:6px 10px 6px 0;border-bottom:1px solid var(--hair)}
   td{padding:9px 10px 9px 0;border-bottom:1px solid var(--hair);vertical-align:top}
+  /* The desk's `reason` is PROSE and gets a row of its own, spanning the table, because
+     as the fifth of six columns it wrapped to about thirty characters over twenty lines —
+     the one thing on a refused row anybody needs to read, rendered in a sliver. The row
+     above it drops its rule so the pair reads as one entry rather than two. */
+  tr.why td{padding:0 10px 11px 0;border-bottom:1px solid var(--hair)}
+  tr.why + tr td, tr:has(+ tr.why) td{border-bottom:0}
+  tr.why .note{margin:0;max-width:78ch}
   td.mono,th.mono{font-family:var(--mono);font-size:12.5px}
   .tag{font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;
        border:1px solid var(--hair-2);color:var(--muted);white-space:nowrap}
@@ -366,6 +373,26 @@
       thing: place orders for this strategy. It is not your API key and must never be
       replaced with one.</p>
     <div id="tv-body"></div>
+  </div>
+
+  <!-- REFUSED is not RETIRED, and they had one section between them until 2026-08-28.
+       Both are states the desk will never look at again, which is why the CONTROLS are
+       the same on each — and that is the only thing they have in common. A retired
+       strategy ran and was stopped; a refused one never started, has no fills, no equity
+       curve and no record to preserve. Filing one under a heading that says *Retired*,
+       over prose about fills and gaps that stay in the record forever, is a false
+       statement about a strategy that placed no orders — and it buries the `reason`,
+       which is the only thing on the row its owner can act on. -->
+  <div id="rejected-block" hidden>
+    <h2>Refused</h2>
+    <p class="note">The desk read these and would not run them. Nothing was traded and
+      nothing is recorded, so removing one loses nothing. <b>Desk says</b> carries the
+      reason — most are fixable by registering again with a different timeframe, symbol
+      or asset class.</p>
+    <table><thead><tr>
+      <th>Name</th><th class="mono">strategy_id</th><th>Holds</th>
+      <th>Asked for</th><th>Desk says</th><th></th></tr></thead>
+      <tbody id="rejected"></tbody></table>
   </div>
 
   <!-- Its own section, because a retired strategy is not a running one and listing it
@@ -698,9 +725,16 @@ const DONE = ["retired", "rejected"];         // the desk will not touch the row
 async function loadStrategies() {
   STRATEGIES = await j("GET", "/v1/strategies");
   const live = STRATEGIES.filter(s => !DONE.includes(s.state));
-  const dead = STRATEGIES.filter(s => DONE.includes(s.state));
+  // `DONE` still decides the CONTROLS — the desk will not look at either kind again — but
+  // it no longer decides the SECTION. A refused strategy never ran, so a heading saying
+  // "Retired" over prose about fills and equity curves that stay in the record forever is
+  // a false statement about it, and it hides the `reason`, which is the one thing on the
+  // row its owner can act on.
+  const refused = STRATEGIES.filter(s => s.state === "rejected");
+  const dead = STRATEGIES.filter(s => s.state === "retired");
   el("blank").hidden = STRATEGIES.length > 0;
   el("strategies-table").hidden = live.length === 0;
+  el("rejected-block").hidden = refused.length === 0;
   el("retired-block").hidden = dead.length === 0;
 
   const render = list => list.map(s => {
@@ -722,7 +756,7 @@ async function loadStrategies() {
       <td class="mono">${esc(s.strategy_id)}</td>
       <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}</td>
       <td>${stateTag(s.want)}</td>
-      <td>${stateTag(s.state)}${s.reason ? `<div class="note">${esc(s.reason)}</div>` : ""}</td>
+      <td>${stateTag(s.state)}</td>
       <td>${over || s.kind !== "member" ? "" : `
         <button class="ghost small" data-act="webhook"
                 data-id="${esc(s.strategy_id)}">TradingView</button>`}
@@ -734,7 +768,8 @@ async function loadStrategies() {
         ${over ? `
         <button class="ghost small" data-act="purge" data-id="${esc(s.strategy_id)}">Remove</button>` : ""}
       </td>
-    </tr>`;
+    </tr>` + (s.reason ? `
+    <tr class="why"><td colspan="6"><div class="note">${esc(s.reason)}</div></td></tr>` : "");
   }).join("");
 
   // Written only when it CHANGED. This runs every couple of seconds now, and an
@@ -744,6 +779,7 @@ async function loadStrategies() {
     if (el(id).innerHTML !== html) el(id).innerHTML = html;
   };
   put("strategies", render(live));
+  put("rejected", render(refused));
   put("retired", render(dead));
   return live;
 }
@@ -869,6 +905,7 @@ async function onStrategyClick(ev) {
 // forget a confirmation.
 el("strategies").addEventListener("click", onStrategyClick);
 el("retired").addEventListener("click", onStrategyClick);
+el("rejected").addEventListener("click", onStrategyClick);
 
 // Watch until the desk has actually done it, then say what it did.
 //

@@ -629,13 +629,54 @@ def _feedable(cls: str, tf: str) -> tuple[bool, str]:
         return True, ""
     import db_live
     if not db_live.can_feed(tf):
-        return False, (f"{tf} is not a bar Databento can serve for CME futures. The leg "
-                       f"runs {', '.join(sorted(db_live.SCHEMA))} — the GLBX archive has "
-                       f"no 4h or 15m schema at all, and the sheets at those sizes were "
-                       f"cut from cached 1m bars, which a live poll cannot ask for.")
+        return False, _why_not_feedable(tf)
     if not db_live.have_key():
         return False, db_live.NO_KEY
     return True, ""
+
+
+def _why_not_feedable(tf: str) -> str:
+    """Say why THIS timeframe cannot be fed, not why some other one cannot.
+
+    There was one sentence for every refusal and it explained `4h` and `15m` — so a member
+    who asked for **1m** was told the GLBX archive "has no 4h or 15m schema at all, and the
+    sheets at those sizes were cut from cached 1m bars", which answers a question they did
+    not ask and then names 1m as the thing those sheets came FROM. The obvious reading is
+    that 1m must therefore be available. It is the most confusing possible answer to the
+    request that was actually made.
+
+    The two cases are genuinely different and only one of them is about the archive:
+
+    * **4h, 15m, 5m and the rest** — the GLBX ohlcv archive has no such schema. Nothing can
+      be done about it here or anywhere; the sheets at those sizes were cut from cached 1m
+      bars offline, which a live poll cannot do.
+    * **1m** — the schema EXISTS (`db_intraday` fetches `ohlcv-1m` and the cache holds it).
+      What is missing is FRESHNESS: this desk reads the historical archive, which lags real
+      time by about eight minutes, so `db_nautilus.POLL_LAG` waits fifteen. A minute bar
+      delivered fifteen minutes after it closed is fifteen bars stale, which is not a slow
+      feed — it is a different strategy from the one anybody backtested. Fixing it needs
+      Databento's LIVE product, which is a subscription decision rather than code.
+    """
+    import db_live
+    import db_nautilus
+    servable = ", ".join(sorted(db_live.SCHEMA))
+    if tf == "1m":
+        lag = db_live.ARCHIVE_LAG_SECONDS // 60
+        poll = db_nautilus.POLL_LAG // 60
+        return (
+            f"1m is not a bar this desk can trade on CME futures, and the reason is "
+            f"freshness rather than the archive: Databento does have `ohlcv-1m` — it is "
+            f"what `data/futures/1m` was fetched from — but the HISTORICAL archive this "
+            f"desk polls lags real time by about {lag} minutes, so a minute bar could not "
+            f"be acted on until roughly {poll} minutes after it closed. That is ~{poll} "
+            f"bars stale, which is a different strategy from the one you backtested, not "
+            f"a slower version of it. Serving it properly needs Databento's LIVE feed, "
+            f"which is a subscription decision. The leg runs {servable} today; at 1m, use "
+            f"a class fed by Twelve Data (us_stocks, us_etfs, crypto, commodities).")
+    return (f"{tf} is not a bar Databento can serve for CME futures. The leg runs "
+            f"{servable} — the GLBX ohlcv archive has no {tf} schema at all, and the "
+            f"research sheets at that size were cut from cached 1m bars offline, which a "
+            f"live poll cannot ask for.")
 
 
 def _bar_interval(tf: str):
