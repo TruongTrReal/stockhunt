@@ -59,10 +59,10 @@ import paper_state
 import store
 import td_live
 import td_nautilus
+import venue_instruments
 from strategy import TalibRuleConfig, TalibRuleStrategy
 
 from nautilus_trader.adapters.sandbox.config import SandboxExecutionClientConfig
-from nautilus_trader.adapters.sandbox.execution import SandboxExecutionClient
 from nautilus_trader.adapters.sandbox.factory import SandboxLiveExecClientFactory
 from nautilus_trader.config import (ImportableStrategyConfig, LoggingConfig,
                                     TradingNodeConfig)
@@ -122,23 +122,32 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     instruments = {s: instrument_for(s, classes[s]) for s in symbols}
 
     # The WHOLE universe, not just what this plan trades — and every venue, not just the
-    # ones the plan lands on.
+    # ones the plan lands on: the pinned legs AND every class's book universe, since a
+    # book on the top 100 holds names that are in no pinned leg.
     #
     # `desk_control` attaches registrations to the running node: a promoted rule, or a
     # manager's strategy. Those may name any symbol on the desk's universe, and the
-    # instrument has to already be at the venue for the exchange to fill against it —
-    # `SandboxExecutionClient` reads this class-level list once, at connect, and there is
-    # no way to add to it afterwards. Restricting it to the plan gave a registration that
-    # attached, subscribed, received bars and then never filled, which is the worst
+    # instrument has to be in the CACHE for the exchange to fill against it —
+    # `SandboxExecutionClient.connect` copies every cached instrument for its venue into
+    # the exchange, and `SimulatedExchange.process_bar` builds a matching engine by
+    # looking the instrument up there. Restricting this to the plan gave a registration
+    # that attached, subscribed, received bars and then never filled, which is the worst
     # available failure: everything looks healthy.
+    #
+    # **It is the cache, not a class attribute, and the difference matters now that
+    # symbols arrive at runtime.** This block used to also set
+    # `SandboxExecutionClient.INSTRUMENTS` and say the adapter read that list once at
+    # connect with "no way to add to it afterwards". There is no such attribute in
+    # nautilus_trader 1.230.0 — the assignment was inert, and the belief it encoded is
+    # what made an open symbol look impossible. `venue_instruments` is the runtime door,
+    # and it exists because there IS one.
     #
     # It is cheap. An instrument is a value object; a *subscription* is what costs a poll
     # task and a warm-up, and those are still created per bar type on demand by whichever
-    # strategy asks. Nothing here reaches the vendor.
-    # The pinned legs AND every class's book universe. A book on the top 100 holds names
-    # that are in no pinned leg, and `SandboxExecutionClient` reads this list once at
-    # connect — a name missing from it attaches, subscribes, receives bars and then never
-    # fills, which is the worst available failure because everything looks healthy.
+    # strategy asks. Nothing here reaches the vendor — measured on the widened universe:
+    # 273 pinned names plus the live top 100 build in well under a second, which is what
+    # makes trading a class's whole research universe a roster decision rather than a
+    # feed decision.
     universe = {s: instrument_for(s, cls)
                 for cls, syms in paper_config.UNIVERSE.items() for s in syms}
     for cls in paper_config.UNIVERSE:
@@ -147,7 +156,6 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
                 universe.setdefault(s, instrument_for(s, cls))
         except Exception as exc:            # a missing membership table must not stop the
             print(f"  ! cannot resolve the {cls} book universe: {exc}")   # whole desk
-    SandboxExecutionClient.INSTRUMENTS = list(universe.values())
     venues = sorted({str(i.id.venue) for i in universe.values()})
 
     # Split each venue's account across the systems trading on it. Nautilus gives one
@@ -326,15 +334,29 @@ def route_bars_to_sandbox(node: TradingNode) -> int:
     adapter's own accounting. The venue filter matters: one process runs both SANDBOX and
     BINANCE, and handing a BINANCE bar to the SANDBOX exchange would price an instrument it
     does not own.
+
+    **It also registers each exchange with `venue_instruments`,** which is a second job in
+    one function and is here rather than in its own pass for a specific reason: this is
+    the only place in the desk that walks the execution clients looking for the ones that
+    own a `SimulatedExchange`. A Nautilus `Controller` is an `Actor` and has no route to
+    the execution engine at all, so `desk_control` cannot find them for itself when a
+    registration brings in a symbol the node was not built with.
+
+    Note what `route` does with a failure: it swallows it, deliberately, so one malformed
+    bar cannot kill the feed. That is why the registration matters — an instrument the
+    exchange has never heard of makes `process_bar` raise `No matching engine found`
+    *inside this handler*, where it disappears.
     """
     engine = node.kernel.exec_engine
     clients = getattr(engine, "_clients", {})
+    venue_instruments.clear()             # a rebuilt node must not inherit a dead exchange
     wired = 0
     for client in clients.values():
         exchange = getattr(client, "exchange", None)
         if exchange is None:                      # not a sandbox client
             continue
         venue = client.venue
+        venue_instruments.register(str(venue), exchange.add_instrument)
 
         def route(bar, _client=client, _venue=venue):
             try:
@@ -577,7 +599,44 @@ def build_plan(args) -> list[tuple]:
                 continue
             for rule in top_rules(cls, args.top, tf):
                 plan += [(s, rule, tf, cls) for s in group]
+    _say_what_that_costs(plan)
     return plan
+
+
+# One vendor request per (symbol, timeframe) per bar, and `td_live` is quoted against 610
+# a minute. Nothing else in `run_paper` prices this, because nothing else needs to: the
+# desk runs `--top 0` and its subscriptions come from registrations, which `desk_control`
+# meters against `MAX_1M_SYMBOLS` and `MAX_OPEN_SYMBOLS`.
+REQUESTS_PER_MINUTE = 610
+
+
+def _say_what_that_costs(plan: list[tuple]) -> None:
+    """Print the automatic legs' feed cost before the node is built.
+
+    `--symbols` defaults to the whole of `UNIVERSE`, which went from 62 names to 273 on
+    2026-08-28. That is free while the desk trades what is registered and is emphatically
+    not free under `--top N`: the plan below fans out over every symbol, and subscriptions
+    are shared per (symbol, timeframe), so the bill is the DISTINCT pairs and not the
+    strategy count. At 5m, 273 names is ~55 requests a minute on their own.
+
+    A print and never a refusal. `--top` is the legacy and smoke path and somebody typing
+    it has asked for exactly this; what they should not have to do is discover the size
+    from a rate-limit error twenty minutes later.
+    """
+    if not plan:
+        return
+    per_minute = 0.0
+    pairs = {(s, tf) for s, _, tf, _ in plan}
+    for _, tf in pairs:
+        seconds = td_live.INTERVALS[tf][1].total_seconds()
+        per_minute += 60.0 / seconds
+    print(f"  automatic legs: {len(plan)} systems over {len(pairs)} (symbol, timeframe) "
+          f"subscriptions ~ {per_minute:.0f} vendor requests/minute of "
+          f"{REQUESTS_PER_MINUTE}")
+    if per_minute > REQUESTS_PER_MINUTE * 0.5:
+        print(f"  ! that is over half the feed's budget. The mark-to-market poll, the "
+              f"warm-ups and every registered book come out of the same 610 — narrow "
+              f"--symbols or --timeframes.")
 
 
 def main() -> None:

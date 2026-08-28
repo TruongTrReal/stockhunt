@@ -104,6 +104,11 @@ paper trading engine/       the live desk: Nautilus sandbox on live bars
    |                        Nautilus Controller that attaches registrations to the
    |                        RUNNING node and drains their orders. catalog.py publishes
    |                        which backtested rules may be promoted onto the desk
+   |                        Each leg holds its WHOLE research class, and a member may
+   |                        register a symbol in no universe at all. symbol_resolve.py
+   |                        is the identity guard on that door: a bare ticker is not an
+   |                        identity, so `country=United States` is pinned on equities
+   |                        and ETFs and a CME future is never sent to Twelve Data
 paper api/                  the invitation-only HTTP layer in front of that desk. auth
    |                        (email + one-time code, allowlist only) + the DASHBOARD
    |                        behind it -- this is how the board is shared now, since

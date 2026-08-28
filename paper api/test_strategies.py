@@ -319,6 +319,38 @@ def test_limits_passes_the_futures_universe_through_unfolded(client, monkeypatch
     assert body["universe"]["cme_futures"] == ["ES.v.0", "GC.v.0"]
 
 
+def test_limits_reports_an_open_universe_only_when_the_desk_says_so(client, monkeypatch):
+    """The console offers `universe` and, when this is true, accepts a name outside it —
+    the desk resolves that name against the vendor before it will trade it.
+
+    It is READ, never inferred from the universe being non-empty, and the two are
+    genuinely different facts: a full list with a closed door was the desk's behaviour
+    until 2026-08-28. A console that conflated them would accept a typed symbol here and
+    have it refused there, minutes later, in a `reason` on a table nobody is still
+    watching — which is exactly the failure the picker exists to prevent, inverted."""
+    import api_live
+    monkeypatch.setattr(api_live, "catalog", lambda: {
+        "universe": {"us_stocks": ["SPY"]},
+        "open_symbols": {"enabled": True, "max": 200, "in_use": 3}})
+
+    body = client.get("/v1/limits", headers=auth(key_for("m@example.com"))).json()
+    assert body["universe_open"] is True
+    assert body["open_symbols_max"] == 200
+    assert body["open_symbols_in_use"] == 3
+
+
+def test_limits_defaults_to_a_closed_universe(client, monkeypatch):
+    """An older desk publishes no `open_symbols` block and really does refuse anything
+    outside its list. This process cannot import the trading stack to ask, so absence has
+    to mean the old behaviour rather than the new one."""
+    import api_live
+    monkeypatch.setattr(api_live, "catalog", lambda: {"universe": {"us_stocks": ["SPY"]}})
+
+    body = client.get("/v1/limits", headers=auth(key_for("m@example.com"))).json()
+    assert body["universe_open"] is False
+    assert body["open_symbols_max"] == 0
+
+
 def test_a_desk_with_no_catalog_still_offers_the_class(client, monkeypatch):
     """The other half of this change is landing separately, and until it does the desk
     publishes no futures universe. That must leave the class registrable on a typed symbol

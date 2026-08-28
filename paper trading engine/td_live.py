@@ -92,17 +92,29 @@ def _to_frame(values: list[dict]) -> pd.DataFrame:
 
 
 def class_of(symbol: str) -> str | None:
-    """Which configured asset class a live symbol belongs to, or None.
+    """Which asset class a live symbol belongs to, or None.
 
-    The RESEARCH class, not the desk leg — `config.INTRADAY_CLOCK` is keyed on the former,
-    and the two differ in reach: `paper_config.class_of` knows only the forward-test
-    universe and exits the process on anything else.
+    Read only to decide a TIMEZONE — `config.INTRADAY_CLOCK` is keyed on the class, and
+    reading a Sydney-stamped commodity bar as UTC put the whole leg permanently one bar
+    behind for as long as the leg existed.
 
-    None for a symbol no class claims. A member may register anything the vendor prices and
-    the callers below read this only to decide a TIMEZONE, so the answer for an unknown
-    ticker has to be "leave the vendor's stamps alone" — which is what every one of them
-    did before this existed.
+    **The desk's own legs are consulted first, and the research universe second.** The two
+    disagree in both directions and each disagreement is a real symbol:
+
+    * `XLK` is on this desk's `us_etfs` leg and is NOT in `bt_config.US_ETFS` — the
+      liquidity screen dropped it at 19.8 tradable years — so asking the research alone
+      answers None for an instrument the desk holds a position in.
+    * A symbol admitted at runtime by `paper_config.admit` is in no research universe by
+      definition. It has a class the moment it is admitted, because the registration
+      declared one and `symbol_resolve` checked it against the vendor, and that is the
+      class its bars must be stamped on.
+
+    None for a symbol neither knows, which is the previous behaviour and the right one:
+    the callers below then leave the vendor's stamps alone.
     """
+    cls = paper_config.CLASS_OF.get(symbol)
+    if cls is not None:
+        return cls
     try:
         return paper_config.research_class_of(symbol)
     except (KeyError, SystemExit):

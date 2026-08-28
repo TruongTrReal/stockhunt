@@ -1226,14 +1226,27 @@ const segValue = id => (el(id).querySelector("button.on") || {}).dataset?.v || "
 
 // ------------------------------------------------------------- wizard: the symbol picker
 //
-// The desk subscribes to a fixed universe and refuses anything outside it — a new symbol
-// costs an instrument, a subscription and a full warm-up. So this offers that list and
-// nothing else. A typo used to be accepted here and rejected there, minutes later, in a
-// `reason` on a table nobody was still looking at.
+// The desk publishes the symbols it already holds, so this offers them — but they are
+// SUGGESTIONS now, not a boundary. `LIMITS.universe_open` says whether the desk will take
+// a name outside the list, and when it does, a typed symbol goes through: the desk
+// resolves it against the vendor (`country=United States` pinned on equities and ETFs;
+// futures never sent to Twelve Data at all) and refuses it there with a sentence if it is
+// not the instrument it appears to be.
 //
-// `universe` is empty when the desk has not published a catalog. Then, and only then, this
-// falls back to accepting what is typed: a research artifact that has not been rebuilt must
-// not be able to stop somebody registering. The desk still checks.
+// **Three modes, and conflating any two of them is a real failure:**
+//
+//   list + open      offer the known names, accept anything typed. The desk decides.
+//   list + closed    offer the known names, refuse the rest HERE — because the desk does.
+//                    A typo accepted here and rejected there lands minutes later in a
+//                    `reason` on a table nobody is still looking at, which is what this
+//                    picker was built to stop.
+//   no list          the desk has published no catalog. Accept what is typed and let the
+//                    desk answer: a research artifact that has not been rebuilt must not
+//                    be able to stop somebody registering.
+//
+// `open()` and `checked()` are therefore separate questions. `universe_open` is read from
+// the published document and defaults to false, so a console talking to an older desk
+// keeps that desk's behaviour rather than promising something it will not do.
 //
 // Symbols are folded through `canon`, not `toUpperCase`, and that is `api_symbols.py`'s
 // rule restated: `cme_futures` spells its names `ES.v.0` — root, roll rule, rank — with
@@ -1251,7 +1264,11 @@ const canon = raw => {
 };
 
 const universe = () => ((LIMITS && LIMITS.universe) || {})[segValue("f-cls")] || [];
-const checked = () => universe().length > 0;
+const openUniverse = () => !!(LIMITS && LIMITS.universe_open);
+// Is a symbol outside the list refused HERE? Only when there is a list AND the desk is
+// closed. With an open desk the list still drives the dropdown; it just stops being a gate.
+const checked = () => universe().length > 0 && !openUniverse();
+const hasMenu = () => universe().length > 0;
 
 function matches() {
   // Matched case-insensitively for the same reason: typing `es.v` must still find
@@ -1268,14 +1285,19 @@ function matches() {
 
 function drawMenu(open) {
   const menu = el("sym-menu");
-  if (!open || !checked()) { menu.hidden = true; el("f-sym").ariaExpanded = "false"; return; }
+  // `hasMenu`, not `checked`: with an open desk the list is still the fastest way to
+  // find a name the desk already holds, and hiding it would make the common case
+  // harder in order to permit the rare one.
+  if (!open || !hasMenu()) { menu.hidden = true; el("f-sym").ariaExpanded = "false"; return; }
   const rows = matches();
   CURSOR = Math.min(CURSOR, Math.max(0, rows.length - 1));
   menu.innerHTML = rows.length
     ? rows.map((s, i) => `<div role="option" data-s="${esc(s)}" class="${i === CURSOR ? "on" : ""}">` +
         `${esc(s)}</div>`).join("")
     : `<div class="none">Nothing in ${esc(segValue("f-cls"))} matches that. The desk holds ` +
-      `${universe().length} names in this class.</div>`;
+      `${universe().length} names in this class` +
+      (openUniverse() ? `, and will take others — press Enter to send what you typed and ` +
+        `the desk will check it against the vendor.` : `.`) + `</div>`;
   menu.hidden = false;
   el("f-sym").ariaExpanded = "true";
 }
@@ -1332,7 +1354,11 @@ el("f-sym").addEventListener("keydown", ev => {
     // picker exists to provide.
     ev.preventDefault();
     const typed = el("f-sym").value.trim();
-    if (!addSymbol(checked() ? (rows[CURSOR] || typed) : typed) && typed) {
+    // A highlighted match wins over the raw text even on an open desk — somebody who
+    // arrowed onto `ARKK` and pressed Enter meant `ARKK`, not the three letters they had
+    // typed to find it. The typed value is the fallback, and on an open desk it is a
+    // real one rather than a certain refusal.
+    if (!addSymbol(hasMenu() ? (rows[CURSOR] || typed) : typed) && typed) {
       el("h-sym").classList.add("bad");
       el("h-sym").textContent = `${canon(typed)} is not one the desk holds in ` +
         `${segValue("f-cls")}. It only trades symbols it already subscribes to.`;
@@ -1350,13 +1376,18 @@ function classChanged() {
   const dropped = PICKED.length;
   PICKED = [];
   drawChips(); drawMenu(false);
-  el("f-sym").placeholder = checked()
-    ? `${universe().slice(0, 3).join(", ")}…  (${universe().length} available)`
+  el("f-sym").placeholder = hasMenu()
+    ? `${universe().slice(0, 3).join(", ")}…  (${universe().length} held` +
+      (openUniverse() ? ", others accepted)" : ")")
     : "SPY, QQQ";
   el("h-sym").classList.remove("bad");
-  el("h-sym").innerHTML = checked()
-    ? (dropped ? `Cleared — ${segValue("f-cls")} holds a different set of names.`
-               : el("h-sym").dataset.hint || el("h-sym").innerHTML)
+  el("h-sym").innerHTML =
+    dropped ? `Cleared — ${segValue("f-cls")} holds a different set of names.`
+    : openUniverse()
+      ? "Pick from the list, or type any symbol. The desk resolves an unlisted one " +
+        "against the vendor before it will trade it, and refuses it with a reason if it " +
+        "is not the instrument it looks like."
+    : hasMenu() ? (el("h-sym").dataset.hint || el("h-sym").innerHTML)
     : "The desk has not published its universe yet, so this cannot be checked here — " +
       "type them comma separated and the desk will verify them.";
 }
@@ -1366,9 +1397,10 @@ el("f-cls").addEventListener("click", ev => {
 
 function symbols() {
   if (checked()) return PICKED.slice();
-  // Fallback mode: no published universe, so whatever was typed goes through as-is —
-  // folded, though, because this is the path a futures name takes until the desk has run
-  // `catalog.py`, and it is the server's fold either way.
+  // Free-text mode: an open desk, or no published universe at all. Whatever is in the box
+  // goes through with the chips, folded — `canon` is the server's own fold, and it is what
+  // keeps a futures name spelled `ES.v.0` instead of being upper-cased into `ES.V.0`,
+  // which is in no universe and belongs to no class.
   const raw = (el("f-sym").value + "," + PICKED.join(","))
     .split(",").map(canon).filter(Boolean);
   return [...new Set(raw)];
