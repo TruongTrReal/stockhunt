@@ -178,16 +178,76 @@ def test_an_unservable_timeframe_is_refused(spec):
         db_nautilus.timeframe_of(BarType.from_str(f"ES.v.0.GLBX-{spec}"))
 
 
-def test_the_minute_poll_lag_clears_the_measured_frontier_and_no_more():
-    """Fifteen minutes is right for a daily bar and is fifteen BARS at 1m.
+def test_the_fallback_poll_lag_clears_the_measured_frontier():
+    """The fixed lag is now only reached when the frontier cannot be read at all.
 
-    Sized on the worst sampled reading of the archive frontier (7.3 min, 2026-08-28)
-    plus headroom, with the retry loop covering the rest.
+    It has to clear the measured WORST case and not the mean: the archive frontier is a
+    sawtooth that advances in ~10-minute steps, so a lag inside it finds nothing settled
+    and the bar is skipped in silence. `ARCHIVE_LAG_SECONDS` is the worst reading taken
+    (13.0 min, 2026-08-28); if somebody re-measures it upward this fails rather than the
+    desk quietly polling too early.
     """
-    assert db_nautilus.poll_lag("1m") == 8 * 60
-    assert db_nautilus.poll_lag("1d") == db_nautilus.POLL_LAG
-    assert db_nautilus.poll_lag("1m") >= db_live.ARCHIVE_LAG_SECONDS, (
-        "the lag must clear the archive frontier or the bar is never settled")
+    for tf in ("1m", "1h", "1d"):
+        assert db_nautilus.poll_lag(tf) >= db_live.ARCHIVE_LAG_SECONDS, (
+            "the fallback lag must clear the archive frontier or the bar is never settled")
+
+
+def test_the_frontier_wait_is_bounded_below_the_retry_loop():
+    """A stalled archive must not wedge a poll task, and must not eat its own backstop.
+
+    Both halves matter. Without a ceiling the wait is unbounded; with a ceiling ABOVE the
+    retry loop the wait would consume the cover the retry loop is there to provide, and
+    the failure would be a bar silently skipped rather than a warning.
+    """
+    assert db_nautilus.FRONTIER_MAX_WAIT < (db_nautilus.MAX_RETRIES
+                                            * db_nautilus.RETRY_EVERY)
+    assert db_nautilus.FRONTIER_FLOOR < db_nautilus.FRONTIER_MAX_WAIT
+    # ...and the floor stays inside the SMALLEST lag ever observed (3.5 min), or the first
+    # question is asked after the answer could already have been yes.
+    assert db_nautilus.FRONTIER_FLOOR < 3.5 * 60
+
+
+def test_the_frontier_wait_asks_the_archive_and_stops_when_it_arrives(monkeypatch):
+    """The bar is fetched when the archive SAYS it has it, not when a constant expires."""
+    asked = []
+    ends = [pd.Timestamp("2026-08-28 12:00"), pd.Timestamp("2026-08-28 12:00"),
+            pd.Timestamp("2026-08-28 13:00")]
+
+    def fake_end(schema):
+        asked.append(schema)
+        return ends[min(len(asked) - 1, len(ends) - 1)]
+
+    monkeypatch.setattr(db_live, "available_end", fake_end)
+    monkeypatch.setattr(db_nautilus, "FRONTIER_FLOOR", 0)
+    monkeypatch.setattr(db_nautilus, "FRONTIER_EVERY", 0)
+
+    client = types.SimpleNamespace(_log=_Recorder())
+    how = asyncio.run(db_nautilus.DatabentoLiveClient._wait_for_frontier(
+        client, "1h", pd.Timestamp("2026-08-28 13:00")))
+    assert how == "arrived"
+    assert asked == ["ohlcv-1h"] * 3, "it must keep asking until the bar is in the archive"
+
+
+def test_an_unreadable_frontier_degrades_to_the_fixed_lag(monkeypatch):
+    """No key, an HTTP error, a vendor schema change: the poll task must survive all three.
+
+    A raise here would kill the task and take the leg's feed with it, silently — the same
+    shape of failure `run_paper` builds a controller for. It falls back to what this desk
+    did before the frontier was consulted.
+    """
+    def boom(schema):
+        raise RuntimeError("no key")
+
+    monkeypatch.setattr(db_live, "available_end", boom)
+    monkeypatch.setattr(db_nautilus, "FRONTIER_FLOOR", 0)
+    monkeypatch.setattr(db_nautilus, "POLL_LAG", 0)
+    monkeypatch.setattr(db_nautilus, "POLL_LAG_BY_TF", {})
+
+    client = types.SimpleNamespace(_log=_Recorder())
+    how = asyncio.run(db_nautilus.DatabentoLiveClient._wait_for_frontier(
+        client, "1h", pd.Timestamp("2026-08-28 13:00")))
+    assert how == "unreadable"
+    assert any("frontier" in w for w in client._log.warnings)
 
 
 async def _noop():

@@ -842,11 +842,12 @@ def _why_not_feedable(tf: str) -> str:
       be done about it here or anywhere; the sheets at those sizes were cut from cached 1m
       bars offline, which a live poll cannot do.
     * **1m** — the schema EXISTS (`db_intraday` fetches `ohlcv-1m` and the cache holds it).
-      What is missing is FRESHNESS: this desk reads the historical archive, which lags real
-      time by about eight minutes, so `db_nautilus.POLL_LAG` waits fifteen. A minute bar
-      delivered fifteen minutes after it closed is fifteen bars stale, which is not a slow
-      feed — it is a different strategy from the one anybody backtested. Fixing it needs
-      Databento's LIVE product, which is a subscription decision rather than code.
+      What is missing is FRESHNESS: this desk reads the historical archive, whose frontier
+      has been measured 3.5 to 13 minutes behind real time, and the poll waits for that
+      frontier rather than guessing at it. A minute bar delivered thirteen minutes
+      after it closed is thirteen bars stale, which is not a slow feed — it is a different
+      strategy from the one anybody backtested. Fixing it needs Databento's LIVE product,
+      which is a subscription decision rather than code.
     """
     import db_live
     servable = ", ".join(sorted(db_live.SCHEMA))
@@ -939,7 +940,7 @@ def _feed_caveat(cls: str, tf: str) -> str:
 
     **Since 2026-08-28 the answer depends on which feed is running, so it is read rather
     than written.** `db_stream.py` puts the leg on Databento's LIVE gateway, measured at
-    0.01 seconds behind a bar's close against the archive's ~8 minutes, and on that feed
+    0.01 seconds behind a bar's close against the archive's 3.5-13 minutes, and on that feed
     the old caveat is simply untrue. It is still true whenever the leg has fallen back to
     the poller, and that fallback can happen at any moment — a dead socket, a missing SDK
     — so the sentence has to be built from `db_live.FEED_MODE` at the moment the
@@ -950,7 +951,6 @@ def _feed_caveat(cls: str, tf: str) -> str:
     if cls != "cme_futures" or tf != "1m":
         return ""
     import db_live
-    import db_nautilus
     if db_live.feed_mode() == "stream":
         # Nothing surprising is true right now: the bar is a fraction of a second old,
         # a shorter delay than the member's own webhook round trip. A caveat here would
@@ -959,9 +959,9 @@ def _feed_caveat(cls: str, tf: str) -> str:
     return (f"Running. One thing to know about 1m on this class: the desk is polling "
             f"Databento's HISTORICAL archive rather than its live gateway "
             f"({db_live.FEED_MODE.get('why', 'reason unrecorded')}). The archive runs "
-            f"about {db_live.ARCHIVE_LAG_SECONDS // 60} minutes behind real time, so a "
-            f"minute bar reaches the desk roughly "
-            f"{db_nautilus.poll_lag('1m') // 60} minutes after it closed and your orders "
+            f"up to {db_live.ARCHIVE_LAG_SECONDS // 60} minutes behind real time, so a "
+            f"minute bar reaches the desk up to "
+            f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes after it closed and your orders "
             f"fill against it. Your SIGNAL is as timely as whatever sends it; the desk's "
             f"fill PRICE on this class is not until the live feed is back.")
 

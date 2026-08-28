@@ -19,9 +19,10 @@ poller aligned to the bar close plus a lag comfortably past those eight minutes 
 settled bar on the first attempt, which is exactly the shape `td_live` + `td_nautilus`
 already run at 1d and 4h.
 
-`ARCHIVE_LAG_SECONDS` below is that measurement, and `db_nautilus.POLL_LAG` is sized
-against it. Poll sooner than the lag and the vendor has nothing, `drop_forming` correctly
-discards what it does have, and the bar is skipped in silence.
+`ARCHIVE_LAG_SECONDS` below is that measurement. It is no longer what SCHEDULES a poll --
+`db_nautilus._wait_for_frontier` asks `available_end` where the archive has actually got to
+-- because the frontier advances in steps and any single reading of it is a sample of a
+sawtooth, not a constant.
 
 **This is no longer the desk's primary feed, and the sentence that used to stand here —
 "Databento's paid Live API buys latency this desk has no use for" — was right about a book
@@ -83,20 +84,28 @@ from futures_specs import GLBX_START
 
 DATASET = db_loader.DATASET
 
-# The measured lag of the historical archive behind real time. It is what makes a REST
-# poller a live feed here, and it is what `db_nautilus.POLL_LAG` has to clear.
+# The measured worst case of the historical archive's lag behind real time. It is what
+# makes a REST poller a live feed here, and it is what a fallback poll lag has to clear.
 #
-# **Re-measured 2026-08-28 by sampling the frontier every 20s for two minutes**, because
-# the first reading was taken once and rounded: `ohlcv-1m`'s end ran 5.5 to 7.3 minutes
-# behind, mean 6.4. The spread is the vendor advancing the frontier in steps rather than
-# continuously, so the WORST case is what a poller has to clear, not the mean.
+# **The frontier is a SAWTOOTH, and every previous number here was a sample of one tooth.**
+# It advances in jumps of roughly ten minutes rather than sliding, so a reading taken just
+# after a jump is small and one taken just before the next jump is large — and a
+# measurement that happens to span only the low half reads as a small constant. Sampled
+# every ~28s on 2026-08-28 from 13:00:42 UTC, `metadata.get_dataset_range`'s top-level end
+# ran **10.7 -> 13.0 minutes** behind and then fell to **3.5** as the archive advanced; the
+# 2026-08-27 reading was 8 and the 2026-08-28 window before this one read 5.5 to 7.3. Those
+# are all the same tooth measured at different points, not a vendor that got slower.
+#
+# 13 minutes is therefore the number to size anything against, and the deeper lesson is
+# that a poller must not be scheduled off a constant at all when the thing it waits for can
+# be ASKED -- see `db_nautilus._wait_for_frontier`, which does.
 #
 # Read the per-schema `end` carefully when re-measuring. `ohlcv-1d` reports 00:00 and
 # `ohlcv-1h` reports the last completed HOUR, so both look far more stale than the archive
 # is — at 02:25 they read 145 and 25 minutes behind while the frontier was 5. Only the
 # finest schema tracks the frontier, and `metadata.get_dataset_range`'s top-level `end` is
 # the frontier itself.
-ARCHIVE_LAG_SECONDS = 8 * 60
+ARCHIVE_LAG_SECONDS = 13 * 60
 
 # The only two schemas this class may be fed from, and the reason is a measured vendor
 # defect rather than a product gap. The GLBX archive folds whole sessions into a handful

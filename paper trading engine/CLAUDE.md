@@ -58,7 +58,7 @@ db_live.py        Databento REST: the CME futures leg's WARM-UP, its marks, and 
                   fallback bar feed, ratio back-adjusted. The SECOND vendor, and the only
                   one this class may be asked. Importable without Nautilus, like td_live
 db_stream.py      Databento's LIVE gateway: the same vendor over a socket, 0.01s behind a
-                  bar's close against the archive's ~8 minutes. Owns its own reconnect,
+                  bar's close against the archive's 3.5-13 minutes. Owns its own reconnect,
                   because the SDK's drops the gap. Imports the `databento` SDK LAZILY, so
                   a box without it degrades to the poller instead of failing to start
 db_nautilus.py    DatabentoLiveClient, bound to the `GLBX` venue, and the roll/forward-
@@ -536,6 +536,29 @@ offline reference exactly, that no session is decided twice, and that the book i
 still holds. The reference is spelled out in the test rather than imported, because one
 that calls the implementation cannot disagree with it.
 
+**It replays the same parquet a live book warms FROM, and that made it stop testing
+anything.** `book_strategy.on_start` seeds `_bars` from `cache_warmup.load`, whose newest
+bar offline is the newest bar in `data/stocks/5m` — which is also the last bar the gate
+feeds through the engine. `_append` refuses any bar at or before the buffer's last
+timestamp, so every replayed bar was rejected as already seen, the buffer never advanced,
+and all 200 sessions were decided on one folded frame. Nothing failed loudly: the gate
+printed 1,200 decisions and matched its own reference on all of them, because both sides
+had collapsed onto the final session. The seed is switched off in the gate, not in the
+strategy — a live book's cache is by construction older than its feed, and a replay of the
+cache against itself is a property of running offline.
+
+**There are two references, and the gap between them is real.** A Nautilus `Price` carries
+the instrument's own precision — two decimals on an equity — so every bar is quantised to
+the cent before a rule sees it, while `data/stocks/5m` holds `adjust=all` back-adjusted
+floats and a name quotes 88.019997 rather than 88.02. That is ~1bp and invisible in a P&L;
+IBS is a **threshold** rule, so a session whose IBS lands within a cent's worth of 0.2 or
+0.8 rounds to opposite sides of it and the desk takes a position the sheet does not. One
+decision in 1,026 does: `KO` on 2026-08-17, IBS 0.200854 on the sheet's prices and 0.196581
+at 2dp. The gate NAMES it against a second, quantised reference rather than widening a
+tolerance, and still fails on anything that reference does not explain. Raising the
+instrument's precision would fix it and would move every fill price already in
+`results/paper.db`, so that is a decision with a record behind it and not a line in a gate.
+
 `deskdb.registrations.signal_tf` carries it to the desk; NULL is the old behaviour and is
 what every existing row has. As of 2026-08-20 the desk carries **both** versions of the two
 daily IBS books — `us_stocks-1d-ibs` and `us_stocks-1d-ibs-early`, and the same pair on
@@ -759,13 +782,29 @@ credential refuses visibly; an absent one mis-routes silently.
 
 ### There are two Databento feeds now, and the leg says which one it is on
 
-The archive lags real time by about eight minutes — measured 2026-08-27 at 12:58:10 UTC,
-`metadata.get_dataset_range` for `GLBX.MDP3` reported the dataset ending at 12:50:00 UTC,
-and `ohlcv-1h`/`ohlcv-1d` report that same fact rounded down to their own bar boundary. A
-REST poller therefore works, at $0.00, and that was the whole feed until 2026-08-28.
-`db_nautilus.POLL_LAG` is 15 minutes, sized against that measurement: poll inside the lag
-and the vendor has nothing, `drop_forming` correctly discards what it does have, and the
-bar is skipped in silence.
+The archive lags real time by a handful of minutes, so a REST poller works, at $0.00, and
+that was the whole feed until 2026-08-28.
+
+**The lag is a SAWTOOTH, and every constant this desk ever sized against it was one tooth
+sampled at one point.** The frontier does not slide; it advances in jumps of roughly ten
+minutes. Sampled every ~28s on 2026-08-28 from 13:00:42 UTC,
+`metadata.get_dataset_range`'s top-level end ran **10.7 -> 13.0 minutes** behind and then
+fell to **3.5** as the archive advanced. The 2026-08-27 reading of 8 minutes and the
+earlier 2026-08-28 window of 5.5-7.3 are the same tooth caught lower down, not a vendor
+that has slowed.
+
+So `db_nautilus` no longer schedules a poll off a constant. `_wait_for_frontier` **asks**:
+`db_live.available_end(schema)` is the frontier floored to that schema's own bar boundary,
+so `end >= bar_close` is exactly "the archive holds this bar", and the poll sleeps until it
+does. Three bounds make that safe — `FRONTIER_FLOOR` (60s, inside the smallest lag ever
+seen) before the first question, `FRONTIER_EVERY` (30s, against a 60s TTL on the reading),
+and `FRONTIER_MAX_WAIT` (20 min), which is deliberately SHORTER than the retry loop's 40
+minutes so the ceiling cannot eat its own backstop. A frontier that cannot be read at all
+degrades to `POLL_LAG` with a sentence in the log.
+
+Nothing was breaking while the constants were wrong — the retry loop covered it — but a
+poll inside the lag finds nothing settled and says nothing about it, and `POLL_LAG_BY_TF`
+is now empty because a per-timeframe lag only ever mattered while the lag decided latency.
 
 **Eight minutes stopped being good enough when `1m` was opened to member registrations**,
 because there it is eight bars. `db_stream.py` is Databento's LIVE gateway, and the two
@@ -773,7 +812,7 @@ measured side by side on this key:
 
 | feed | behind a bar's close | cost |
 |---|---|---|
-| `db_live` REST poller | ~8 min (`ARCHIVE_LAG_SECONDS`) | $0.00 |
+| `db_live` REST poller | 3.5-13 min (`ARCHIVE_LAG_SECONDS`) | $0.00 |
 | `db_stream` live gateway | **0.01 s** | **$0.00** |
 
 `metadata.list_unit_prices` carries a `live` mode block for `GLBX.MDP3` and
@@ -1006,22 +1045,24 @@ The signal arrives over the webhook from TradingView's own real-time data, and w
 desk needs a bar for is a price to fill against and a mark. So the honest answer is not
 "no", it is "yes, and here is what is stale about it".
 
-**How late, measured.** The archive frontier was sampled every 20s for two minutes on
-2026-08-28: `ohlcv-1m`'s end ran **5.5 to 7.3 minutes** behind real time, mean 6.4. So
-`POLL_LAG_BY_TF["1m"]` is 8 minutes — the worst reading plus headroom — against the 15 the
-other sizes use, because fifteen minutes is right for a daily bar and is fifteen BARS at
-1m. Verified end to end: a 20-bar `fetch_bars("ES.v.0", "1m")` returns in ~12s with its
-newest bar 6.0 minutes old.
+**How late, measured.** `ohlcv-1m`'s end has been sampled at **3.5 to 13.0 minutes**
+behind real time (2026-08-28, every ~28s over seven minutes) — see the sawtooth above.
+`db_live.ARCHIVE_LAG_SECONDS` is the worst of those and the poll waits for the frontier
+rather than for a constant, so a 1m futures bar arrives when the archive has it and not
+before.
 
 **Read the per-schema `end` carefully if you re-measure this.** `ohlcv-1d` reports 00:00
 and `ohlcv-1h` reports the last completed hour, so at 02:25 they read 145 and 25 minutes
 behind while the frontier was 5. Only the finest schema tracks the frontier, and
 `metadata.get_dataset_range`'s top-level `end` is the frontier itself. Sizing the poll lag
-off the hourly reading is how 8 minutes became 15.
+off the hourly reading is how 8 minutes became 15. **That rounding is a feature for
+`_wait_for_frontier` and a trap for a measurement**: a schema's own `end` is precisely the
+right answer to "do you hold the bar closing at T", and precisely the wrong answer to "how
+far behind are you".
 
 **The caveat is written into `reason`, beside `live`** (`desk_control._caveat`), a column
 that until then only ever carried a refusal. A member whose fills are priced off a bar
-eight minutes old has to be told, and the row they are already looking at is where they
+thirteen minutes old has to be told, and the row they are already looking at is where they
 will see it — the alternative is a system that runs, fills and publishes while quietly
 meaning something other than what its owner thinks. Keep that column rare: a caveat on
 every row is a caveat nobody reads.
@@ -1085,11 +1126,73 @@ believed it:
 * **`td_nautilus._to_bar` stamped `ts_event` from the same value**, so those bars are
   recorded in the future in `results/paper.db`.
 
-`fetch_bars` now returns a tz-aware **UTC** index for every class, from
-`config.INTRADAY_CLOCK` via `paper_config.vendor_tz`, so the desk and the sheet it selected
-from mean the same thing by "the bar". `_seconds_to_next_close` is modular arithmetic on the
-epoch and was therefore also wrong against the vendor's Sydney-anchored 4h commodity grid —
-whole hours are fine at `1m`..`1h`, and `10 % 4 == 2` is not.
+`fetch_bars` now returns each class's own **cache clock**, from `config.INTRADAY_CLOCK` via
+`paper_config.to_cache_clock`, so the desk and the sheet it selected from mean the same
+thing by "the bar".
+
+### The same bug ran the other way on the equity legs, and that half is worse
+
+`us_stocks` and `us_etfs` have an exchange-local cache, so `_to_cache_clock` correctly
+leaves their stamps on `America/New_York` — and the forming-bar guard then compared that ET
+stamp against `datetime.now(timezone.utc)`, four or five hours AHEAD of it. `now < open +
+duration` was therefore essentially never true, the guard never fired, and **the desk kept
+the still-forming intraday equity bar**: a rule computed from a high, a low and a close that
+had not finished happening. Discarding a good bar costs a session, which is what the
+commodity direction did; trading one that has not closed is look-ahead, which is the family
+the root `CLAUDE.md` is most emphatic about.
+
+**The fix converts `now`, not the bar** (`td_live._now_in_cache_clock`). Restamping the bar
+would move `ts_event` by 4-5 hours and `ts` is part of the fills table's natural key, so a
+warm-up replay would stop collapsing against everything already recorded and would double
+the position history. Measured on 2026-08-27's real bars: at 15:57 ET inside the 15:55 5m
+bar the old guard does not fire and the new one does; at 16:00 ET neither does. Identical
+frames for `crypto`, `commodities` and every daily size, checked against the previous code
+frame for frame.
+
+**`1d` is deliberately outside this.** A daily stamp is a DATE, not a wall-clock instant, so
+no intraday zone applies to it — and reading `now` in ET for a daily equity bar would push
+its delivery 4-5 hours past the once-a-day poll and its 20-minute retry window, so the bar
+would never arrive at all. The guard would go from never firing to always firing.
+
+### A restamp fixes a LABEL; a bar wider than the offset needs its GRID rebuilt
+
+`_seconds_to_next_close` is modular arithmetic on the epoch and was therefore also wrong
+against the vendor's Sydney-anchored 4h commodity grid — whole hours are fine at
+`1m`..`1h`, and `10 % 4 == 2` is not. The cache was fixed for this: `migrate_cache_clock.py`
+rebuilt commodity `4h` from the corrected `1h` onto the real UTC grid. **The live path was
+not**, so from the day that migration shipped the commodity 4h books were trading bars that
+exist in no research sheet — `00:commodities-4h-*` fills land on `hour % 4 != 0`, which is
+the Sydney grid wearing UTC labels.
+
+`td_live.derived_from` is the live half. A cell is BUILT rather than fetched when the class
+is restamped and the bar does not divide an hour — arithmetic, the inverse of
+`migrate_cache_clock.relabel_safe`, so a timeframe added later answers for itself. Today it
+names commodity `4h` and nothing else. `_fetch_derived` then pulls `1h` and aggregates it
+through **`resample_intraday.resample_frame`**, imported rather than reimplemented, because
+that is the function that wrote the cache and a second copy of `origin="start_day"` here is
+exactly how the two would drift apart again.
+
+Three consequences, and none of them is optional:
+
+* **A derived bucket is settled when the SOURCE has settled through its end**, not when the
+  wall clock passes it. At the 4h boundary plus the poll lag the vendor has *usually*
+  published the last hour, and a bucket published one hour short has the wrong high, low and
+  close with nothing downstream able to tell. The wall-clock clause behind it releases a
+  bucket the source will never fill — the market shut mid-bucket, which is every Friday on
+  spot metals — after one extra source interval rather than never.
+* **The warm-up is shallower on a derived cell.** One vendor call is capped at 5,000 bars,
+  so 4h from 1h tops out at 1,250 against `DEFAULT_WINDOW_BARS`' 1,500. That still clears
+  `MEASURED_WINDOW_BARS` (1,000), so no signal moves; it is written down because a silent
+  shortfall is the thing this file exists to prevent.
+* **The grid change moves `ts_event` on commodity 4h bars once**, by construction — that is
+  the fix. The existing record is not rewritten and the seam is a single one: after the
+  first restart on the new grid the stamps are stable again.
+
+Measured 2026-08-28: `XAU/USD` and `XAG/USD` 4h now land on 00/04/08/12/16/20 UTC, the
+cache's own grid, where the previous code returned 01/05/09/13/17/21. Over the 388 buckets
+that overlap the cache, `Open` agrees to **0.000 bp** and every other field on 387 of 388;
+the one exception is the cache's own final bucket, which was still forming when it was
+written.
 
 **The existing record is NOT rewritten.** 24 fills and 18 curve points across six
 `commodities-1d` and `commodities-4h` systems, all on 2026-08-14/15, carry `ts` on the

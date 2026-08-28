@@ -443,6 +443,86 @@ def test_the_forming_bar_guard_now_sees_a_commodity_bar_as_past():
     assert now >= fixed + duration                               # kept, correctly
 
 
+def test_now_is_read_on_the_bar_s_own_clock():
+    """The same defect as the commodity one, in the opposite and more expensive direction.
+
+    An equity's cache is `America/New_York`, so `_to_cache_clock` correctly leaves its
+    stamps there — and the guard then compared that ET stamp against a UTC `now` four or
+    five hours AHEAD of it. `now < open + duration` was therefore essentially never true,
+    the guard never fired, and the desk KEPT the still-forming bar: a rule computed from a
+    high, a low and a close that had not finished happening. Discarding a good bar costs a
+    session; trading one that has not closed is look-ahead.
+    """
+    import pandas as pd
+
+    et = td_live._now_in_cache_clock("AAPL")
+    utc = pd.Timestamp.now(tz="UTC").tz_localize(None)
+    assert et.tzinfo is None, "the bars are naive, so the comparison has to be too"
+    assert round((utc - et).total_seconds() / 3600) in (4, 5), (
+        "an equity's clock is New York, and it is four or five hours behind UTC")
+
+    # ...and it is exactly the identity everywhere the cache is already UTC, so no other
+    # class's behaviour moves. `ts_event` is derived from these stamps and `ts` is part of
+    # the fills table's natural key, so an accidental shift here would double the record.
+    for symbol in ("BTC/USD", "XAU/USD", "ES.v.0", "NOT-A-TICKER"):
+        assert abs((td_live._now_in_cache_clock(symbol) - utc).total_seconds()) < 5
+
+
+def test_a_forming_equity_bar_is_dropped_and_a_closed_one_is_kept():
+    """The guard itself, on the two instants either side of a real bar's close."""
+    import pandas as pd
+
+    bar = pd.Timestamp("2026-08-27 15:55:00")            # ET, the vendor's own stamp
+    frame = pd.DataFrame({"Open": [1.0], "High": [1.0], "Low": [1.0],
+                          "Close": [1.0], "Volume": [1.0]}, index=[bar])
+
+    def guard_at(when_et: str, symbol: str = "AAPL", tf: str = "5m"):
+        stamp = pd.Timestamp(when_et)
+        real = td_live._now_in_cache_clock
+        td_live._now_in_cache_clock = lambda s: stamp
+        try:
+            return td_live._without_forming(frame, symbol, tf)
+        finally:
+            td_live._now_in_cache_clock = real
+
+    assert guard_at("2026-08-27 15:57:00").empty, "15:57 is inside the 15:55 bar"
+    assert len(guard_at("2026-08-27 16:00:00")) == 1, "at 16:00 the bar has closed"
+    assert len(guard_at("2026-08-27 16:05:00")) == 1
+
+
+def test_a_restamp_fixes_a_label_and_a_wide_bar_needs_its_grid_rebuilt():
+    """Commodity 4h is the one cell the live desk may not fetch from the vendor.
+
+    A whole-hour restamp moves a bar's label and leaves `1m`..`1h` covering the same
+    windows, so those are fetched. `4h` is wider than the offset — Sydney is UTC+10/+11,
+    `10 % 4 == 2` — so a restamped 4h bar lands off the grid `data/commodities/4h` holds,
+    and off a DIFFERENT one in summer than in winter. The cache was rebuilt from 1h by
+    `migrate_cache_clock.py`; this is the same rebuild on the live path, which is what
+    stops the desk trading bars that are in no research sheet.
+    """
+    assert td_live.derived_from("XAU/USD", "4h") == "1h"
+    for tf in ("1m", "5m", "15m", "30m", "1h"):
+        if tf in td_live.INTERVALS:
+            assert td_live.derived_from("XAU/USD", tf) is None
+    assert td_live.derived_from("XAU/USD", "1d") is None, (
+        "a daily commodity bar is the vendor's own 21:00 UTC roll-up, a third convention")
+    for symbol in ("SPY", "AAPL", "BTC/USD", "ES.v.0", "NOT-A-TICKER"):
+        assert td_live.derived_from(symbol, "4h") is None
+
+
+def test_the_derived_grid_is_the_cache_s_grid():
+    """Built by the same function that wrote the cache, so the two cannot drift apart."""
+    import pandas as pd
+    import resample_intraday
+
+    idx = pd.date_range("2026-08-27 00:00", periods=48, freq="1h")
+    hourly = pd.DataFrame({"Open": 1.0, "High": 2.0, "Low": 0.5, "Close": 1.5,
+                           "Volume": 10.0}, index=idx)
+    out = resample_intraday.resample_frame(hourly, 240)
+    assert sorted(set(out.index.hour)) == [0, 4, 8, 12, 16, 20]
+    assert list(out.columns) == list(hourly.columns)
+
+
 # --------------------------------------------- can this book afford one unit of that?
 #
 # The failure that produced this was invisible for hours. A member pointed TradingView at
