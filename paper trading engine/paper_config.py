@@ -95,7 +95,18 @@ BAR_SPEC = {
 # **`1m` is deliberately NOT in `BOOK_TIMEFRAMES`.** A book holds the whole class, and
 # `book_universe("us_stocks")` is the live top 100 — 100 requests a minute from one
 # promotion, which is the regime this note has always been about.
-MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "2h", "1h", "15m", "5m", "1m")]
+# `2h` came off on 2026-08-28. It was feedable — Twelve Data sells the interval and
+# `BAR_SPEC` could spell it — but nothing in this repo has ever scored a 2h sheet
+# (`dash_config.TIMEFRAMES` is 1d/4h/1h/15m/5m) and no registration has ever named it
+# in the ledger's history: 1d 23, 4h 12, 5m 9, 1m 1, 2h **0**. So it was a pill on
+# the board that could only ever answer "nothing matches this filter", and an option
+# in the wizard leading somewhere with no research behind it.
+#
+# Removed from the LIST rather than hidden on the board, because the board strip is
+# derived from this list on purpose — "what the desk CAN run, not what it happens to
+# be running" — and special-casing the display would have made the two disagree,
+# which is the drift that derivation exists to prevent.
+MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "1h", "15m", "5m", "1m")]
 
 # How many DISTINCT symbols the desk will carry at 1m, across every member registration.
 #

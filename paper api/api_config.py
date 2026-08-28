@@ -172,7 +172,7 @@ DESK_STALE_SECONDS = env_int("API_DESK_STALE_SECONDS", 20)
 # there, with the number, on the desk's next pass. That is the ordinary contract of this
 # folder and not a special case: the desk's checks bind, these exist to be fast and kind.
 TIMEFRAMES = tuple(
-    t.strip() for t in env("API_TIMEFRAMES", "1d,4h,2h,1h,15m,5m,1m").split(",") if t.strip())
+    t.strip() for t in env("API_TIMEFRAMES", "1d,4h,1h,15m,5m,1m").split(",") if t.strip())
 
 
 def mail_configured() -> bool:
