@@ -351,6 +351,16 @@ class DeskController(Controller):
                     f"{reg['tf']} is not a timeframe this desk can feed. It runs "
                     f"{', '.join(paper_config.MEMBER_TIMEFRAMES)} — each one costs a poll "
                     f"task per symbol against the vendor, so the list is deliberate.")
+            # 1m is the one timeframe whose cost is not amortised by the bar being long.
+            # Every other size polls once per symbol per bar and a bar is minutes or
+            # hours; at 1m it is once per symbol per MINUTE, so the desk's whole vendor
+            # budget is spent by a few dozen tickers. Refused here, with the number, so
+            # the answer is a sentence its owner can act on rather than a feed that
+            # degrades for every book on the desk including the ones already running.
+            if reg["tf"] == "1m":
+                over = self._minute_budget_exceeded(reg)
+                if over:
+                    raise RuntimeError(over)
 
         # Both kinds, and after both of the lists above, because a timeframe can be on the
         # desk's offer and still be one this CLASS's vendor cannot serve. `cme_futures` at
@@ -373,6 +383,41 @@ class DeskController(Controller):
         self._quiet.discard(rid)
         deskdb.mark_registration(rid, "live")
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
+
+    def _minute_budget_exceeded(self, reg: dict) -> str:
+        """Would attaching this 1m registration take the desk past `MAX_1M_SYMBOLS`?
+
+        Counted over DISTINCT symbols already subscribed at 1m, not over registrations,
+        because `td_nautilus` keys its poll tasks on the bar type: three members trading
+        the same twenty tickers cost twenty polls between them, not sixty. Counting
+        registrations would refuse the cheap case and wave the expensive one through.
+
+        Read off the LEDGER rather than off `self._running`, so a registration that is
+        applied but not yet started still counts against the budget — otherwise a burst
+        arriving in one tick each sees an empty desk and they are all admitted.
+        """
+        wanted = {s for s in reg["symbols"]}
+        live: set[str] = set()
+        try:
+            for other in deskdb.active_registrations():
+                if other.get("tf") != "1m":
+                    continue
+                if other.get("strategy_id") == reg.get("strategy_id"):
+                    continue
+                live.update(other.get("symbols") or [])
+        except Exception as exc:                       # noqa: BLE001 - reported, not fatal
+            # A ledger this process cannot read is not a reason to admit an unbudgeted
+            # subscription: fail closed, and say which way it failed.
+            return (f"could not price this 1m registration against the desk's budget "
+                    f"({type(exc).__name__}: {exc}); refusing rather than guessing")
+        total = len(live | wanted)
+        if total <= paper_config.MAX_1M_SYMBOLS:
+            return ""
+        return (f"this would take the desk to {total} distinct symbols at 1m and the "
+                f"ceiling is {paper_config.MAX_1M_SYMBOLS}. One minute bar costs one "
+                f"vendor request per symbol per minute, so 1m is the one size where a "
+                f"few dozen tickers spend the whole feed's budget — {len(live)} are "
+                f"already subscribed. Trade fewer names, or use 5m.")
 
     def _build(self, reg: dict, venue: str):
         """A member's registration and a rule promoted off a backtest differ only here.

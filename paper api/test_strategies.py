@@ -229,10 +229,14 @@ def test_retiring_frees_a_slot(client):
 
 @pytest.mark.parametrize("bad", [
     {"cls": "forex"},
-    # `1m`, not `5m`: the desk gained the intraday timeframes down to 5m, and 1m is the one
-    # deliberately left off. One poll task per subscription aligned to the bar close makes
-    # a minute book a different vendor-credit regime, not a faster version of the same one.
-    {"tf": "1m"},
+    # `30m` and `1w`, not `1m`. 1m WAS the deliberate exclusion here and stopped being one
+    # on 2026-08-28: it really is a different vendor-credit regime rather than a faster
+    # version of the same one, so what guards it now is a ceiling on the desk's distinct
+    # 1m symbols (`paper_config.MAX_1M_SYMBOLS`) rather than an absent row in this list.
+    # `30m` is the useful case to keep pinned — Twelve Data sells it, and this repo
+    # deliberately does not carry it, so it is a timeframe that LOOKS plausible and is not
+    # on offer. A test that only ever rejects nonsense does not check the boundary.
+    {"tf": "30m"},
     {"tf": "1w"},
     {"symbols": []},
     {"symbols": ["SPY", "SPY"]},
@@ -605,3 +609,30 @@ def test_one_account_cannot_purge_anothers(client):
     r = client.delete(f"/v1/strategies/{sid}?purge=true", headers=auth(mine))
     assert r.status_code == 404                       # not 403: an id you cannot see
     assert deskdb.registration(sid) is not None
+
+
+def test_one_minute_is_on_offer(client):
+    """1m joined the register on 2026-08-28, and `/v1/limits` has to say so.
+
+    The wizard builds its timeframe strip from this endpoint, so a timeframe missing here
+    is a timeframe nobody can pick however well the desk feeds it.
+    """
+    r = client.get("/v1/limits", headers=auth(key_for("m@example.com")))
+    assert r.status_code == 200
+    assert "1m" in r.json()["timeframes"]
+    assert register(client, key_for("m@example.com"), tf="1m").status_code == 201
+
+
+def test_the_minute_ceiling_is_the_DESK_s_check_not_this_one(client):
+    """A 1m registration is accepted here and may still be refused there.
+
+    `paper_config.MAX_1M_SYMBOLS` is a ceiling on the desk's DISTINCT 1m symbols, and this
+    process holds no feed and cannot see that count — it imports no trading code, which is
+    the property `api_paths` exists to keep. So the honest behaviour is 201 now and a
+    `reason` on the row later, exactly as for every other thing only the desk can judge.
+    Pinned so nobody "fixes" it by importing `paper_config` in here.
+    """
+    r = register(client, key_for("m@example.com"), tf="1m",
+                 symbols=["SPY", "QQQ", "IWM"], name="minutebook")
+    assert r.status_code == 201
+    assert r.json()["state"] == "pending"

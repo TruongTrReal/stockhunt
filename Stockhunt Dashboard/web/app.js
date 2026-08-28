@@ -648,7 +648,7 @@ const paperClassPills = () =>
 
 /* The same argument, one axis over. This strip was the literal pair `1d / 4h` — the two
  * horizons the HOUSE promotes its own books at — while the desk accepts a registration at
- * any of six (`paper_config.MEMBER_TIMEFRAMES`, which is what `/v1/limits` advertises and
+ * any of seven (`paper_config.MEMBER_TIMEFRAMES`, which is what `/v1/limits` advertises and
  * what the join wizard offers). A member registering at 1h or 5m therefore got a strategy
  * that ran, filled and published, and a board with no button that could reach it.
  *

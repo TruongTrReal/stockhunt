@@ -164,10 +164,15 @@ DESK_STALE_SECONDS = env_int("API_DESK_STALE_SECONDS", 20)
 # imports no trading code, so it cannot read `paper_config` without dragging the backtest
 # engine into an HTTP server. Widen the desk first, then this.
 #
-# `1m` is on neither list. One poll task per subscription, aligned to the bar close, makes
-# a minute book a different vendor-credit regime rather than a faster one.
+# `1m` is on both lists since 2026-08-28. It really is a different vendor-credit regime
+# rather than a faster one — one poll per symbol per MINUTE — so the desk enforces
+# `paper_config.MAX_1M_SYMBOLS`, a ceiling on the DISTINCT symbols it will carry at that
+# size across every registration. This process cannot see that count (it holds no feed and
+# imports no trading code), so a 1m registration can still be accepted here and refused
+# there, with the number, on the desk's next pass. That is the ordinary contract of this
+# folder and not a special case: the desk's checks bind, these exist to be fast and kind.
 TIMEFRAMES = tuple(
-    t.strip() for t in env("API_TIMEFRAMES", "1d,4h,2h,1h,15m,5m").split(",") if t.strip())
+    t.strip() for t in env("API_TIMEFRAMES", "1d,4h,2h,1h,15m,5m,1m").split(",") if t.strip())
 
 
 def mail_configured() -> bool:

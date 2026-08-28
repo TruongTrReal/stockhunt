@@ -713,7 +713,7 @@ What replaced them is per system, in the row:
 
 Both pill rows are built from lists `payload.build` ships, and the paper one had drifted
 badly: it was `1d / 4h` — the two horizons the **house** promotes its own books at — while
-the desk accepts a registration at any of six (`paper_config.MEMBER_TIMEFRAMES`, which is
+the desk accepts a registration at any of seven (`paper_config.MEMBER_TIMEFRAMES`, which is
 what `/v1/limits` advertises and what the join wizard offers). A member registering at 1h
 or 5m got a strategy that ran, filled and published, and a board with no button that could
 reach it. Same failure the class strip had before `paperClasses`, one axis over.

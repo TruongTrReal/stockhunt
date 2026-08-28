@@ -76,12 +76,38 @@ BAR_SPEC = {
 # a member's strategy decides for itself and only needs the desk to mark a book and fill an
 # order. Neither of those needs a leaderboard behind it.
 #
-# `1m` is excluded, and it is the one exclusion worth stating. `td_nautilus` runs ONE POLL
-# TASK PER SUBSCRIPTION, aligned to the bar close — so a minute book of ten symbols is ten
-# vendor requests every minute, which is a different Twelve Data credit regime from the one
-# this desk was sized for, not merely a faster version of it. Add it here when the plan
-# behind `TWELVEDATA_API_KEY` can carry it; nothing else has to change.
-MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "2h", "1h", "15m", "5m")]
+# `1m` joined on 2026-08-28, and the reason it was out is worth keeping because it is the
+# reason the cap below exists. `td_nautilus` runs ONE POLL TASK PER SUBSCRIPTION, aligned
+# to the bar close, so a minute book is one vendor request per symbol PER MINUTE — a
+# different Twelve Data credit regime from the rest of this list, not merely a faster
+# version of it. `td_live` is quoted against a 610/minute budget.
+#
+# What changed is the arithmetic, not the budget. This list governs MEMBER registrations,
+# which name at most `SYMBOLS_MAX` (20) symbols each, and subscriptions are shared by
+# (symbol, timeframe) — so the cost is the count of DISTINCT symbols at 1m, not the count
+# of strategies. A handful of member books is tens of requests a minute against 610.
+#
+# The worst case is still real, which is why `MAX_1M_SYMBOLS` is enforced rather than
+# assumed: `desk_control.MAX_MEMBER_STRATEGIES` is 60, and sixty strategies naming twenty
+# distinct symbols each would be 1,200 requests a minute and would take the feed down for
+# every other book on the desk, including the house's own.
+#
+# **`1m` is deliberately NOT in `BOOK_TIMEFRAMES`.** A book holds the whole class, and
+# `book_universe("us_stocks")` is the live top 100 — 100 requests a minute from one
+# promotion, which is the regime this note has always been about.
+MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "2h", "1h", "15m", "5m", "1m")]
+
+# How many DISTINCT symbols the desk will carry at 1m, across every member registration.
+#
+# 120 is ~20% of the 610/minute budget `td_live` is quoted against, which leaves the house
+# books, the mark-to-market poller and the warm-up requests the rest. It is a count of
+# symbols and not of strategies on purpose: three members trading the same twenty tickers
+# cost twenty polls between them, because `td_nautilus` keys its poll tasks on the BAR
+# TYPE and books sharing one share the subscription.
+#
+# `cme_futures` cannot reach this at all — `db_live.SCHEMA` is 1d and 1h, so `_feedable`
+# refuses a futures registration at 1m before this is ever consulted.
+MAX_1M_SYMBOLS = 120
 
 # A timeframe on offer that the desk cannot subscribe to is a registration that is accepted
 # and then rejected minutes later, which is exactly the confusion the console was rebuilt

@@ -664,11 +664,38 @@ Three things now stand where nothing stood:
 every one **round-trips** — a spec that maps to the wrong key polls on the wrong cadence,
 which is quieter still.
 
-**`1m` is excluded on purpose, and the reason is cost, not capability.** `td_nautilus` runs
-one poll task per subscription aligned to the bar close, so a minute book of ten symbols is
-ten Twelve Data requests every minute — a different credit regime, not a faster version of
-the same one. Adding it is one entry in `MEMBER_TIMEFRAMES` and one in `API_TIMEFRAMES`
-when the vendor plan can carry it.
+**`1m` is on offer since 2026-08-28, and what guards it is a CEILING, not its absence.**
+The old reason for excluding it was cost and not capability, and that is still exactly
+right: `td_nautilus` runs one poll task per subscription aligned to the bar close, so a
+minute book is one Twelve Data request per symbol **per minute** against the 610/minute
+budget `td_live` is quoted for. What changed is the arithmetic. `MEMBER_TIMEFRAMES`
+governs member registrations, which name at most 20 symbols each, and subscriptions are
+shared by (symbol, timeframe) — so the bill is the count of **distinct symbols at 1m**,
+not the count of strategies. A handful of member books is tens of requests a minute.
+
+The worst case is still real, so it is enforced rather than assumed:
+`MAX_MEMBER_STRATEGIES` is 60 and sixty books naming twenty distinct symbols each would be
+1,200 requests a minute — which would not degrade the offending book, it would take the
+feed down for every book on the desk. `paper_config.MAX_1M_SYMBOLS` (120, ~20% of the
+budget) is checked in `DeskController._minute_budget_exceeded` before a 1m registration
+attaches. Three properties of that check are load-bearing:
+
+* **It counts SYMBOLS, not registrations.** Three members on the same twenty tickers cost
+  twenty polls between them. Counting registrations would refuse the cheap case and admit
+  the expensive one — the exact inversion.
+* **It reads the LEDGER, not `self._running`**, so a registration applied but not yet
+  started still counts. Otherwise a burst arriving in one tick each sees an empty desk.
+* **It fails CLOSED.** A ledger this process cannot read refuses the registration and says
+  so, because an unbudgeted 1m subscription admitted by accident is a desk-wide outage.
+
+`1m` is deliberately **not** in `BOOK_TIMEFRAMES`. A book holds the whole class, and
+`book_universe("us_stocks")` is the live top 100 — one promotion would be 100 requests a
+minute on its own, which is the regime this paragraph has always been about.
+
+`cme_futures` cannot reach the ceiling at all: `db_live.SCHEMA` is `1d` and `1h`, so
+`_feedable` refuses a futures registration at 1m for **capability** first, with a sentence
+that says so. A member told they hit a symbol ceiling would go and trade fewer names,
+which cannot help them there.
 
 **The legs must stay disjoint** — `paper_config` raises at import if they are not. SPY, SOXL
 and TQQQ are on the *equity* leg because that is the transfer test (rules ranked on
