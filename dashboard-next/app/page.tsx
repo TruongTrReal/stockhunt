@@ -195,10 +195,22 @@ export default function ResearchPage() {
     return () => mq.removeEventListener("change", on);
   }, []);
 
+  /* On mount AND on `hashchange`, because those are two different arrivals and only the
+   * first one remounts anything. A bookmark click is a full load and the mount handles it.
+   * Pasting an old URL into the address bar of a board that is already open changes ONLY
+   * the fragment — no request, no navigation, no remount — so a mount-only effect sits
+   * there while the reader looks at a leaderboard they did not ask for. */
   useEffect(() => {
-    const to = legacyHashTarget(window.location.hash);
-    if (to) window.location.replace(to);
-    else if (to === "") history.replaceState(null, "", window.location.pathname);
+    const go = () => {
+      const to = legacyHashTarget(window.location.hash);
+      if (to) window.location.replace(to);
+      // `""` means the hash meant THIS page. Drop it rather than reload, so a stale
+      // `#/backtest` does not sit in the address bar to be copied onwards.
+      else if (to === "") history.replaceState(null, "", window.location.pathname);
+    };
+    go();
+    window.addEventListener("hashchange", go);
+    return () => window.removeEventListener("hashchange", go);
   }, []);
 
   useEffect(() => {
