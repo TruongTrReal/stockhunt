@@ -8,15 +8,21 @@ swaps the execution client and touches nothing else.
 
 Design notes worth keeping:
 
-**Bars, not ticks.** `SandboxExecutionClient(bar_execution=True)` fills from bars, so a
-1d/4h strategy needs no tick feed at all. See `td_live` for why polling beats streaming
-at these horizons.
+**Bars, not ticks, and that is a parity decision rather than a convenience.**
+`SandboxExecutionClient(bar_execution=True)` fills from the bar that produced the signal,
+so every fill lands at that bar's close — the same price the backtest assumed. There IS a
+live tick stream now (`live_ws.LiveHub`), and it deliberately does not feed this client:
+bars aggregated from ticks would not be the `/time_series` bars the research cache was
+built from, and the forward record would stop being comparable to the sheet with nothing
+to indicate it. The stream marks positions and reports feed health; it does not make bars.
 
 **One poll task per subscription, aligned to the close.** The task sleeps until the next
-bar boundary plus `POLL_LAG`, then fetches. The lag exists because a vendor stamps a bar
-at its open and needs a moment after the close before the aggregate settles; without it
-the first read returns the still-forming bar and `fetch_bars` correctly discards it,
-which would silently skip that bar entirely.
+bar boundary plus the timeframe's poll lag, then fetches. The lag exists because a vendor
+stamps a bar at its open and needs a moment after the close before the aggregate settles;
+without it the first read returns the still-forming bar and `fetch_bars` correctly
+discards it, which would silently skip that bar entirely. It is per timeframe because 90
+seconds is a pause after a daily close and a bar and a half after a one-minute one — see
+`POLL_LAG_BY_TF` for what was measured.
 
 **Dedup on bar open time.** A poll that lands early, a retry, and a vendor revision can
 all re-deliver a bar already published. Nautilus will happily process a duplicate and the
@@ -64,6 +70,79 @@ POLL_LAG = 90
 # whole interval and losing the bar.
 RETRY_EVERY = 60
 MAX_RETRIES = 20
+
+# The two smallest sizes get their own lag, because 90 seconds is a sensible pause after a
+# DAILY close and is a bar and a half after a one-minute one. At 90 the poll for a 1m bar
+# fires 30 seconds after the NEXT bar has already closed, so minute bars arrived late and
+# in clumps of two — which is what `MEMBER_TIMEFRAMES` gaining `1m` on 2026-08-28 made
+# worth fixing. At 5m, which `BOOK_TIMEFRAMES` carries, it was 30% of a bar of pure wait.
+#
+# **MEASURED on 2026-08-28, and the first measurement was wrong in both directions.** Two
+# traps, and anyone re-measuring this will hit both:
+#
+# * **The vendor serves the FORMING bar immediately.** "A bar with this stamp is present"
+#   is not "this bar has settled" — the first probe read 1.1s and was timing the bar's
+#   appearance, not its completion. The settle instant is when its CLOSE stops moving.
+# * **The measuring machine's clock was 42 seconds slow**, taken against the vendor's own
+#   `Date` header. Every "seconds after the close" figure is fiction until that is removed.
+#
+# Corrected: polling once a second from before each true close, the bar's close **stopped
+# moving 19.7–24.0 seconds after it** — 8 of 8 one-minute bars and 8 of 8 five-minute bars,
+# across BTC/USD, ETH/USD, XAU/USD and XAG/USD. A flat ~20s at both sizes reads as the
+# vendor's own aggregation window rather than as network variance, which is why the same
+# constant serves both.
+#
+# 40 seconds is the worst of those readings plus ~65% headroom, and the headroom is sized
+# by what it has to cover rather than by taste: the equity classes are not in the sample
+# (see below), and at 1m a lag of 40s still lands the bar inside its own minute, which is
+# the property that was actually broken. Going tighter buys ten seconds on a book that
+# decides once a minute and spends the entire safety margin to do it.
+#
+# **A shorter lag than the settle is not merely early, it is a look-ahead.** At close + 15s
+# the interval HAS fully elapsed, so `fetch_bars`' forming-bar guard keeps the row — and
+# its close then changes for another five seconds. The desk would have traded a print that
+# was still moving, which is the same family of error as the fill-timing note in the root
+# `CLAUDE.md` and just as invisible afterwards.
+#
+# Three more things before anyone extends this table:
+#
+# * **Only what was measured is listed.** `15m`, `1h`, `2h`, `4h` and `1d` keep `POLL_LAG`.
+#   The ~20s looks like a fixed vendor-side finalisation and probably holds at every size,
+#   and "probably" is not what the sizes carrying the live record get changed on. It also
+#   costs least there: 90s is 10% of a 15m bar and 0.1% of a daily one.
+# * **The equity classes are not in the sample** — it was taken at 04:32–04:40 UTC with the
+#   US market shut. That is a second reason the headroom is ~65% and not 10%.
+# * **The tick stream is deliberately NOT consulted here.** A socket does know when a bar
+#   truly closed, but the vendor settles on a fixed ~20s delay regardless, so reading the
+#   hub would buy nothing and would let a wedged WebSocket delay a bar — the one thing
+#   `live_ws` may never do. A measured constant beats a dependency.
+POLL_LAG_BY_TF = {"1m": 40, "5m": 40}
+# Retry cadence, matched to the lag. 60 seconds is a whole bar at 1m: one slow settle would
+# push the bar past the next boundary's poll, so a hiccup costs a bar rather than a
+# request. This is the path WTI/USD took during the same probe — it produced no 1-minute
+# bar at all on two boundaries, which is precisely what the retry loop is for.
+RETRY_BY_TF = {"1m": 10, "5m": 15}
+
+
+def poll_lag(timeframe: str) -> int:
+    return POLL_LAG_BY_TF.get(timeframe, POLL_LAG)
+
+
+def retry_every(timeframe: str) -> int:
+    return RETRY_BY_TF.get(timeframe, RETRY_EVERY)
+
+
+def max_retries(timeframe: str) -> int:
+    """Bound the retry phase to one bar, so it can never outlive the thing it is chasing.
+
+    `MAX_RETRIES * RETRY_EVERY` is twenty minutes, which is a reasonable slice of a daily
+    bar and is twenty BARS at 1m — a retry phase that long overlaps the next twenty polls
+    and hammers the vendor for a bar that was superseded nineteen times over. The bar
+    itself is not lost by giving up: the next boundary's poll asks for the last three bars
+    and `fresh = df[df.index > last]` delivers everything that appeared meanwhile.
+    """
+    span = td_live.INTERVALS[timeframe][1].total_seconds()
+    return max(3, min(MAX_RETRIES, int(span // retry_every(timeframe))))
 # How long a warmup pull is reused across strategies. Long enough to cover the start-up
 # burst when several rules share a symbol, short enough that a restart minutes later gets
 # fresh history rather than a stale frame.
@@ -510,9 +589,9 @@ class TwelveDataLiveClient(LiveMarketDataClient):
         bar_type = command.bar_type
         if bar_type in self._poll_tasks:
             return
-        timeframe_of(bar_type)               # reject unsupported specs loudly, now
+        tf = timeframe_of(bar_type)          # reject unsupported specs loudly, now
         self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
-        self._log.info(f"subscribed {bar_type} (poll at close + {POLL_LAG}s)")
+        self._log.info(f"subscribed {bar_type} (poll at close + {poll_lag(tf)}s)")
 
     async def _unsubscribe_bars(self, command) -> None:
         task = self._poll_tasks.pop(command.bar_type, None)
@@ -528,10 +607,12 @@ class TwelveDataLiveClient(LiveMarketDataClient):
 
     async def _poll(self, bar_type: BarType) -> None:
         timeframe = timeframe_of(bar_type)
+        lag, retry, tries = (poll_lag(timeframe), retry_every(timeframe),
+                             max_retries(timeframe))
         while True:
             try:
-                await asyncio.sleep(self._seconds_to_next_close(timeframe) + POLL_LAG)
-                for _ in range(MAX_RETRIES):
+                await asyncio.sleep(self._seconds_to_next_close(timeframe) + lag)
+                for _ in range(tries):
                     try:
                         df = await asyncio.to_thread(self._frame, bar_type, 3)
                     except Exception as exc:
@@ -547,16 +628,16 @@ class TwelveDataLiveClient(LiveMarketDataClient):
                                     self._handle_data(bar)
                             self._last_open[bar_type] = fresh.index[-1]
                             break
-                    await asyncio.sleep(RETRY_EVERY)
+                    await asyncio.sleep(retry)
                 else:
                     self._log.warning(
                         f"{bar_type}: no settled bar after "
-                        f"{MAX_RETRIES * RETRY_EVERY}s — will wait for the next close")
+                        f"{tries * retry}s — will wait for the next close")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self._log.error(f"{bar_type} poll loop error: {exc}")
-                await asyncio.sleep(RETRY_EVERY)
+                await asyncio.sleep(retry)
 
 
 class TwelveDataLiveDataClientFactory(LiveDataClientFactory):

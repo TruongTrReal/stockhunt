@@ -1,11 +1,25 @@
 """Twelve Data as a live bar source, and the Nautilus data client that wraps it.
 
-**Why REST polling and not the WebSocket.** The forward test is 1d and 4h, so a strategy
-makes one or two decisions per day. A tick stream would deliver thousands of messages to
-throw away, plus reconnects, heartbeats and gap recovery to get wrong. One `/time_series`
-call per symbol shortly after each bar close costs 1 credit against a 610/minute budget
-and cannot desynchronise. The WebSocket (verified working on this key for both equities
-and Binance-sourced crypto) is the right tool only if the study ever goes intraday.
+**Why BARS are REST and only marks are streamed.** This file used to say the WebSocket
+"is the right tool only if the study ever goes intraday", and the study has gone intraday
+— `paper_config.MEMBER_TIMEFRAMES` now offers 1m. That did not move the bars, and the
+reason is worth stating because it is the whole discipline of this desk:
+
+*The stream delivers TICKS, and the research is built on the vendor's BARS.* The backtest
+cache comes from `/time_series`, and `SandboxExecutionClient` prices every fill at the
+signal bar's close, so the live record is comparable to the sheet only for as long as both
+sides mean the same thing by "the bar". Bars aggregated here from ticks would be *this
+desk's* bars — near enough to the vendor's to pass every eye test, different enough to
+make the forward test measure something the research never scored, and nothing would say
+so. So bars stay on `/time_series`, unchanged, and the socket is used for the two things
+that need no bar definition at all: marking open positions continuously, and knowing
+whether the feed is alive. That lives in `live_ws.py`, which owns the single upstream
+connection.
+
+What the stream prompted on the bar path was a measurement, not an aggregation. A
+1-minute bar's close was timed stopping ~20 seconds after that bar's true close, so
+`POLL_LAG` no longer has to be 90 seconds at `1m` — see `td_nautilus.POLL_LAG_BY_TF`,
+which also records the two ways of measuring it wrong.
 
 **Two vendor behaviours this has to defend against.**
 

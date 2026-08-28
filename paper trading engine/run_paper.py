@@ -44,12 +44,14 @@ Run::
 from __future__ import annotations
 
 import argparse
+import os
 import threading
 from datetime import datetime, timezone
 
 import paper_config
 import db_live
 import db_nautilus
+import db_stream
 import desk_control
 import desk_orders
 import live_ws
@@ -357,6 +359,11 @@ def route_bars_to_sandbox(node: TradingNode) -> int:
 # rather than a branch inside `start_marker`.
 FUTURES_MARK_SECONDS = 300
 
+# How the two mark sources are named in the log and in the published state. Spelled once,
+# because a board that says `stream` and a log line that says `tick socket` describe the
+# same thing to a reader who has no way of knowing that.
+MARK_SOURCE = {"stream": "tick stream", "poll": "REST /price poll"}
+
 
 def _split_by_feed(symbols) -> tuple[list[str], list[str]]:
     """Which symbols Twelve Data may be asked about, and which it may not.
@@ -397,6 +404,14 @@ def start_futures_marker(symbols_of, every: int = FUTURES_MARK_SECONDS):
     def loop():
         while not stop.wait(every):
             try:
+                # Which feed the leg is on, republished on every pass. It is read off
+                # `db_live.FEED_MODE`, which `db_nautilus` owns, rather than decided here
+                # — this thread must not be a second opinion about it. Published because
+                # the two modes differ by a factor of about twenty-five in how old a
+                # fill's price is, and a downgrade nobody can see is worse than either
+                # mode chosen deliberately.
+                paper_state.set_feed(futures_feed=db_live.feed_mode(),
+                                     futures_feed_why=db_live.FEED_MODE.get("why", ""))
                 _, futures = _split_by_feed(symbols_of())
                 if not futures:
                     continue
@@ -410,7 +425,7 @@ def start_futures_marker(symbols_of, every: int = FUTURES_MARK_SECONDS):
     return stop.set
 
 
-def start_marker(symbols_of, every: int):
+def start_marker(symbols_of, every: int, hub=None):
     """Revalue open positions on a timer, in a plain background thread.
 
     `symbols_of` is a CALLABLE, not a list. The desk's instruments are not known when this
@@ -428,16 +443,44 @@ def start_marker(symbols_of, every: int):
 
     **Twelve Data's symbols only.** The CME leg is marked by `start_futures_marker` from
     its own vendor; see `_split_by_feed` for what asking this one about `ES.v.0` returns.
+
+    **`hub` makes the fallback visible, and it does not switch this poll off.** The tick
+    stream marks continuously and this runs once a minute, so when the stream is healthy
+    the desk is carried by the stream and this is confirmation. When it is not — a stall,
+    a reconnect, a symbol the vendor's plan refused — the desk falls back here, and the
+    thing that must never happen is that it does so *silently*: a board reading `live` off
+    a socket that stopped an hour ago is worse than one reading `polling`, because it is
+    believed. So the transition is printed both ways and the source is published.
+    The poll itself is unconditional, deliberately. It is one request a minute; making it
+    conditional on the stream would mean the safety net is only there when something has
+    already noticed that it is needed, and it would leave a vendor-refused symbol — which
+    the stream reports and cannot fix — marked by nothing at all.
     """
     if every <= 0:
         return lambda: None
     stop = threading.Event()
 
     def loop():
+        carried_by = None            # None until the first pass decides; then "stream"/"poll"
         while not stop.wait(every):
             try:
                 symbols, _ = _split_by_feed(symbols_of())
+                # Fresh WITHIN ONE MARK INTERVAL, from arrival time on this machine and
+                # never from the vendor's tick `timestamp` — see `LiveHub._on_message`.
+                # A stream whose newest tick is older than this poll's own cadence is not
+                # carrying anything the poll is not already carrying.
+                source = ("stream" if hub is not None and hub.is_fresh(every) else "poll")
+                if source != carried_by:
+                    was = "" if carried_by is None else f" (was the {MARK_SOURCE[carried_by]})"
+                    print(f"marks now carried by the {MARK_SOURCE[source]}{was}",
+                          flush=True)
+                    carried_by = source
+                paper_state.set_feed(marks=source)
                 if not symbols:
+                    # Still flushed. `generated_at` is the dashboard's only evidence that
+                    # this process is alive, and a desk with nothing registered yet is
+                    # exactly when somebody is watching to see whether it came up.
+                    paper_state.flush(force=True)
                     continue
                 paper_state.mark(td_live.fetch_prices(symbols))
                 paper_state.set_feed(last_bar=datetime.now(timezone.utc)
@@ -563,9 +606,19 @@ def main() -> None:
                     help="how often to revalue open positions (0 disables)")
     ap.add_argument("--allow-short", action="store_true")
     ap.add_argument("--log-level", default="INFO")
+    ap.add_argument("--futures-feed", choices=["stream", "poll"], default=None,
+                    help="how the CME leg gets its ongoing bars: Databento's LIVE gateway "
+                         "(sub-second behind the close) or the historical archive on a timer "
+                         "(~8 min). Default stream, falling back to poll. Sets "
+                         f"{db_stream.FEED_ENV} for this process")
     ap.add_argument("--dry-run", action="store_true",
                     help="build and validate the node, then exit without connecting")
     args = ap.parse_args()
+    # Set before the node is built, because `DatabentoLiveClient._connect` reads it. A
+    # flag rather than only an environment variable so the choice appears in the command
+    # somebody ran, which is where a reader of a systemd unit will look for it.
+    if args.futures_feed:
+        os.environ[db_stream.FEED_ENV] = args.futures_feed
 
     plan = build_plan(args)
     # An EMPTY plan is now legitimate and common: the desk starts with no automatic legs
@@ -588,6 +641,14 @@ def main() -> None:
     # holding live positions and a missing secret must not restart-loop them.
     if not db_live.have_key():
         print(f"  ! {db_live.NO_KEY}")
+    elif db_stream.wanted_mode() == "poll":
+        print(f"  CME futures leg: polling the historical archive by request "
+              f"(~{db_live.ARCHIVE_LAG_SECONDS // 60} min behind each close)")
+    elif not db_stream.have_sdk():
+        print(f"  ! {db_stream.NO_SDK}")
+    else:
+        print(f"  CME futures leg: Databento LIVE gateway at 1m/1h (sub-second behind each "
+              f"close), historical archive at 1d and as the fallback")
 
     node, instruments = build_node(plan, args.allow_short, args.log_level,
                                    args.capital)
@@ -629,14 +690,20 @@ def main() -> None:
     symbols = sorted({s for s, _, _, _ in plan})
     hub = None
     if args.ws_port:
-        hub = live_ws.LiveHub(symbols, args.ws_port).start()
+        # Split here as well as inside the hub. `plan` carries the futures leg whenever
+        # `--top N` builds one, and the tracker below only corrects the subscription on its
+        # first pass — so without this the desk's very first `subscribe` names `ES.v.0`,
+        # which Twelve Data does not refuse loudly, it refuses forever.
+        hub = live_ws.LiveHub(_split_by_feed(symbols)[0], args.ws_port).start()
     # Both feeds follow the RUNNING book, not `plan`. With no automatic legs `plan` is
     # empty, so the old fixed lists left the desk subscribed to nothing and polling
     # nothing — `upstream=live`, `0 symbols being marked`, P&L frozen at 0.00% forever.
     wanted_symbols, stop_tracking = start_feed_tracker(hub, symbols)
     # The poller stays on as a slow safety net even when streaming: it costs one request a
     # minute and it is what keeps the marks honest if the upstream socket silently stalls.
-    stop_marking = start_marker(wanted_symbols, args.mark_seconds)
+    # It is handed the hub so it can SAY which of the two is carrying the desk — an
+    # unannounced fallback is how a stalled feed goes unnoticed for a session.
+    stop_marking = start_marker(wanted_symbols, args.mark_seconds, hub)
     stop_futures_marking = start_futures_marker(wanted_symbols)
     paper_state.set_feed(status="ok")
     # `force`, because this write lands milliseconds after the "starting" one above and

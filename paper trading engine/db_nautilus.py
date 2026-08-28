@@ -14,10 +14,27 @@ it out does not disable the futures leg, it hands the leg to the default client 
 would ask Twelve Data for `ES.v.0` and get a wrong instrument or an empty frame back. A
 registered client with no credential refuses visibly; an absent one mis-routes silently.
 
-Everything else is `td_nautilus`'s shape, deliberately: one poll task per subscription
-aligned to the bar close, dedup on the bar's open time, a briefly-cached warm-up shared
-across the strategies that ask for it at once, and the last closed bar republished once so
-the sandbox exchange has a market to fill against.
+Everything else is `td_nautilus`'s shape, deliberately: dedup on the bar's open time, a
+briefly-cached warm-up shared across the strategies that ask for it at once, and the last
+closed bar republished once so the sandbox exchange has a market to fill against.
+
+**Two feeds, one publish path.** Ongoing bars come from Databento's LIVE gateway
+(`db_stream.py`, measured 0.01s behind a bar's close) where the size allows it, and from
+the historical REST archive on a timer (`_poll`, ~8 minutes behind) where it does not or
+when the gateway is gone. The two differ only in how a raw frame is obtained: both hand
+the same `(front, behind)` pair to `_emit`, so the roll arithmetic below has no branch in
+it for which feed produced the bar, and `test_futures_leg.py`'s back-adjustment gates
+cover both without knowing.
+
+    1m, 1h        gateway, falling back to the poller
+    1d            poller only -- `db_loader.merge_session_stubs` needs the NEXT session's
+                  contract to decide about this one's Sunday stub, which is a batch
+                  concept, and a daily bar gains nothing from arriving 18s after midnight
+                  UTC instead of 8 minutes after it
+    no SDK,       poller, loudly. `db_stream.have_sdk` answers instead of raising for the
+    no key        same reason `db_live.have_key` does
+
+Warm-up stays on the REST path in every case: a live gateway serves no history.
 
 **The one thing that is genuinely new is the roll.**
 
@@ -60,6 +77,7 @@ import pandas as pd
 
 import paper_config
 import db_live
+import db_stream
 import td_nautilus
 
 from nautilus_trader.cache.cache import Cache
@@ -196,6 +214,12 @@ class DatabentoLiveClient(LiveMarketDataClient):
         # Set at connect. False means there is no credential, and every subscription is
         # then refused with a sentence instead of started and left silent.
         self._usable = False
+        # The LIVE gateway, or None when this process is polling. `_streamed` is the
+        # reverse of what `db_stream` knows: it maps a streamed (symbol, timeframe) back to
+        # the bar type to publish on, which is what `_emit` needs and what a fallback needs
+        # in order to start a poll task for exactly the subscriptions the stream had.
+        self._stream: db_stream.FuturesStream | None = None
+        self._streamed: dict[tuple[str, str], BarType] = {}
 
     # ------------------------------------------------------------------ lifecycle
     async def _connect(self) -> None:
@@ -210,16 +234,65 @@ class DatabentoLiveClient(LiveMarketDataClient):
         self._usable = db_live.have_key()
         if not self._usable:
             self._log.error(db_live.NO_KEY)
+            self._set_mode("poll", db_live.NO_KEY)
             return
         self._log.info(f"Databento {db_live.DATASET} connected, warmup window "
                        f"{self._window} bars, poll at close + {POLL_LAG}s "
                        f"({POLL_LAG_BY_TF.get('1m')}s at 1m) "
                        f"(archive lags ~{db_live.ARCHIVE_LAG_SECONDS // 60} min)")
+        self._start_stream()
+
+    def _start_stream(self) -> None:
+        """Open the LIVE gateway, unless something says to poll instead.
+
+        Never raises, and the reason is the same one `_connect` carries: this runs while a
+        node is being built and the desk holds live positions on four other classes. Every
+        way this can fail — no SDK, no gateway, a deliberate `STOCKHUNT_FUTURES_FEED=poll`
+        — lands on the poller with a sentence, which is the behaviour that existed before
+        the stream did.
+        """
+        wanted = db_stream.wanted_mode()
+        if wanted == "poll":
+            self._set_mode("poll", f"{db_stream.FEED_ENV}=poll — asked for, not fallen "
+                                   f"back to")
+            self._log.warning(
+                f"CME futures leg polling the historical archive by request "
+                f"({db_stream.FEED_ENV}=poll): bars will arrive about "
+                f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes after they close.")
+            return
+        stream = db_stream.FuturesStream(self._on_stream_bars, self._on_stream_mode,
+                                         self._log)
+        try:
+            started = stream.start()
+        except Exception as exc:                # noqa: BLE001 - never fatal, see above
+            self._log.error(f"the Databento live gateway would not start: {exc}")
+            self._set_mode("poll", f"the Databento live gateway would not start: {exc}")
+            return
+        if not started:
+            # `FuturesStream._degrade` has already named the reason through `_on_stream_mode`
+            # — no SDK, or no key — and repeating it here would overwrite the specific
+            # sentence with a vague one.
+            return
+        self._stream = stream
+        # NOT `stream` yet: the session is opened by the supervisor on the first
+        # subscription, and it is that open which reports the mode. Claiming an 18-second
+        # feed before a socket exists is the silent-downgrade failure with the sign
+        # flipped.
+        self._set_mode("poll", "no futures subscription yet — the live gateway opens on "
+                               "the first one")
+
+    def _set_mode(self, mode: str, why: str) -> None:
+        """Publish which feed this leg is on. See `db_live.FEED_MODE` for why it is
+        published rather than inferred."""
+        db_live.FEED_MODE.update(mode=mode, why=why)
 
     async def _disconnect(self) -> None:
         for task in self._poll_tasks.values():
             task.cancel()
         self._poll_tasks.clear()
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream = None
 
     # ------------------------------------------------------------------ conversion
     def _to_bar(self, bar_type: BarType, ts: pd.Timestamp, row) -> Bar | None:
@@ -360,7 +433,15 @@ class DatabentoLiveClient(LiveMarketDataClient):
         bars = [b for b in (self._to_bar(bar_type, ts, row)
                             for ts, row in df.iterrows()) if b is not None]
         if bars:
-            self._last_open[bar_type] = df.index[-1]
+            # `max`, not assignment, and the LIVE gateway is why. Warm-up comes from the
+            # REST archive and is ~8 minutes stale by construction, while a streamed bar
+            # can land within seconds of a subscription — so on a fast start this request
+            # can complete AFTER a bar has already been published, and assigning here
+            # would wind the watermark back and re-emit every bar in between. The poller
+            # never raced it: its first fetch is a bar boundary plus fifteen minutes away.
+            newest = df.index[-1]
+            seen = self._last_open.get(bar_type)
+            self._last_open[bar_type] = newest if seen is None else max(seen, newest)
         self._log.info(f"warmup {bar_type}: {len(bars)} bars")
         self._handle_bars(bar_type, bars, request.id, request.start, request.end,
                           request.params)
@@ -402,14 +483,86 @@ class DatabentoLiveClient(LiveMarketDataClient):
                 f"polled for it, so no strategy on this class can appear to be waiting "
                 f"for a bar that is coming.")
             return
+        timeframe = timeframe_of(bar_type)
+        symbol = bar_type.instrument_id.symbol.value
+        # The gateway first, the timer second. `subscribe` answers False rather than
+        # raising for every reason the stream cannot take this one — degraded, 1d, a
+        # refused request — so the fallback below is the same line in all of them.
+        if self._stream is not None and self._stream.subscribe(symbol, timeframe):
+            self._streamed[(symbol, timeframe)] = bar_type
+            self._log.info(f"subscribed {bar_type} on the Databento LIVE gateway "
+                           f"(sub-second behind the close)")
+            return
         self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
         self._log.info(f"subscribed {bar_type} (poll at close + "
-                       f"{poll_lag(timeframe_of(bar_type))}s)")
+                       f"{poll_lag(timeframe)}s, ~"
+                       f"{db_live.ARCHIVE_LAG_SECONDS // 60} min behind the close)")
 
     async def _unsubscribe_bars(self, command) -> None:
         task = self._poll_tasks.pop(command.bar_type, None)
         if task:
             task.cancel()
+
+    # ------------------------------------------------------------------ the live gateway
+    def _on_stream_bars(self, symbol: str, timeframe: str, front: pd.DataFrame,
+                        behind: pd.DataFrame) -> None:
+        """A streamed bar, handed to the poller's publish path unchanged.
+
+        **Marshalled onto the node's event loop and not published from here.** This runs
+        on the `databento` SDK's own reader thread, and `_handle_data` walks straight into
+        the Nautilus message bus, which every other producer in this process reaches from
+        the loop thread — `td_nautilus` and `_poll` both do their vendor work in
+        `asyncio.to_thread` and publish from the coroutine. Publishing from a foreign
+        thread is the kind of race that shows up as a corrupted book once a week and never
+        in a test.
+        """
+        bar_type = self._streamed.get((symbol, timeframe))
+        if bar_type is None:
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._publish_streamed, bar_type, front,
+                                            behind)
+        except RuntimeError:
+            # The loop is closed: the node is shutting down while a bar was in flight.
+            # Not an error, and not something to log on every stop.
+            pass
+
+    def _publish_streamed(self, bar_type: BarType, front: pd.DataFrame,
+                          behind: pd.DataFrame) -> None:
+        """On the loop thread. `_emit` is the poller's, roll arithmetic and all."""
+        try:
+            newest = self._emit(bar_type, front, behind)
+            if newest is not None:
+                self._last_open[bar_type] = newest
+        except Exception as exc:                # noqa: BLE001 - one bar, not the feed
+            self._log.error(f"{bar_type}: could not publish a streamed bar: {exc}")
+
+    def _on_stream_mode(self, mode: str, why: str) -> None:
+        """The gateway gave up. Start a poll task for everything it was carrying.
+
+        The leg must not go dark, and it must not go quietly slower either: `_set_mode`
+        publishes the downgrade into `db_live.FEED_MODE`, which is what the desk's own
+        state and `desk_control._caveat` read. Scheduled onto the loop because this
+        arrives on the stream's supervisor thread and `create_task` is the node's.
+        """
+        self._set_mode(mode, why)
+        if mode == "stream":
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._fall_back_to_polling)
+        except RuntimeError:
+            pass
+
+    def _fall_back_to_polling(self) -> None:
+        for (symbol, timeframe), bar_type in list(self._streamed.items()):
+            if bar_type in self._poll_tasks:
+                continue
+            self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
+            self._log.warning(
+                f"{bar_type}: now polled at close + {poll_lag(timeframe)}s instead of "
+                f"streamed. Its bars will arrive about "
+                f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes after they close.")
+        self._streamed.clear()
 
     def _seconds_to_next_close(self, timeframe: str) -> float:
         """Modular arithmetic on the UTC epoch, which is the right clock here.

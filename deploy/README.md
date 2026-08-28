@@ -40,6 +40,29 @@ served by the same FastAPI process, behind the same session.
 | `stockhunt-rotation.timer` | every 5 min, 19:00-21:55 UTC: the monthly ETF rotation |
 | `stockhunt-research.timer` | every 2 min: score anything submitted through `/v1/research` |
 
+## The desk needs one package that is not in any manifest
+
+`pip install databento` in `/opt/stockhunt/.venv`. It is the ONLY dependency this repo
+acquires outside its own imports, and nothing declares it: the desk talked to Databento
+over `requests` until 2026-08-28, and the LIVE gateway is a binary protocol that needs the
+vendor's SDK. There is no requirements file for the desk to add it to — `pyproject.toml`
+packages `stockhunt/` and pins nothing else — so it is written down here instead.
+
+**Without it the futures leg still runs**, on the historical archive, about eight minutes
+behind each close, with `db_stream.NO_SDK` in the log and `futures_feed: poll` in the
+published state. That is the designed degradation and not a fault; it is also invisible
+unless somebody reads for it, which is why the published state carries the mode.
+
+```bash
+/opt/stockhunt/.venv/bin/pip install databento
+systemctl restart stockhunt-desk
+journalctl -u stockhunt-desk -n 40 | grep -i databento   # expect "LIVE gateway"
+```
+
+Databento caps **concurrent live sessions per key**, so a smoke test run while the desk is
+up can be refused with *"User has reached their open connection limit"*. The client backs
+off and retries; it is worth knowing before reading that line as an outage.
+
 ## The mirror needs credentials, and they are not in git
 
 `stockhunt-mirror` is the only unit here that talks to a third party with a secret, so it

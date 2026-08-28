@@ -47,12 +47,18 @@ paper_state.py    the registry; serialises results/paper_state.json and publishe
 td_live.py        Twelve Data REST: bars, prices, market hours. Importable without Nautilus
 td_nautilus.py    TwelveDataLiveClient + instrument factories + `instrument_for`, the ONE
                   dispatcher from class to instrument shape
-db_live.py        Databento REST: the CME futures leg's bars and marks, ratio
-                  back-adjusted. The SECOND vendor, and the only one this class may be
-                  asked. Importable without Nautilus, like td_live
+db_live.py        Databento REST: the CME futures leg's WARM-UP, its marks, and the
+                  fallback bar feed, ratio back-adjusted. The SECOND vendor, and the only
+                  one this class may be asked. Importable without Nautilus, like td_live
+db_stream.py      Databento's LIVE gateway: the same vendor over a socket, 0.01s behind a
+                  bar's close against the archive's ~8 minutes. Owns its own reconnect,
+                  because the SDK's drops the gap. Imports the `databento` SDK LAZILY, so
+                  a box without it degrades to the poller instead of failing to start
 db_nautilus.py    DatabentoLiveClient, bound to the `GLBX` venue, and the roll/forward-
-                  factor arithmetic that keeps a live buffer continuous
-live_ws.py        LiveHub: upstream tick socket -> paper_state.mark() -> browser socket
+                  factor arithmetic that keeps a live buffer continuous. Both feeds
+                  publish through its `_emit`, so the adjustment has no branch in it
+live_ws.py        LiveHub: the ONE Twelve Data tick socket -> paper_state.mark() ->
+                  browser socket. Marks and feed health only; it makes no bars
 backtest_paper.py the same strategy through a BacktestEngine on cached bars
 parity_live.py    measures the rolling window each rule needs to match the full series
 alpaca_mirror.py  A SECOND, OPTIONAL PROCESS. Drives Alpaca paper accounts to a scaled
@@ -72,9 +78,94 @@ test_fill_pnl.py        None vs 0.0: what closed nothing against what closed at 
 test_alpaca_map.py      the mirror's arithmetic, offline                 (pytest)
 test_alpaca_mirror.py   the mirror converges, is idempotent, and refuses (pytest)
 test_futures_leg.py     the CME leg: a fractional instrument, an unfeedable timeframe
-                        refused at subscribe time, and the live roll reproducing
-                        `db_loader.back_adjust` up to one constant       (pytest)
+                        refused at subscribe time, and the roll reproducing
+                        `db_loader.back_adjust` up to one constant on BOTH feeds —
+                        polled frames and gateway records. Also: a dropped stream
+                        degrades loudly, a reconnect replays the gap    (pytest)
+test_live_stream.py     the tick socket: reconnect resubscribes, a silent socket is
+                        dropped and says so, arrival is stamped locally, and no
+                        futures symbol reaches Twelve Data              (pytest)
 ```
+
+## The four Twelve Data classes stream, and the stream deliberately makes no bars
+
+`live_ws.LiveHub` holds **one** connection to `wss://ws.twelvedata.com/v1/quotes/price` for
+the whole process. One, because the vendor meters concurrent sockets per API KEY and not
+per process: a second client opened anywhere in this repo does not add a feed, it evicts
+this one, and the eviction is indistinguishable from a flaky network. Anything that wants a
+live price reads `hub.prices` or `hub.health()`.
+
+**It marks; it does not decide.** The stream delivers ticks and the research is built on
+the vendor's `/time_series` bars, so bars aggregated here would be *this desk's* bars —
+close enough to the vendor's to pass every eye test, different enough that the forward
+record would stop being comparable to the sheet, and nothing would say so. That is the same
+property the Alpaca section above turns on: every fill lands at the signal bar's close,
+which is the price the backtest assumed. So a tick never reaches a rule, a target or an
+order. It revalues an *existing* position and reports whether the feed is alive.
+
+Three defences against the failure this folder keeps paying for — a feed that has stopped
+while every indicator still reads healthy:
+
+* **An application heartbeat** every `HEARTBEAT_EVERY` (10s). It is not the `ping_interval`
+  the socket library already sends: a protocol ping is answered by the vendor's edge, the
+  heartbeat by the quote service behind it. A connection held open by pings alone reads
+  `live` here while the service behind it has stopped publishing.
+* **A watchdog**, timed from the last tick or — when there has never been one — from the
+  CONNECT. That second half is the point: a subscription the vendor accepted and never
+  served has no last tick, so the obvious version of this check never fires on it.
+  `QUIET_AFTER` (90s) is reported and nothing more, because an equity book legitimately
+  prints nothing overnight; `STALL_AFTER` (300s) closes the socket so the reconnect path
+  resubscribes.
+* **A published source.** `paper_state.set_feed(stream=..., marks=...)` says which of the
+  two is actually carrying the desk, and `start_marker` prints both transitions. The REST
+  `/price` poll stays on unconditionally at `--mark-seconds`: it is one request a minute,
+  and a safety net that only runs once something has noticed it is needed is not one.
+
+**`cme_futures` may never be sent to this socket**, and the guard is in `live_ws.streamable`
+— at the capability, not only at the call sites. `run_paper.start_feed_tracker` already
+split the running book by vendor, but the hub's CONSTRUCTOR was handed `build_plan`'s
+symbols unfiltered, so `--top 3` put the whole futures leg into the first subscription.
+Twelve Data does not refuse `ES.v.0` loudly; it returns it in `subscribe-status.fails`
+forever, and an unqualified `ES` there is Eversource Energy.
+
+Measured 2026-08-28, 120s on the live key: 250 ticks over 6 subscribed symbols, `state`
+`live` throughout with no reconnect, and a mark never more than ~1s old against the poll's
+60. BTC/USD and ETH/USD print about once a second, XAU/USD about every two.
+
+### The bar poll got faster only where it was measured
+
+`td_nautilus.POLL_LAG` is 90s and stays 90s for every size except `1m` and `5m`
+(`POLL_LAG_BY_TF`, 40s). At 1m the old lag fired the poll 30 seconds after the NEXT bar had
+closed, so minute bars arrived late and in clumps of two — which `MEMBER_TIMEFRAMES`
+gaining `1m` made worth fixing.
+
+**Two ways of measuring this wrongly, both of which were hit first:**
+
+* **The vendor serves the FORMING bar immediately.** "A bar with this stamp is present" is
+  not "this bar has settled". The first attempt read 1.1s and was timing the bar's
+  *appearance*. The settle instant is when its **close stops moving**.
+* **The measuring machine's clock was 42 seconds slow**, against the vendor's own `Date`
+  header. Every figure is fiction until that is removed — and a desk whose clock runs
+  *fast* has a live problem, not a measurement one: `fetch_bars`' forming-bar guard
+  compares `datetime.now(timezone.utc)` against the vendor's stamp, so a fast clock hands
+  the desk a bar that is still forming.
+
+Corrected, polling once a second across BTC/USD, ETH/USD, XAU/USD and XAG/USD: a bar's
+close stopped moving **19.7–24.0s** after its true close, at 1m and at 5m alike — a flat
+~20s that reads as the vendor's own aggregation window rather than as network variance.
+
+**A lag shorter than the settle is a look-ahead, not merely an early request.** At close +
+15s the interval HAS fully elapsed, so the forming-bar guard keeps the row, and the vendor
+then moves its close for another five seconds. 40s is the worst of those readings plus
+~65% headroom, sized by what it has to cover rather than by taste: the equity classes were
+never in the sample, and at 1m a 40s lag still lands the bar inside its own minute, which
+is the property that was broken. `test_live_stream.py` holds the constant above the
+measured settle so it cannot be lowered back into that window by accident.
+
+`15m` and up were not measured and are not changed. **The tick stream is deliberately not
+consulted by the poll**: a socket does know when a bar truly closed, but the vendor settles
+on a fixed delay regardless, so reading the hub would buy nothing and would let a wedged
+WebSocket delay a bar — the one thing `live_ws` may never do.
 
 ## The second record: Alpaca
 
@@ -332,6 +423,10 @@ python parity_live.py --tf 1d                        # re-measure the warm-up wi
 python run_paper.py                                  # the live desk: top 3 per class
 python run_paper.py --top 0 --rule SMA_200           # the smoke path: one boring rule
 python run_paper.py --dry-run                        # build and validate config, no connect
+python run_paper.py --futures-feed poll              # the CME leg on the 8-minute archive
+python db_stream.py ES.v.0,CL.v.0 240                # the LIVE gateway, measured, then
+                                                     #   checked against the archive
+python db_live.py                                    # the REST path, against the cache
 ```
 
 **One symbol per `backtest_paper.py` process.** Nautilus initialises its Rust logger once
@@ -523,15 +618,74 @@ deliberate. Leaving it out does not turn the leg off, it hands the leg back to t
 client — the one that would ask Twelve Data for `ES.v.0`. A registered client with no
 credential refuses visibly; an absent one mis-routes silently.
 
-### The historical archive IS the live feed
+### There are two Databento feeds now, and the leg says which one it is on
 
-Measured 2026-08-27 at 12:58:10 UTC: `metadata.get_dataset_range` for `GLBX.MDP3` reported
-the dataset ending at 12:50:00 UTC — the archive lags real time by about eight minutes, and
-`ohlcv-1h`/`ohlcv-1d` report that same fact rounded down to their own bar boundary. So a
-REST poller works, at $0.00, and **Databento's paid Live API is not needed and is not
-used**. `db_nautilus.POLL_LAG` is 15 minutes, sized against that measurement: poll inside
-the lag and the vendor has nothing, `drop_forming` correctly discards what it does have,
-and the bar is skipped in silence.
+The archive lags real time by about eight minutes — measured 2026-08-27 at 12:58:10 UTC,
+`metadata.get_dataset_range` for `GLBX.MDP3` reported the dataset ending at 12:50:00 UTC,
+and `ohlcv-1h`/`ohlcv-1d` report that same fact rounded down to their own bar boundary. A
+REST poller therefore works, at $0.00, and that was the whole feed until 2026-08-28.
+`db_nautilus.POLL_LAG` is 15 minutes, sized against that measurement: poll inside the lag
+and the vendor has nothing, `drop_forming` correctly discards what it does have, and the
+bar is skipped in silence.
+
+**Eight minutes stopped being good enough when `1m` was opened to member registrations**,
+because there it is eight bars. `db_stream.py` is Databento's LIVE gateway, and the two
+measured side by side on this key:
+
+| feed | behind a bar's close | cost |
+|---|---|---|
+| `db_live` REST poller | ~8 min (`ARCHIVE_LAG_SECONDS`) | $0.00 |
+| `db_stream` live gateway | **0.01 s** | **$0.00** |
+
+`metadata.list_unit_prices` carries a `live` mode block for `GLBX.MDP3` and
+`get_cost(..., mode="live")` prices `ohlcv-1m`, `ohlcv-1h` and `ohlcv-1d` at $0.00. **The
+reason there had been no live feed was neither cost nor capability** — every Databento call
+in this repo went out over `requests`, the `databento` SDK was not a dependency, and nobody
+had written one.
+
+Five things about the split are load-bearing:
+
+* **Warm-up stays on REST, always.** A live gateway serves no history. `_request_bars` is
+  unchanged and still runs its window through `db_loader.back_adjust`.
+* **Both feeds publish through `_emit`.** `db_stream` produces a `(front, behind)` pair in
+  `db_live.fetch_raw`'s exact shape and hands it to the poller's own publish path, so the
+  roll arithmetic below has no branch in it for which feed produced the bar. The gateway
+  delivers RAW continuous prices exactly as the raw fetch does; an unadjusted roll on
+  either path is the same +37% nobody earned.
+* **1d is polled on purpose, and not because of latency.** `db_loader.merge_session_stubs`
+  folds Sunday's two-hour sliver into the session it opens — or drops it when the weekend
+  carried the roll, which 41% of them do — by looking at the NEXT session's contract. A
+  stream has no next bar, so it would publish a stub as a day, and `IBS` is `(C-L)/(H-L)`.
+* **The poller is the fallback, and the downgrade is loud.** No SDK, no key, a gateway that
+  will not come back after `db_stream.MAX_ATTEMPTS` — each lands on the timer with a
+  sentence in the log, `db_live.FEED_MODE` set to `poll`, and `futures_feed` published into
+  `paper_state`. It does not flap back: a feed alternating between a hundredth of a
+  second and eight
+  minutes puts two meanings under one published number. A restart is the recovery.
+* **The reconnect is owned here rather than delegated.** `databento.live.session._reconnect`
+  re-subscribes with `start=None`, so the SDK's own policy resumes live and the outage's
+  bars are gone. `db_stream` uses `ReconnectPolicy.NONE` and rebuilds the session with
+  `start = <the last bar it saw>`, which the gateway replays and then runs on into live —
+  measured, a 20-minute replay delivered in ~5s with no hole and no duplicate. The same
+  mechanism closes the hole between a stale REST warm-up and a socket that would otherwise
+  begin at "now".
+
+`--futures-feed stream|poll` (or `STOCKHUNT_FUTURES_FEED`) chooses deliberately.
+`python db_stream.py` is the smoke run: it streams real roots, reports the measured
+latency, and then checks the same minutes against the REST archive once it catches up.
+
+Two things a stream needs that a poller does not, and both are decisions:
+
+* **Liveness is measured on the SESSION, never on bars.** The gateway emits an OHLCV
+  record only for an interval the instrument traded in, so silence on `LE.v.0` overnight
+  is correct and silence on the whole session is a dead socket. Heartbeats
+  (`HEARTBEAT_SECONDS`) are what separate them; reading liveness off bars is
+  `td_nautilus.timeframe_of`'s fifteen-hour failure wearing a socket.
+* **A subscription added after `Live.start()` cannot carry a replay.** The SDK says so and
+  the gateway enforces it, so a root registered later would have a hole between its stale
+  warm-up and its first live bar. The supervisor rebuilds the session when the wanted set
+  grows, debounced by `SUBSCRIBE_DEBOUNCE_SECONDS` because the desk's subscriptions arrive
+  as one burst at start-up.
 
 Two schema notes that decide what this leg can run at:
 
@@ -610,12 +764,23 @@ either is refused by `desk_control._feedable` with a sentence.
 
 ### What the VPS needs that it does not have
 
-`DATABENTO_API_KEY` in `/opt/stockhunt/.env.local`. Until it is there the desk runs
+Two things, and they fail at different depths.
+
+**`DATABENTO_API_KEY` in `/opt/stockhunt/.env.local`.** Until it is there the desk runs
 normally on four classes and every futures subscription is refused with that sentence in
 the log — verified, not assumed. `db_live.have_key` exists precisely so a missing secret is
 answered rather than raised: `run_paper.py` runs under systemd with a restart policy, and a
 `RuntimeError` at node build or in a poll task would restart-loop books that have nothing to
 do with futures.
+
+**`pip install databento` in the desk's venv.** The SDK was never a dependency of this
+repo — every Databento call went out over `requests` — so a box that has not been
+re-provisioned has `db_loader` working and no SDK, and the futures leg falls back to the
+eight-minute poller with `db_stream.NO_SDK` in the log and `futures_feed: poll` in the
+published state. `db_stream.have_sdk` answers instead of raising for exactly the reason
+`have_key` does, and `import databento` is inside `_open` rather than at module top so
+`db_live`, `db_nautilus` and `test_futures_leg.py` all still import without it. Verified
+with `--dry-run` against both a keyless box and an SDK-less one.
 
 ## The house runs two timeframes; a member may run six
 
@@ -692,7 +857,7 @@ attaches. Three properties of that check are load-bearing:
 `book_universe("us_stocks")` is the live top 100 — one promotion would be 100 requests a
 minute on its own, which is the regime this paragraph has always been about.
 
-### `cme_futures` runs at 1m too, and its bars arrive late
+### `cme_futures` runs at 1m too, and on the poller its bars arrive late
 
 `db_live.SCHEMA` is `1d`, `1h` and — since 2026-08-28 — `1m`. It was the first two, and
 `_feedable` refused a futures registration at 1m on the reasoning that the bar would be
@@ -721,6 +886,14 @@ eight minutes old has to be told, and the row they are already looking at is whe
 will see it — the alternative is a system that runs, fills and publishes while quietly
 meaning something other than what its owner thinks. Keep that column rare: a caveat on
 every row is a caveat nobody reads.
+
+**Since 2026-08-28 that caveat is READ, not written.** `db_stream.py` puts the leg on the
+live gateway at 0.01 seconds, where the sentence above is simply untrue and `_caveat`
+returns `""` — the row reads `live` and nothing else. It is still true whenever the leg
+has fallen back to the poller, and the fallback can happen at any moment, so the sentence
+is built from `db_live.FEED_MODE` at the instant the registration is marked and it names
+*why* the desk is polling. Everything in this section still describes the fallback exactly;
+none of it describes the normal case any more.
 
 `4h`, `15m` and `5m` are still refused, and for a genuinely different reason — the GLBX
 ohlcv archive has no such schema at all, and the research sheets at those sizes were cut

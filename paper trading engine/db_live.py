@@ -13,17 +13,36 @@ Probed 2026-08-27 at 12:58:10 UTC, `metadata.get_dataset_range` for `GLBX.MDP3` 
     ohlcv-1h   2026-08-27T12:00:00Z     the last COMPLETED hourly boundary
     ohlcv-1d   2026-08-27T00:00:00Z     the last completed UTC day
 
-So the archive runs about **eight minutes** behind real time, and the two schemas this leg
-uses report that fact rounded down to their own bar boundary rather than to the minute. A
-REST poller aligned to the bar close plus a lag comfortably past those eight minutes reads
-the settled bar on the first attempt, which is exactly the shape `td_live` + `td_nautilus`
-already run at 1d and 4h. Databento's paid Live API buys latency this desk has no use for:
-a book that decides once a day does not care about eight minutes, and every stage of the
-research it forward-tests was computed on these same daily bars.
+So the archive runs about **eight minutes** behind real time, and the schemas this leg uses
+report that fact rounded down to their own bar boundary rather than to the minute. A REST
+poller aligned to the bar close plus a lag comfortably past those eight minutes reads the
+settled bar on the first attempt, which is exactly the shape `td_live` + `td_nautilus`
+already run at 1d and 4h.
 
 `ARCHIVE_LAG_SECONDS` below is that measurement, and `db_nautilus.POLL_LAG` is sized
 against it. Poll sooner than the lag and the vendor has nothing, `drop_forming` correctly
 discards what it does have, and the bar is skipped in silence.
+
+**This is no longer the desk's primary feed, and the sentence that used to stand here —
+"Databento's paid Live API buys latency this desk has no use for" — was right about a book
+that decides once a day and wrong the moment `1m` was opened to member registrations.**
+Eight minutes is eight bars there. `db_stream.py` is the LIVE gateway, measured 2026-08-28
+at **0.01 seconds** behind a bar's close on this key -- in the gateway's own clock, via
+`ts_out`, because this box's wall clock is 42s adrift -- and priced by
+`metadata.get_cost(..., mode="live")` at **$0.00**, the same as historical. The reason
+there had been no live feed was neither cost nor capability: every Databento call in this
+repo went out over `requests` and the `databento` SDK was not a dependency.
+
+This module stays, and stays load-bearing, for three things a socket cannot do:
+
+* **warm-up.** A live gateway serves no history, so `fetch_bars` is still what a strategy
+  is handed when it starts, back-adjusted through `db_loader.back_adjust`.
+* **mark-to-market.** `fetch_prices` batches the whole leg into one request on a 300s
+  cadence, which is a different job from a bar feed and is fine at archive latency.
+* **the fallback.** When the gateway cannot be reached, will not authenticate, or drops
+  and does not come back, `db_nautilus` hands the leg back to the poller here — and says
+  so in the log and in `FEED_MODE`. A silent downgrade to an eight-minute feed is worse
+  than either mode chosen deliberately.
 
 **It costs nothing.** `db_loader.cost_usd(CME_FUTURES, ..., 'ohlcv-1h')` prices at $0.00 on
 this key; CME OHLCV is free across the whole archive. Every request here is still made
@@ -137,6 +156,26 @@ _WINDOW_SLACK = 1.15
 # 1.0 — a fresh anchor, and the correct answer — is the default for a symbol no desk is
 # holding.
 FORWARD_FACTORS: dict[str, float] = {}
+
+# Which feed the CME leg is actually running on: `"stream"` (Databento's LIVE gateway,
+# sub-second behind a bar's close) or `"poll"` (this module's REST path, ~8 min behind).
+#
+# It is published rather than inferred because the two modes differ by four orders of
+# magnitude in how old a fill's price is, and **a silent downgrade from one to the other
+# is worse than either chosen deliberately** — a member reading `live` on a 1m futures
+# registration is being told something different depending on which is running. Written by
+# `db_nautilus.DatabentoLiveClient`, read by `run_paper` into the published state and by
+# `desk_control._caveat` to decide what to say to the registration's owner.
+#
+# It lives HERE and not in `db_stream` for the same reason `FORWARD_FACTORS` does: this
+# module imports nothing beyond pandas and `db_loader`, so a reader can be answered
+# without the `databento` SDK being installed at all.
+FEED_MODE = {"mode": "poll", "why": "not started"}
+
+
+def feed_mode() -> str:
+    """`stream` or `poll` — what the futures leg is being fed by right now."""
+    return str(FEED_MODE.get("mode", "poll"))
 
 
 # What to say when the key is missing. One sentence, in one place, so the desk log, the

@@ -730,23 +730,39 @@ def _caveat(cls: str, tf: str) -> str:
     looking at is where they will see it. The alternative is a system that runs, fills,
     publishes, and quietly means something other than what its owner thinks it means.
 
-    This is the whole reason 1m is ALLOWED on the CME leg rather than refused. The bar
-    really does arrive late, and that really is a defect — but a member strategy does not
-    compute its signal from this feed. It arrives over the webhook from TradingView's own
-    real-time data, and the desk needs a bar to price a fill and mark a book. So the
-    honest answer is not "no", it is "yes, and here is what is stale about it".
+    This is the whole reason 1m is ALLOWED on the CME leg rather than refused. A member
+    strategy does not compute its signal from this feed — it arrives over the webhook from
+    TradingView's own real-time data, and the desk needs a bar to price a fill and mark a
+    book. So the honest answer was never "no", it was "yes, and here is what is stale
+    about it".
+
+    **Since 2026-08-28 the answer depends on which feed is running, so it is read rather
+    than written.** `db_stream.py` puts the leg on Databento's LIVE gateway, measured at
+    0.01 seconds behind a bar's close against the archive's ~8 minutes, and on that feed
+    the old caveat is simply untrue. It is still true whenever the leg has fallen back to
+    the poller, and that fallback can happen at any moment — a dead socket, a missing SDK
+    — so the sentence has to be built from `db_live.FEED_MODE` at the moment the
+    registration is marked, not from a constant. Keep this column rare: a caveat on every
+    row is a caveat nobody reads, which is why the streaming case returns "" and the row
+    reads simply `live`.
     """
     if cls != "cme_futures" or tf != "1m":
         return ""
     import db_live
     import db_nautilus
-    return (f"Running. One thing to know about 1m on this class: the desk polls "
-            f"Databento's HISTORICAL archive, which runs about "
-            f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes behind real time, so a minute "
-            f"bar reaches the desk roughly {db_nautilus.poll_lag('1m') // 60} minutes "
-            f"after it closed and your orders fill against it. Your SIGNAL is as timely "
-            f"as whatever sends it; the desk's fill PRICE on this class is not. Real-time "
-            f"CME needs Databento's live feed, which this desk does not subscribe to.")
+    if db_live.feed_mode() == "stream":
+        # Nothing surprising is true right now: the bar is a fraction of a second old,
+        # a shorter delay than the member's own webhook round trip. A caveat here would
+        # be noise, and this column is only useful while it stays rare.
+        return ""
+    return (f"Running. One thing to know about 1m on this class: the desk is polling "
+            f"Databento's HISTORICAL archive rather than its live gateway "
+            f"({db_live.FEED_MODE.get('why', 'reason unrecorded')}). The archive runs "
+            f"about {db_live.ARCHIVE_LAG_SECONDS // 60} minutes behind real time, so a "
+            f"minute bar reaches the desk roughly "
+            f"{db_nautilus.poll_lag('1m') // 60} minutes after it closed and your orders "
+            f"fill against it. Your SIGNAL is as timely as whatever sends it; the desk's "
+            f"fill PRICE on this class is not until the live feed is back.")
 
 
 def _bar_interval(tf: str):
