@@ -79,6 +79,45 @@ const CLASS_LABEL: Record<string, string> = {
  * a name that stays put. */
 const NARROW = "(max-width:760px)";
 
+/* THE OLD BOARD'S URLS ARE IN THE WORLD, and a hash never reaches the server.
+ *
+ * `/#/backtest/stocks/1d/ibs` was how every link to a strategy was written for months — in
+ * bookmarks, in messages, in this repo's own docs — and now that `/` is this app, those all
+ * land here with a hash nothing reads. The page would render the leaderboard and look
+ * perfectly fine, which is the worst version: the reader asked for one rule and silently
+ * got the list.
+ *
+ * So they are translated once, on arrival, before the sheet is fetched. The group keys are
+ * the old routes' (`stocks`, `etf`, `futures`); this app's routes take class names, which
+ * is the same trap the port hit three times, so the mapping is imported rather than
+ * rewritten. Anything not recognised is left alone — a stray hash is not an error.
+ */
+const LEGACY_CLS: Record<string, string> = Object.fromEntries(
+  Object.entries(CLASS_GROUP).map(([cls, grp]) => [grp, cls]),
+);
+
+function legacyHashTarget(hash: string): string | null {
+  const h = hash.replace(/^#/, "");
+  let m: RegExpMatchArray | null;
+  if ((m = h.match(/^\/backtest\/([^/]+)\/([^/]+)\/(.+)$/))) {
+    const cls = LEGACY_CLS[m[1]] ?? m[1];
+    return `/rule/?cls=${encodeURIComponent(cls)}&tf=${encodeURIComponent(m[2])}` +
+           `&rule=${encodeURIComponent(decodeURIComponent(m[3]))}`;
+  }
+  if ((m = h.match(/^\/paper\/sys\/([^/]+)\/([^/]+)\/(.+)$/))) {
+    return `/paper/sys/?cls=${encodeURIComponent(m[1])}&tf=${encodeURIComponent(m[2])}` +
+           `&rule=${encodeURIComponent(decodeURIComponent(m[3]))}`;
+  }
+  if ((m = h.match(/^\/paper\/(.+)$/)) && !m[1].startsWith("sys")) {
+    return `/paper/strategy/?id=${encodeURIComponent(decodeURIComponent(m[1]))}`;
+  }
+  if (h === "/paper" || h === "/paper/") return "/paper/";
+  // `#/backtest`, `#/backtest/compare`, `#/backtest/robust/...` all mean "the board",
+  // which is the page already being rendered. Drop the hash rather than reload.
+  if (h.startsWith("/backtest")) return "";
+  return null;
+}
+
 export default function ResearchPage() {
   const router = useRouter();
   const [sheets, setSheets] = useState<SheetRef[] | null>(null);
@@ -154,6 +193,12 @@ export default function ResearchPage() {
     on();
     mq.addEventListener("change", on);
     return () => mq.removeEventListener("change", on);
+  }, []);
+
+  useEffect(() => {
+    const to = legacyHashTarget(window.location.hash);
+    if (to) window.location.replace(to);
+    else if (to === "") history.replaceState(null, "", window.location.pathname);
   }, []);
 
   useEffect(() => {

@@ -228,9 +228,9 @@ def test_the_next_export_is_behind_the_same_login(client, sent):
     from a page whose session lapsed and answering it with the login HTML hands a script
     tag a form. Same split as `_serve`, and it has to be: the export loads its own chunks.
     """
-    r = client.get("/next/", follow_redirects=False)
+    r = client.get("/", follow_redirects=False)
     assert r.status_code == 302 and "/login" in r.headers["location"]
-    assert client.get("/next/_next/static/chunks/main.js").status_code == 401
+    assert client.get("/_next/static/chunks/main.js").status_code == 401
 
 
 def test_traversal_out_of_the_next_export_is_refused(client, sent, tmp_path):
@@ -268,3 +268,83 @@ def test_the_bearer_token_also_opens_the_board(client, sent):
     client.cookies.clear()
     r = client.get("/data.js", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
+
+
+# --------------------------------------------- the export catch-all shadows nothing
+
+# Every path this process answers BY NAME. `/{path:path}` is registered after all of them
+# and must never be what handles one -- which is the concern `api_board.py`'s docstring
+# raises about catch-alls, kept as a test rather than as a rule now that the export's asset
+# filenames are content hashes and cannot be put in an allowlist.
+NAMED = [
+    "/healthz",
+    "/login",
+    "/classic",
+    "/index.html",
+    "/app.js",
+    "/app.css",
+    "/data.js",
+    "/robust.json",
+    "/paper_curves.json",
+    "/live.json",
+    "/catalog.json",
+    "/desk",
+    "/desk/docs",
+    "/desk/agent.md",
+    "/auth/me",
+    "/v1/research/sheets",
+    "/v1/research/leaderboard",
+    "/v1/board/meta",
+    "/v1/strategies",
+    "/v1/orders",
+]
+
+
+@pytest.mark.parametrize("path", NAMED)
+def test_a_named_route_is_never_answered_by_the_export(client, path):
+    """A 404 from the catch-all would mean the route was shadowed.
+
+    Each of these has its own handler, and each answers SOMETHING of its own — a redirect
+    to the login, a 401, a 200, a 405. What none of them may do is fall through to the
+    static export and 404, because that is what "the catch-all ate an API route" looks
+    like from outside: a working endpoint that quietly stops existing.
+    """
+    r = client.get(path, follow_redirects=False)
+    assert r.status_code != 404, f"{path} fell through to the export"
+
+
+def test_the_root_is_the_next_board_now(client, sent):
+    """`/` is the export, and the vanilla board moved rather than being retired."""
+    _sign_in(client, sent)
+    assert b"_next/static" in client.get("/").content
+
+
+@pytest.mark.parametrize("path", ["/classic", "/classic/"])
+def test_the_vanilla_board_is_still_served_at_classic(client, sent, path):
+    """Moved, not retired. It is still the only thing that builds `dist/dashboard.html`.
+
+    BOTH SPELLINGS, because the relative-URL base is what the browser computes from the
+    address bar: `web/index.html` loads `app.css?v=` relatively, so the document has to be
+    served from a path with no directory segment or every asset resolves under `/classic/`
+    and 404s — rendering unstyled HTML rather than failing outright, which is the worse of
+    the two ways to be broken.
+    """
+    _sign_in(client, sent)
+    r = client.get(path)
+    assert r.status_code == 200
+    # The fixture's `web/` is a stub, so this asserts WHICH board answered, not its guts.
+    assert b"<title>board</title>" in r.content
+    assert b"_next/static" not in r.content
+
+
+def test_the_old_mount_point_redirects(client, sent):
+    """`/next/` is in bookmarks and in this repo's own docs. A 302, not a second copy."""
+    _sign_in(client, sent)
+    r = client.get("/next/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/"
+
+
+def test_an_unknown_path_is_still_a_404(client, sent):
+    """The catch-all resolves inside the export or refuses. It does not invent pages."""
+    _sign_in(client, sent)
+    assert client.get("/no/such/page/at/all").status_code == 404

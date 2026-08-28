@@ -16,14 +16,15 @@ import type { NextConfig } from "next";
  * resolves a URL path to a file. Without it `/research` and `/research/` disagree about
  * which file they mean, and only one of them exists.
  */
-// Overridable for a deploy that mounts it elsewhere; `""` serves it at the root.
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "/next";
+// THE ROOT since 2026-08-28: this is the board now, and the vanilla one moved to
+// `/classic`. Overridable for a deploy that mounts it elsewhere.
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const nextConfig: NextConfig = {
   output: "export",
   trailingSlash: true,
-  // The path `paper api` serves this export from -- `api_board.next_board`, which routes
-  // `/next/{path:path}`. THE TWO MUST AGREE, and a mismatch does not fail loudly: Next
+  // The path `paper api` serves this export from -- `api_board`, which routes `/` and the
+  // catch-all under it. THE TWO MUST AGREE, and a mismatch does not fail loudly: Next
   // bakes this prefix into every asset URL at BUILD time, so the wrong value serves a
   // page that returns 200 and renders nothing while every chunk 404s.
   //

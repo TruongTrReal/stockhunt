@@ -24,9 +24,28 @@ render — and shipping one would put a second runtime on a VPS whose deploy is 
 every five minutes. **The cost: no SSR, no ISR, no route handlers.** The day a page needs
 server rendering is the day to revisit this, not before.
 
-**Served at `/next/`, not `/`.** `/` still serves the vanilla board, so the two coexist
-and this one can be wrong without taking the working one down. Flipping it to the root is
-a routing change in `api_board.next_board` plus `NEXT_PUBLIC_BASE_PATH` at build time.
+**Served at `/`, since 2026-08-28.** It was `/next/` while it was being built, precisely so
+that it could be wrong without taking the working board down; it is not being built any
+more. `/next/` 302s here rather than serving a second copy.
+
+**The vanilla board moved to `/classic` and is KEPT, not retired.** It is still the only
+thing that produces `dist/dashboard.html`, it still holds views this app has no equivalent
+for, and its hash URLs are in bookmarks and in this repo's own documentation. Retiring a
+board because a second one exists is how you find out a month later which of the two
+somebody was relying on.
+
+**No trailing slash on the `/classic` that matters.** `web/index.html` loads its assets
+relatively — `app.css?v=`, `data.js?v=`, `app.js?v=` — so the document has to be served
+from a path with no directory segment or every asset resolves under `/classic/` and 404s.
+That renders unstyled HTML rather than failing outright, which is the worse of the two ways
+to be broken. Both spellings are served, because the relative base is what the BROWSER
+computes from the address bar.
+
+**The old hash URLs are translated on arrival.** `/#/backtest/stocks/1d/ibs` lands here
+with a hash the server never sees, so `legacyHashTarget` in `app/page.tsx` maps it to
+`/rule/?cls=us_stocks&tf=1d&rule=ibs` before the sheet is fetched. Without it the reader
+asked for one rule and silently got the list, which is the worst kind of broken link — one
+that renders a perfectly good page.
 
 **`app/board.css` is COPIED from `../Stockhunt Dashboard/web/app.css`**, by
 `scripts/copy-css.mjs` on every `predev`/`prebuild`, and is gitignored. It is not a fork.

@@ -111,24 +111,59 @@ def _serve(request: Request, url_path: str) -> Response:
     return response
 
 
-@router.get("/")
-def index(request: Request) -> Response:
-    return _serve(request, "/index.html")
-
-
 NEXT_OUT = api_paths.NEXT_OUT
+
+
+@router.get("/classic")
+@router.get("/classic/")
+def classic_board(request: Request) -> Response:
+    """The vanilla board, kept and moved rather than retired.
+
+    It is still the only thing that produces `dist/dashboard.html`, it still holds views
+    this export has no equivalent for (`enhanceTables`, the column-doc popover on every one
+    of nineteen headers), and its hash URLs are in the world -- in bookmarks, in messages,
+    in this repo's own documentation. Deleting a board because a second one exists is how
+    you find out a month later which of the two somebody was relying on.
+
+    NO TRAILING SLASH ON THE PATH THAT MATTERS. `web/index.html` loads its assets
+    relatively -- `app.css?v=`, `data.js?v=`, `app.js?v=` -- so at `/classic` those resolve
+    against `/` and hit the root routes that still serve them. At `/classic/` they would
+    resolve against `/classic/` and 404, and the board would render as unstyled HTML rather
+    than fail outright, which is the worse of the two ways to be broken. The variant with
+    the slash is accepted and answers the same document; the relative-URL base is what the
+    BROWSER computes from the address bar, so both spellings must be served from a path with
+    no directory segment for the assets to resolve.
+    """
+    return _serve(request, "/index.html")
 
 
 @router.get("/next")
 @router.get("/next/")
-@router.get("/next/{path:path}")
-def next_board(request: Request, path: str = "") -> Response:
-    """The Next.js board, served from its static export under the same login.
+def next_moved(request: Request) -> Response:
+    """Where this board used to live, for as long as anybody's links say so.
 
-    MOUNTED AT A SUB-PATH ON PURPOSE, and only while it is being built. `/` still serves
-    the vanilla board, so the two coexist and the new one can be wrong without taking the
-    working one down with it. Flipping it to the root is then a routing change here plus
-    `NEXT_PUBLIC_BASE_PATH` in the build, not a rewrite.
+    A 302 rather than a copy: two URLs serving one board is two things to keep in step, and
+    the export's own asset paths are root-relative now.
+    """
+    return RedirectResponse("/", status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/")
+def index(request: Request) -> Response:
+    """THE BOARD, which is the Next export as of 2026-08-28.
+
+    It was `/next/` while it was being built, so that it could be wrong without taking the
+    working board down. It is not being built any more: it carries the leaderboard, a
+    strategy's page and the whole paper desk, it pages a sheet the old one could only show
+    thirty rows of, and it searches every ranked candidate rather than the fifty on screen.
+
+    The vanilla board is at `/classic`, unchanged and still building `dist/dashboard.html`.
+    """
+    return next_board(request, "")
+
+
+def next_board(request: Request, path: str = "") -> Response:
+    """One file out of the static export, under the same login.
 
     The same session gate as `_serve`, and for the same two reasons: a browser typing the
     address gets the login screen, and a `fetch` from a page whose session just lapsed gets
@@ -210,6 +245,7 @@ _register_static()
 
 @router.get("/index.html")
 def index_html(request: Request) -> Response:
+    """The vanilla board's own document, by name. `/classic` is the address to give out."""
     return _serve(request, "/index.html")
 
 
@@ -358,3 +394,31 @@ async def live_stream(ws: WebSocket) -> None:
             await asyncio.sleep(POLL_EVERY)
     except WebSocketDisconnect:
         pass
+
+
+# ---------------------------------------------------------------- the export's own routes
+#
+# LAST IN THIS MODULE, WHICH IS LAST IN THE APP, and both halves of that matter. FastAPI
+# matches in registration order; `api_app` includes this router after `/auth`, `/v1` and
+# `/healthz`, and everything this module serves by name -- `/classic`, `/login`, `/desk`,
+# `/app.js`, `/live.json`, `/curves/{name}` -- is registered above. So this pattern is
+# reached only by a path nothing else claimed.
+#
+# `api_board.py`'s own docstring argues against exactly this shape: "a catch-all
+# `/{path:path}` would work and would also quietly shadow anything added to the API later".
+# That argument was written when this process served ONE board out of an allowlist of nine
+# files. It now also serves a static export whose asset filenames are CONTENT HASHES --
+# `_next/static/chunks/0cz1d0mv5g_q7.js` -- which nobody can enumerate in advance and which
+# change on every build. There is no allowlist to write, so the containment has to come from
+# somewhere else: `web_files.resolve_export` resolves the path and refuses anything that
+# lands outside the export directory, which is the same check the allowlist route uses one
+# layer down.
+#
+# What the old argument still buys is a REGRESSION TEST rather than a rule, and
+# `test_board.py` has one: every route the API answers by name must still answer, with this
+# registered. A future `/v1/...` is registered before this and cannot be shadowed; a future
+# BOARD route added below this one silently would be, which is why this stays at the bottom
+# of the file with the comment attached.
+@router.get("/{path:path}")
+def next_asset(request: Request, path: str) -> Response:
+    return next_board(request, path)

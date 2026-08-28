@@ -515,6 +515,23 @@ DELETE /auth/sessions                           sign out everywhere
 `GET /` is the dashboard. `GET /login` is the only page an unauthenticated caller can
 fetch; everything else under `web_files.ALLOWED` needs a session, and so does `/ws`.
 
+**`/` is the Next export and `/classic` is the vanilla board**, swapped 2026-08-28. The
+export is served by a catch-all `/{path:path}` at the BOTTOM of `api_board.py`, which is
+the shape this module's own docstring argues against — and the argument has an answer now
+rather than an exception. It was written when this process served one board out of an
+allowlist of nine files; the export's asset filenames are **content hashes** that change
+every build and that nobody can enumerate, so there is no allowlist to write and the
+containment comes from `web_files.resolve_export` refusing anything outside the export
+directory instead.
+
+What the old argument still buys is a test rather than a rule. `test_board.py` asserts that
+every path this process answers by name — `/healthz`, `/login`, `/classic`, `/app.js`,
+`/live.json`, `/desk`, `/auth/*`, `/v1/*` — still answers with the catch-all registered,
+because "the catch-all ate an API route" looks from outside like an endpoint that quietly
+stopped existing. The router is included last in `api_app`, so a future `/v1` route is
+registered before it and cannot be shadowed; a future BOARD route added below it would be,
+which is why it stays at the bottom of the file with the comment attached.
+
 **Why it moved into this process.** A page cannot put an `Authorization` header on
 `<script src="app.js">`, on a stylesheet link, or on a WebSocket handshake — the browser
 issues those, not the application. So gating the board needs a **cookie**, a cookie is
