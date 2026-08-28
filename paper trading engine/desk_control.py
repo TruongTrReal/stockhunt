@@ -381,7 +381,8 @@ class DeskController(Controller):
         self._running[rid] = strategy
         self._attached_at[rid] = self.clock.utc_now()
         self._quiet.discard(rid)
-        deskdb.mark_registration(rid, "live")
+        # A caveat, not a refusal — `reason` beside `live`. See `_caveat`.
+        deskdb.mark_registration(rid, "live", _caveat(cls, reg["tf"]) or None)
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
 
     def _flatten(self, rid: str, strategy) -> int:
@@ -713,25 +714,39 @@ def _why_not_feedable(tf: str) -> str:
       Databento's LIVE product, which is a subscription decision rather than code.
     """
     import db_live
-    import db_nautilus
     servable = ", ".join(sorted(db_live.SCHEMA))
-    if tf == "1m":
-        lag = db_live.ARCHIVE_LAG_SECONDS // 60
-        poll = db_nautilus.POLL_LAG // 60
-        return (
-            f"1m is not a bar this desk can trade on CME futures, and the reason is "
-            f"freshness rather than the archive: Databento does have `ohlcv-1m` — it is "
-            f"what `data/futures/1m` was fetched from — but the HISTORICAL archive this "
-            f"desk polls lags real time by about {lag} minutes, so a minute bar could not "
-            f"be acted on until roughly {poll} minutes after it closed. That is ~{poll} "
-            f"bars stale, which is a different strategy from the one you backtested, not "
-            f"a slower version of it. Serving it properly needs Databento's LIVE feed, "
-            f"which is a subscription decision. The leg runs {servable} today; at 1m, use "
-            f"a class fed by Twelve Data (us_stocks, us_etfs, crypto, commodities).")
     return (f"{tf} is not a bar Databento can serve for CME futures. The leg runs "
             f"{servable} — the GLBX ohlcv archive has no {tf} schema at all, and the "
             f"research sheets at that size were cut from cached 1m bars offline, which a "
             f"live poll cannot ask for.")
+
+
+def _caveat(cls: str, tf: str) -> str:
+    """What is TRUE but surprising about a registration the desk is about to ACCEPT.
+
+    Written into `reason` beside `live`, a column that until now only ever carried a
+    refusal. A caveat is not a refusal and must not read as one — but a member whose fills
+    are priced off a bar eight minutes old has to be told, and the row they are already
+    looking at is where they will see it. The alternative is a system that runs, fills,
+    publishes, and quietly means something other than what its owner thinks it means.
+
+    This is the whole reason 1m is ALLOWED on the CME leg rather than refused. The bar
+    really does arrive late, and that really is a defect — but a member strategy does not
+    compute its signal from this feed. It arrives over the webhook from TradingView's own
+    real-time data, and the desk needs a bar to price a fill and mark a book. So the
+    honest answer is not "no", it is "yes, and here is what is stale about it".
+    """
+    if cls != "cme_futures" or tf != "1m":
+        return ""
+    import db_live
+    import db_nautilus
+    return (f"Running. One thing to know about 1m on this class: the desk polls "
+            f"Databento's HISTORICAL archive, which runs about "
+            f"{db_live.ARCHIVE_LAG_SECONDS // 60} minutes behind real time, so a minute "
+            f"bar reaches the desk roughly {db_nautilus.poll_lag('1m') // 60} minutes "
+            f"after it closed and your orders fill against it. Your SIGNAL is as timely "
+            f"as whatever sends it; the desk's fill PRICE on this class is not. Real-time "
+            f"CME needs Databento's live feed, which this desk does not subscribe to.")
 
 
 def _bar_interval(tf: str):

@@ -197,37 +197,36 @@ def test_an_unreadable_ledger_fails_CLOSED(monkeypatch):
     assert "refusing rather than guessing" in why
 
 
-def test_futures_refuse_one_minute_before_the_budget_is_consulted():
-    """`db_live.SCHEMA` is 1d and 1h only, so the CME leg cannot serve a minute bar.
+def test_futures_DO_run_at_one_minute_now():
+    """1m was refused on the CME leg until 2026-08-28, and the refusal was over-strict.
 
-    It is refused for CAPABILITY, not for budget, and the sentence has to say so — a
-    member told they hit a symbol ceiling would go and trade fewer names, which cannot
-    help them here.
+    The bar really does arrive late — the desk polls Databento's HISTORICAL archive, whose
+    frontier was sampled at 5.5-7.3 minutes behind real time — but a MEMBER strategy does
+    not compute its signal from this feed. It arrives over the webhook from TradingView's
+    own real-time data; the desk needs a bar to price a fill and mark a book. So the
+    honest answer is "yes, and here is what is stale about it", which is a caveat on the
+    row rather than a closed door.
     """
     import desk_control
     can, why = desk_control._feedable("cme_futures", "1m")
-    assert not can
-    assert "Databento" in why and "1d" in why
-    assert "ceiling" not in why and "fewer names" not in why
+    assert can and why == ""
 
 
-def test_the_one_minute_refusal_answers_the_question_that_was_ASKED():
-    """One sentence used to explain 4h and 15m to everybody, including 1m askers.
-
-    Read as a reply to "may I have 1m?", the old text said the archive has no 4h or 15m
-    schema *and that the sheets at those sizes were cut from cached 1m bars* — which names
-    1m as the thing those came FROM and reads as a yes. It is the most confusing possible
-    answer to the request actually made.
-
-    The real reason for 1m is FRESHNESS, not the archive: `ohlcv-1m` exists and is what
-    `data/futures/1m` was fetched from; what is missing is that the historical endpoint
-    lags real time, so the bar would arrive ~15 bars stale.
-    """
+def test_accepting_one_minute_futures_still_says_what_is_stale():
+    """A caveat, in `reason`, beside `live`. A system that runs, fills and publishes while
+    quietly meaning something other than its owner thinks is the failure being avoided."""
     import desk_control
-    _, why = desk_control._feedable("cme_futures", "1m")
-    assert "4h" not in why and "15m" not in why, "do not explain a size nobody asked for"
-    assert "stale" in why, "name the actual defect"
-    assert "LIVE" in why, "and what would fix it, since it is a subscription not a bug"
+    why = desk_control._caveat("cme_futures", "1m")
+    assert why.startswith("Running"), "it must not read as a refusal"
+    assert "behind real time" in why and "fill PRICE" in why
+
+
+@pytest.mark.parametrize("cls,tf", [("us_stocks", "1m"), ("cme_futures", "1h"),
+                                    ("crypto", "5m"), ("cme_futures", "1d")])
+def test_nothing_else_carries_a_caveat(cls, tf):
+    """`reason` beside `live` has to stay rare, or it stops being read at all."""
+    import desk_control
+    assert desk_control._caveat(cls, tf) == ""
 
 
 @pytest.mark.parametrize("tf", ["4h", "15m", "5m"])
@@ -351,3 +350,37 @@ def test_an_unreadable_cache_does_not_raise_either():
 
     ctl = _controller(Boom(), log=_Recorder())
     assert ctl._flatten("rid", _Strategy()) == 0
+
+
+# ---------------------------------------------- the staleness window is not a table
+#
+# `desk_orders.BAR_SECONDS` was `{"1d": 86_400, "4h": 14_400}` with a one-day default, and
+# a comment claiming nothing else could be registered. That stopped being true when
+# `MEMBER_TIMEFRAMES` grew, and the failure was silent in the worst direction: every
+# intraday timeframe the desk gained got a ONE DAY staleness window, so a 1m order that
+# waited fourteen hours was still "fresh".
+
+@pytest.mark.parametrize("tf,seconds", [("1d", 86_400), ("4h", 14_400), ("2h", 7_200),
+                                        ("1h", 3_600), ("15m", 900), ("5m", 300),
+                                        ("1m", 60)])
+def test_every_offered_timeframe_has_its_OWN_stale_window(tf, seconds):
+    import desk_orders
+    assert desk_orders.bar_seconds(tf) == seconds
+    assert desk_orders.stale_window(tf).total_seconds() == seconds
+
+
+def test_a_minute_order_goes_stale_in_a_minute_not_a_day():
+    """The bug, stated as the thing it allowed."""
+    import desk_orders
+    from datetime import datetime, timedelta, timezone
+    sent = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    order = {"submitted_at": sent.isoformat()}
+    assert not desk_orders.is_stale(order, "1m", sent + timedelta(seconds=30))
+    assert desk_orders.is_stale(order, "1m", sent + timedelta(minutes=2))
+    assert desk_orders.is_stale(order, "1m", sent + timedelta(hours=14))
+
+
+def test_a_name_that_is_not_a_timeframe_still_falls_back_to_a_day():
+    import desk_orders
+    assert desk_orders.bar_seconds("bogus") == 86_400
+    assert desk_orders.bar_seconds("") == 86_400

@@ -28,9 +28,29 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-# One bar of each timeframe. The desk trades 1d and 4h; anything else has no `BAR_SPEC`
-# and no walk-forward sheet, so it cannot be registered in the first place.
-BAR_SECONDS = {"1d": 86_400, "4h": 14_400}
+# One bar of each timeframe, PARSED rather than tabulated.
+#
+# It was `{"1d": 86_400, "4h": 14_400}` with a comment saying the desk trades those two
+# and "anything else... cannot be registered in the first place". That stopped being true
+# the moment `MEMBER_TIMEFRAMES` grew, and the failure was silent in the worst direction:
+# `stale_window` read `BAR_SECONDS.get(tf, 86_400)`, so **every intraday timeframe the
+# desk gained — 2h, 1h, 15m, 5m, 1m — silently got a ONE DAY staleness window.** A 1m
+# order that waited fourteen hours was still "fresh", which is the exact opposite of what
+# this guard exists to do, and nothing anywhere said so.
+#
+# A table of timeframes is a third list to keep in step with `paper_config.TIMEFRAMES` and
+# `td_live.INTERVALS`, and this module deliberately imports neither — it is the checks
+# that BIND, and they are worth being testable in milliseconds without the trading stack.
+# So the length is derived from the name, which cannot drift because it is not a copy.
+_UNIT_SECONDS = {"m": 60, "h": 3_600, "d": 86_400}
+
+
+def bar_seconds(tf: str) -> int:
+    """`"15m"` -> 900. Falls back to a day only for a name that is not a timeframe."""
+    try:
+        return int(tf[:-1]) * _UNIT_SECONDS[tf[-1]]
+    except (ValueError, KeyError, IndexError):
+        return 86_400
 
 # Multiplier on that bar. 1.0 means "an order may not outlive the bar it was computed on".
 # Raising it buys tolerance for a slow desk at the cost of filling staler decisions.
@@ -41,7 +61,7 @@ TYPES = ("market", "limit")
 
 
 def stale_window(tf: str, stale_bars: float = STALE_BARS) -> timedelta:
-    return timedelta(seconds=BAR_SECONDS.get(tf, 86_400) * stale_bars)
+    return timedelta(seconds=bar_seconds(tf) * stale_bars)
 
 
 def _parse(ts: str) -> datetime:

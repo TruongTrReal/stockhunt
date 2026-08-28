@@ -144,21 +144,37 @@ def test_the_vendor_symbol_of_a_future_is_itself():
 
 # ------------------------------------------------------------------ what the feed refuses
 
-@pytest.mark.parametrize("tf", ["1d", "1h"])
-def test_the_two_clean_schemas_round_trip(tf):
+@pytest.mark.parametrize("tf", ["1d", "1h", "1m"])
+def test_the_servable_schemas_round_trip(tf):
+    """`1m` joined on 2026-08-28. `ohlcv-1m` was always a real schema — it is what
+    `data/futures/1m` was fetched from — and the objection to feeding it live was the
+    archive's ~7-minute lag, which is a caveat to state rather than a capability to
+    withhold. See `desk_control._caveat`."""
     spec = paper_config.BAR_SPEC[tf]
     assert db_nautilus.timeframe_of(
         BarType.from_str(f"ES.v.0.GLBX-{spec}")) == tf
 
 
 @pytest.mark.parametrize("spec", ["4-HOUR-LAST-EXTERNAL", "15-MINUTE-LAST-EXTERNAL",
-                                  "5-MINUTE-LAST-EXTERNAL", "1-MINUTE-LAST-EXTERNAL"])
+                                  "5-MINUTE-LAST-EXTERNAL"])
 def test_an_unservable_timeframe_is_refused(spec):
-    """The GLBX ohlcv archive has no 4h or 15m schema, and its 1m bars fold whole
-    sessions before 2016. The sheets at those sizes were cut from cached files, which a
-    live poll cannot ask for."""
+    """The GLBX ohlcv archive has no 4h, 15m or 5m schema AT ALL. The research sheets at
+    those sizes were cut from cached 1m bars offline, which a live poll cannot ask for —
+    a different problem from 1m's, which exists and is merely late."""
     with pytest.raises(ValueError):
         db_nautilus.timeframe_of(BarType.from_str(f"ES.v.0.GLBX-{spec}"))
+
+
+def test_the_minute_poll_lag_clears_the_measured_frontier_and_no_more():
+    """Fifteen minutes is right for a daily bar and is fifteen BARS at 1m.
+
+    Sized on the worst sampled reading of the archive frontier (7.3 min, 2026-08-28)
+    plus headroom, with the retry loop covering the rest.
+    """
+    assert db_nautilus.poll_lag("1m") == 8 * 60
+    assert db_nautilus.poll_lag("1d") == db_nautilus.POLL_LAG
+    assert db_nautilus.poll_lag("1m") >= db_live.ARCHIVE_LAG_SECONDS, (
+        "the lag must clear the archive frontier or the bar is never settled")
 
 
 async def _noop():

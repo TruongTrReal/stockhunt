@@ -64,9 +64,19 @@ from futures_specs import GLBX_START
 
 DATASET = db_loader.DATASET
 
-# The measured lag of the historical archive behind real time: probed 2026-08-27 at
-# 12:58:10 UTC, the dataset ended at 12:50:00 UTC. It is what makes a REST poller a live
-# feed here, and it is what `db_nautilus.POLL_LAG` has to clear.
+# The measured lag of the historical archive behind real time. It is what makes a REST
+# poller a live feed here, and it is what `db_nautilus.POLL_LAG` has to clear.
+#
+# **Re-measured 2026-08-28 by sampling the frontier every 20s for two minutes**, because
+# the first reading was taken once and rounded: `ohlcv-1m`'s end ran 5.5 to 7.3 minutes
+# behind, mean 6.4. The spread is the vendor advancing the frontier in steps rather than
+# continuously, so the WORST case is what a poller has to clear, not the mean.
+#
+# Read the per-schema `end` carefully when re-measuring. `ohlcv-1d` reports 00:00 and
+# `ohlcv-1h` reports the last completed HOUR, so both look far more stale than the archive
+# is — at 02:25 they read 145 and 25 minutes behind while the frontier was 5. Only the
+# finest schema tracks the frontier, and `metadata.get_dataset_range`'s top-level `end` is
+# the frontier itself.
 ARCHIVE_LAG_SECONDS = 8 * 60
 
 # The only two schemas this class may be fed from, and the reason is a measured vendor
@@ -77,18 +87,27 @@ ARCHIVE_LAG_SECONDS = 8 * 60
 # holed before it, while `ohlcv-1d` is complete for the whole archive. There is no 15m or
 # 4h schema at all: the research sheets at those sizes are built from cached 1m, which is
 # a file on disk and not something a live poll can ask for.
-SCHEMA = {"1d": "ohlcv-1d", "1h": "ohlcv-1h"}
+# `1m` joined on 2026-08-28. It was left out on the reasoning that a minute bar arriving
+# after the archive lag is stale — which is TRUE and is not a reason to refuse it, because
+# a member strategy does not compute its signal from this feed. It arrives over the
+# webhook from TradingView's own real-time data; what the desk needs a bar for is a price
+# to fill against and a mark. So the honest description is not "1m does not work here", it
+# is "a 1m fill on this class is priced off a bar about seven minutes old" — which is a
+# caveat to record on the system, not a door to close. `desk_control` says exactly that
+# when a 1m futures registration is accepted.
+SCHEMA = {"1d": "ohlcv-1d", "1h": "ohlcv-1h", "1m": "ohlcv-1m"}
 
 # How long one bar of each lasts, in the same shape as `td_live.INTERVALS` so the two
 # clients' cadence arithmetic reads alike. A GLBX "day" is a UTC calendar day — that is
 # what `db_loader` buckets on and what `data/futures/1d` is grouped by — so the daily
 # boundary really is midnight UTC and the modular arithmetic in `db_nautilus` is right.
-INTERVALS = {"1d": timedelta(days=1), "1h": timedelta(hours=1)}
+INTERVALS = {"1d": timedelta(days=1), "1h": timedelta(hours=1),
+             "1m": timedelta(minutes=1)}
 
 # The first date each schema is worth asking for. Daily is the hard floor of the vendor's
 # CME archive; hourly is where the folded-session scan found every sampled weekday intact,
 # which is `db_intraday`'s own start for the same reason.
-HISTORY_START = {"1d": GLBX_START, "1h": INTRADAY_START}
+HISTORY_START = {"1d": GLBX_START, "1h": INTRADAY_START, "1m": INTRADAY_START}
 
 # A LOWER bound on how many bars a calendar day yields, per timeframe — used only to turn
 # "n bars" into a wall-clock window to ask for, so it must under-estimate or the warm-up
@@ -99,7 +118,11 @@ HISTORY_START = {"1d": GLBX_START, "1h": INTRADAY_START}
 # and **6** on LE, which keeps pit hours. Sizing this window off ES would ask for a quarter
 # of the history LE needs. Over-asking costs response bytes and $0.00; under-asking is
 # silent.
-_BARS_PER_CALENDAR_DAY = {"1d": 5.0 / 7.0, "1h": 4.0}
+# 240 for 1m is the same under-estimate one grid finer: LE's ~6 tradable hours is ~360
+# minute bars, and 240 leaves the same margin the hourly row has. Getting it wrong in the
+# generous direction costs bytes and $0.00; getting it wrong the other way returns a short
+# warm-up and the book sits warming with nothing in the log to say why.
+_BARS_PER_CALENDAR_DAY = {"1d": 5.0 / 7.0, "1h": 4.0, "1m": 240.0}
 
 # Slack on top of that, for holidays and for the roots that trade a shortened week.
 _WINDOW_SLACK = 1.15

@@ -90,6 +90,21 @@ VENUE = Venue(paper_config.VENUES.get(ASSET_CLASS, "GLBX"))
 # minutes is that lag plus most of it again — the retry loop below covers the rest, and at
 # 1d and 1h a quarter of an hour costs a book nothing.
 POLL_LAG = 15 * 60
+
+# ...except at 1m, where fifteen minutes would be fifteen BARS. The lag has to clear the
+# archive frontier and nothing more, so it is sized on the worst sampled reading (7.3 min,
+# 2026-08-28) plus headroom, and the retry loop below covers the rest. A minute bar still
+# reaches the desk about eight minutes after it closed — that is the vendor's floor
+# without a LIVE subscription, and it is a property of this class that has to be said out
+# loud rather than hidden in a constant. See `desk_control._feedable`, which says it to
+# the member who registered.
+POLL_LAG_BY_TF = {"1m": 8 * 60}
+
+
+def poll_lag(timeframe: str) -> int:
+    """Seconds after a bar boundary before the first fetch. Per timeframe, because a lag
+    sized for a daily bar is most of a session at 1m."""
+    return POLL_LAG_BY_TF.get(timeframe, POLL_LAG)
 # If the settled bar has not appeared yet, retry on this cadence rather than waiting a
 # whole interval and losing the bar. Two minutes rather than `td_nautilus`'s one, because
 # a Databento window costs ~25 seconds of server-side symbology resolution whatever it
@@ -198,6 +213,7 @@ class DatabentoLiveClient(LiveMarketDataClient):
             return
         self._log.info(f"Databento {db_live.DATASET} connected, warmup window "
                        f"{self._window} bars, poll at close + {POLL_LAG}s "
+                       f"({POLL_LAG_BY_TF.get('1m')}s at 1m) "
                        f"(archive lags ~{db_live.ARCHIVE_LAG_SECONDS // 60} min)")
 
     async def _disconnect(self) -> None:
@@ -387,7 +403,8 @@ class DatabentoLiveClient(LiveMarketDataClient):
                 f"for a bar that is coming.")
             return
         self._poll_tasks[bar_type] = self.create_task(self._poll(bar_type))
-        self._log.info(f"subscribed {bar_type} (poll at close + {POLL_LAG}s)")
+        self._log.info(f"subscribed {bar_type} (poll at close + "
+                       f"{poll_lag(timeframe_of(bar_type))}s)")
 
     async def _unsubscribe_bars(self, command) -> None:
         task = self._poll_tasks.pop(command.bar_type, None)
@@ -436,7 +453,8 @@ class DatabentoLiveClient(LiveMarketDataClient):
         symbol = bar_type.instrument_id.symbol.value
         while True:
             try:
-                await asyncio.sleep(self._seconds_to_next_close(timeframe) + POLL_LAG)
+                await asyncio.sleep(self._seconds_to_next_close(timeframe)
+                                    + poll_lag(timeframe))
                 for _ in range(MAX_RETRIES):
                     try:
                         front, behind = await asyncio.to_thread(

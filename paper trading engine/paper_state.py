@@ -138,7 +138,19 @@ _gap_cache: dict[tuple, float | None] = {}
 
 # One bar of each timeframe. A gap shorter than this closed no bar, so there is no
 # benchmark move to miss and 0.0 is measured rather than assumed.
-_BAR_SECONDS = {"1d": 86400.0, "4h": 14400.0}
+#
+# Derived from the NAME, not tabulated — the same fix as `desk_orders.bar_seconds`, and
+# the same bug before it: a two-row table with a one-day default silently told every
+# intraday timeframe the desk gained that a gap under 24 hours closed no bar, so a 1m
+# system that was down for an hour reported its benchmark as flat over the outage.
+_UNIT_SECONDS = {"m": 60.0, "h": 3_600.0, "d": 86_400.0}
+
+
+def _bar_seconds(timeframe: str) -> float:
+    try:
+        return float(int(timeframe[:-1]) * _UNIT_SECONDS[timeframe[-1]])
+    except (ValueError, KeyError, IndexError):
+        return 86_400.0
 
 
 def _bench_over_gap(symbol: str, timeframe: str, start: datetime) -> float | None:
@@ -146,7 +158,7 @@ def _bench_over_gap(symbol: str, timeframe: str, start: datetime) -> float | Non
     if key in _gap_cache:
         return _gap_cache[key]
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-    if elapsed < _BAR_SECONDS.get(timeframe, 86400.0):
+    if elapsed < _bar_seconds(timeframe):
         _gap_cache[key] = 0.0
         return 0.0
     try:

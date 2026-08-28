@@ -692,10 +692,46 @@ attaches. Three properties of that check are load-bearing:
 `book_universe("us_stocks")` is the live top 100 — one promotion would be 100 requests a
 minute on its own, which is the regime this paragraph has always been about.
 
-`cme_futures` cannot reach the ceiling at all: `db_live.SCHEMA` is `1d` and `1h`, so
-`_feedable` refuses a futures registration at 1m for **capability** first, with a sentence
-that says so. A member told they hit a symbol ceiling would go and trade fewer names,
-which cannot help them there.
+### `cme_futures` runs at 1m too, and its bars arrive late
+
+`db_live.SCHEMA` is `1d`, `1h` and — since 2026-08-28 — `1m`. It was the first two, and
+`_feedable` refused a futures registration at 1m on the reasoning that the bar would be
+stale. **The bar IS stale and that was still the wrong call**, because it answers a
+question a member strategy does not ask: it does not compute its signal from this feed.
+The signal arrives over the webhook from TradingView's own real-time data, and what the
+desk needs a bar for is a price to fill against and a mark. So the honest answer is not
+"no", it is "yes, and here is what is stale about it".
+
+**How late, measured.** The archive frontier was sampled every 20s for two minutes on
+2026-08-28: `ohlcv-1m`'s end ran **5.5 to 7.3 minutes** behind real time, mean 6.4. So
+`POLL_LAG_BY_TF["1m"]` is 8 minutes — the worst reading plus headroom — against the 15 the
+other sizes use, because fifteen minutes is right for a daily bar and is fifteen BARS at
+1m. Verified end to end: a 20-bar `fetch_bars("ES.v.0", "1m")` returns in ~12s with its
+newest bar 6.0 minutes old.
+
+**Read the per-schema `end` carefully if you re-measure this.** `ohlcv-1d` reports 00:00
+and `ohlcv-1h` reports the last completed hour, so at 02:25 they read 145 and 25 minutes
+behind while the frontier was 5. Only the finest schema tracks the frontier, and
+`metadata.get_dataset_range`'s top-level `end` is the frontier itself. Sizing the poll lag
+off the hourly reading is how 8 minutes became 15.
+
+**The caveat is written into `reason`, beside `live`** (`desk_control._caveat`), a column
+that until then only ever carried a refusal. A member whose fills are priced off a bar
+eight minutes old has to be told, and the row they are already looking at is where they
+will see it — the alternative is a system that runs, fills and publishes while quietly
+meaning something other than what its owner thinks. Keep that column rare: a caveat on
+every row is a caveat nobody reads.
+
+`4h`, `15m` and `5m` are still refused, and for a genuinely different reason — the GLBX
+ohlcv archive has no such schema at all, and the research sheets at those sizes were cut
+from cached 1m bars offline, which a live poll cannot ask for. The refusal names the size
+that was asked for rather than a hardcoded pair; it explained `4h` and `15m` to everyone,
+including 1m askers, and then named 1m as the thing those sheets came from, which reads as
+a yes.
+
+`cme_futures` therefore cannot reach the 1m symbol ceiling by a different route than it
+used to: `MAX_1M_SYMBOLS` applies to it like anything else, and the 19-name universe is
+well under it.
 
 **The legs must stay disjoint** — `paper_config` raises at import if they are not. SPY, SOXL
 and TQQQ are on the *equity* leg because that is the transfer test (rules ranked on
