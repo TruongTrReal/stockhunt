@@ -2,6 +2,7 @@
 
     python resample_intraday.py --class crypto --tf 2m 3m
     python resample_intraday.py                              # every class with a 1m cache
+    python resample_intraday.py --class commodities --from 1h --tf 4h
 
 Derived, never fetched: `td_loader.fetch` refuses `2m`/`3m` outright (Twelve Data has no
 2min/3min product), and `td_loader.load` reads whatever this writes, so the whole
@@ -44,7 +45,18 @@ open, straddling it. So `main` refuses a size that does not divide 570 on the ex
 classes; 1h and 4h are fetched, never resampled. The 24-hour classes have no such
 constraint, and the check is skipped for them.
 
-Superseded output is overwritten whole. Rerun after any 1m refetch.
+**The source timeframe is an argument, and `4h` on commodities is why.** That class's bars
+were stamped in `Australia/Sydney` and are now restamped to UTC (see
+`config.INTRADAY_CLOCK`); the offset is a whole number of hours, so `1m`/`5m`/`15m`/`1h`
+stay exactly on the UTC grid under it and only their labels move. **`4h` does not**: the
+offset is 10 or 11 hours, `10 % 4 == 2` and `11 % 4 == 3`, so a relabelled 4h bar would sit
+at 02:00/06:00/... UTC in summer and 01:00/05:00/... in winter — not the same windows any
+other class's 4h bars cover, and not even the same windows as itself across a DST change.
+It has to be rebuilt on the real grid, and it is rebuilt from **`1h`, not `1m`**: the 1h
+cache holds all five commodity symbols from 2020-01-20 while the 1m cache holds three from
+2020-10-01, so deriving from 1m would silently delete two metals and nine months.
+
+Superseded output is overwritten whole. Rerun after any refetch of the source timeframe.
 """
 
 from __future__ import annotations
@@ -53,18 +65,22 @@ import argparse
 
 import pandas as pd
 
+import config
 from config import CLASSES, TIMEFRAMES
 from td_loader import cache_dir, safe_symbol
 
 
 AGG = {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
 
-# Which classes carry EXCHANGE-LOCAL timestamps in the 1m cache rather than UTC. Twelve
-# Data returns the exchange's own clock and Databento returns UTC, and neither stamps the
-# zone on the parquet, so this is the only place the difference is written down outside
-# `CLAUDE.md`. It matters here and nowhere else in this file: the 570 rule below applies
-# to a 09:30 open, which is a fact about ET, not about the calendar day.
-EXCHANGE_LOCAL = {"us_stocks": True, "us_etfs": True}
+# Which classes carry EXCHANGE-LOCAL timestamps in the cache rather than UTC. It matters
+# here and nowhere else in this file: the 570 rule below is about a 09:30 open, which is a
+# fact about ET and not about the calendar day.
+#
+# **Derived from `config.INTRADAY_CLOCK`, not restated.** This used to be a hand-written
+# `{"us_stocks": True, "us_etfs": True}` and it was the only place outside `CLAUDE.md` the
+# difference was written down — which is how the docs came to claim commodities were UTC
+# while the vendor was stamping them in `Australia/Sydney`. One declaration, read from it.
+EXCHANGE_LOCAL = {c: config.cache_tz(c) != "UTC" for c in CLASSES}
 
 
 def resample_frame(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
@@ -96,18 +112,31 @@ def main() -> int:
                     choices=sorted({t for t, s in TIMEFRAMES.items()
                                     if s["interval"] is None}
                                    | {"5m", "15m", "30m", "4h"}))
+    # Which cached size to aggregate FROM. Defaults to 1m, which is every case but one:
+    # commodity `4h` is rebuilt from `1h` because the 1m cache is missing two of the five
+    # symbols and nine months of the other three. See the docstring.
+    ap.add_argument("--from", dest="source_tf", default="1m",
+                    choices=[t for t, s in TIMEFRAMES.items() if s["intraday"]])
     args = ap.parse_args()
 
+    src_minutes = int(args.source_tf[:-1]) * (60 if args.source_tf.endswith("h") else 1)
     classes = args.classes or [c for c in CLASSES
-                               if any(cache_dir(c, "1m").glob("*.parquet"))]
+                               if any(cache_dir(c, args.source_tf).glob("*.parquet"))]
     for asset_class in classes:
-        src = cache_dir(asset_class, "1m")
+        src = cache_dir(asset_class, args.source_tf)
         files = sorted(src.glob("*.parquet"))
         if not files:
-            print(f"{asset_class}: no 1m cache, skipped")
+            print(f"{asset_class}: no {args.source_tf} cache, skipped")
             continue
         for tf in args.tf:
             minutes = int(tf[:-1]) * (60 if tf.endswith("h") else 1)
+            # An aggregation can only ever be exact when the source bar tiles the target
+            # window. Refused rather than warned about, for the same reason as the 570
+            # rule below: the output would be well formed and quietly wrong.
+            if minutes % src_minutes or minutes == src_minutes:
+                print(f"{asset_class}/{tf}: refused - cannot build a {minutes}m bar out "
+                      f"of {src_minutes}m bars")
+                continue
             # The 570 rule. A US equity session opens 570 minutes past midnight and these
             # windows anchor at midnight, so a size that does not divide 570 puts the
             # session's first bar astride the open -- half of it pre-market, and every

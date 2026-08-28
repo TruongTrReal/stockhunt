@@ -384,3 +384,59 @@ def test_a_name_that_is_not_a_timeframe_still_falls_back_to_a_day():
     import desk_orders
     assert desk_orders.bar_seconds("bogus") == 86_400
     assert desk_orders.bar_seconds("") == 86_400
+
+
+# --------------------------------------------------------------------------- the clock
+#
+# Same family of failure as the one this file is named for, one layer down: the desk and
+# the sheet it selects from disagreed about what a timestamp MEANT, and nothing said so.
+# Twelve Data stamps commodity intraday bars in `Australia/Sydney` and declares nothing;
+# read as UTC they are 10-11 hours in the future, so `fetch_bars`' forming-bar guard never
+# fired and the commodity legs ran permanently one bar behind. Silent, and green.
+
+def test_live_bars_land_on_the_same_clock_as_the_backtest_cache():
+    import pandas as pd
+
+    idx = pd.DatetimeIndex(["2025-07-15 08:00", "2025-07-15 09:00"])
+    for symbol in ("SPY", "BTC/USD", "ES.v.0"):
+        assert list(td_live._to_cache_clock(idx, symbol)) == list(idx)
+    # Southern-hemisphere winter: Sydney is UTC+10, so the vendor's 08:00 is 22:00 the
+    # day before. In January it would be 11 hours, which is why this is a tz conversion
+    # and not a subtraction.
+    metal = td_live._to_cache_clock(idx, "XAU/USD")
+    assert list(metal) == list(idx - pd.Timedelta(hours=10))
+    assert list(td_live._to_cache_clock(
+        pd.DatetimeIndex(["2025-01-15 08:00"]), "XAU/USD")) == [
+            pd.Timestamp("2025-01-14 21:00")]
+
+
+def test_an_unknown_symbol_does_not_kill_the_process():
+    """A member may register anything the vendor prices. `paper_config.class_of` exits on
+    a symbol outside the forward-test universe, which is right where the desk uses it and
+    fatal on a path that only wants to know a timezone."""
+    import pandas as pd
+
+    assert td_live.class_of("NOT-A-TICKER") is None
+    idx = pd.DatetimeIndex(["2025-07-15 08:00"])
+    assert list(td_live._to_cache_clock(idx, "NOT-A-TICKER")) == list(idx)
+
+
+def test_the_forming_bar_guard_now_sees_a_commodity_bar_as_past():
+    """The measured symptom, as arithmetic rather than as a network call.
+
+    A commodity bar that closed an hour ago is stamped 10-11 hours AHEAD of `now` by the
+    vendor. Against that stamp `now < open + duration` is always true, so the newest row
+    was dropped on every read. On the cache clock it is behind `now`, and it is kept.
+    """
+    import pandas as pd
+    from datetime import timezone
+
+    now = pd.Timestamp("2025-07-14 23:30", tz="UTC")
+    vendor_stamp = pd.DatetimeIndex(["2025-07-15 08:00"])       # = 22:00 UTC, 90m ago
+    duration = td_live.INTERVALS["1h"][1]
+
+    raw = vendor_stamp[-1].tz_localize(timezone.utc)
+    assert now < raw + duration                                  # dropped, wrongly
+
+    fixed = td_live._to_cache_clock(vendor_stamp, "XAU/USD")[-1].tz_localize(timezone.utc)
+    assert now >= fixed + duration                               # kept, correctly

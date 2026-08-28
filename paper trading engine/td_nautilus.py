@@ -474,6 +474,11 @@ class TwelveDataLiveClient(LiveMarketDataClient):
             self._log.error(f"no instrument in cache for {bar_type.instrument_id}")
             return None
         if ts.tzinfo is None:
+            # `td_live.fetch_bars` returns UTC now, so this is a belt-and-braces fallback
+            # for a frame built some other way. It used to be the ONLY thing standing
+            # between a vendor stamp and `ts_event`, which is how commodity bars came to
+            # be recorded in `results/paper.db` 10-11 hours in the FUTURE: their stamps
+            # were Sydney wall clock and this line asserted they were UTC.
             ts = ts.tz_localize("UTC")
         # A bar is stamped at its CLOSE for Nautilus, while the vendor stamps the open.
         close_ns = int((ts + _interval_delta(timeframe_of(bar_type))).value)
@@ -599,6 +604,18 @@ class TwelveDataLiveClient(LiveMarketDataClient):
             task.cancel()
 
     def _seconds_to_next_close(self, timeframe: str) -> float:
+        """When the next bar of this size closes, as modular arithmetic on the epoch.
+
+        **This is only correct because the vendor's grid is anchored to UTC**, and for
+        one class it was not. Twelve Data stamps commodity intraday bars in
+        `Australia/Sydney` (see `config.INTRADAY_CLOCK`), and Sydney is UTC+10/+11 — whole
+        hours, so `1m` through `1h` land on the same instants either way and this is
+        exactly right for them. `4h` does not: `10 % 4 == 2`, so the vendor's own 4h
+        commodity boundaries sat two or three hours off the epoch grid this computes, and
+        the poll fired mid-bar. `td_live.fetch_bars` now returns UTC for every class, and
+        the engine's 4h commodity sheet is rebuilt on the UTC grid to match, so the
+        assumption in this function is true rather than merely usually true.
+        """
         delta = _interval_delta(timeframe)
         now = datetime.now(timezone.utc)
         step = delta.total_seconds()

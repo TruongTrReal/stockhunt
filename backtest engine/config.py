@@ -743,6 +743,175 @@ TIMEFRAMES = {
     "1m":  {"interval": "1min",  "intraday": True},
 }
 
+# ------------------------------------------------- what clock an intraday stamp is on
+#
+# **The vendor does not tell you, and where it guesses it guesses wrong.** Every intraday
+# parquet in this repo carries a tz-NAIVE index, so the wall clock inside it is a fact
+# about who sold the bars and nothing announces it. Twelve Data's `meta.exchange_timezone`
+# is `America/New_York` for equities, `UTC` for crypto — and **`null` for commodities**,
+# where the stamps are neither.
+#
+# Measured 2026-08-28 on `data/commodities/1m/XAU_USD.parquet` (2.2M bars, 2020-2026), and
+# the measurement is the weekly reopen, because spot metals reopen at a known instant:
+# **Sunday 18:00 New York**. The 278 gaps longer than 12 hours sit at stamped hour **8**
+# from April to October and hour **10** from November to March — a two-hour split that
+# only one hypothesis explains, because it is New York's DST and Sydney's moving in
+# OPPOSITE directions:
+#
+#     18:00 New York EDT = 22:00 UTC = 08:00 Sydney AEST
+#     18:00 New York EST = 23:00 UTC = 10:00 Sydney AEDT
+#
+# Localising the stamps and converting to New York decides it outright. Read as **UTC**
+# the reopen scatters across 05:00 (x145) and 04:00 (x98) on a MONDAY; read as
+# **Australia/Sydney** it lands on **18:00 (x224 of 278) on a SUNDAY (x269)** — the actual
+# session boundary. Reproduced on 1h, 15m and 5m and on all five symbols.
+#
+# So `vendor` is what the wall clock in the vendor's response means, and `cache` is what
+# this repo's parquet is stamped in. Where they differ, `td_loader` converts **on fetch**,
+# so the file on disk holds one convention: several places read these parquets directly
+# and a file that lies is the bug, not a load-time patch.
+#
+# The two equity rows are the deliberate exception — vendor and cache agree because the
+# cache is kept on the EXCHANGE's clock. A US session starts at 09:30 local, and the 2m/3m
+# resampler's 570-minute rule, `FLATTEN_EOD_TIMEFRAMES` and every session-relative slice
+# are written against that. Moving equities to UTC is a bigger migration than this table;
+# what this table buys is that the difference is now DECLARED instead of implied.
+#
+# **`1d` is not covered here and must not be.** A daily commodity bar is on a third
+# convention again: measured the same day, grouping the corrected hourly bars on a fixed
+# **21:00 UTC** boundary and labelling each session with the following calendar date
+# reproduces the daily Close to a median **2.0 bp** on XAU, against 6.3 bp for a plain UTC
+# day and 54 bp for a New-York-local 17:00 boundary. That is the vendor's own daily
+# roll-up, it is not the Sydney clock, and a date is not a time — relabelling it would
+# move real bars between real days.
+#
+# `session_anchor` is the third column and it is what makes the claim TESTABLE rather than
+# merely written down. It is the zone in which this class's weekly reopen is a fixed wall
+# clock — spot metals reopen 18:00 New York, Globex 17:00 Chicago, a US equity session
+# 09:30 New York — so a cache on the right clock puts every reopen on one hour of one
+# weekday there, and a cache on the wrong one smears it. `check_data.py --check-clock`
+# is that test; `None` means the class has no weekly boundary to measure (crypto).
+INTRADAY_CLOCK = {
+    "us_stocks":   {"vendor": "America/New_York", "cache": "America/New_York",
+                    "session_anchor": "America/New_York"},
+    "us_etfs":     {"vendor": "America/New_York", "cache": "America/New_York",
+                    "session_anchor": "America/New_York"},
+    "crypto":      {"vendor": "UTC",              "cache": "UTC",
+                    "session_anchor": None},
+    "commodities": {"vendor": "Australia/Sydney", "cache": "UTC",
+                    "session_anchor": "America/New_York"},
+    # Databento stamps UTC and `db_intraday.py` writes it through unchanged. The row is
+    # here so that a class with no Twelve Data behind it still answers the question.
+    "cme_futures": {"vendor": "UTC",              "cache": "UTC",
+                    "session_anchor": "America/Chicago"},
+}
+assert set(INTRADAY_CLOCK) == set(CLASSES), (
+    f"INTRADAY_CLOCK is missing {set(CLASSES) - set(INTRADAY_CLOCK)}. A class with no row "
+    f"here has an UNDECLARED intraday clock, which is the defect this table exists for")
+
+
+def vendor_tz(asset_class: str) -> str:
+    """The wall clock Twelve Data's intraday stamps are in for this class."""
+    return INTRADAY_CLOCK[asset_class]["vendor"]
+
+
+def cache_tz(asset_class: str) -> str:
+    """The wall clock this repo's intraday parquet is stamped in for this class."""
+    return INTRADAY_CLOCK[asset_class]["cache"]
+
+
+def session_anchor_tz(asset_class: str) -> str | None:
+    """The zone this class's weekly reopen is a fixed wall clock in, or None."""
+    return INTRADAY_CLOCK[asset_class]["session_anchor"]
+
+
+# Every zone a Twelve Data intraday response has plausibly been stamped in, tried by
+# `check_data.py --check-clock` when the declared one does not fit. Not a guess list: the
+# vendor's own `meta.exchange_timezone` has returned three of these and `null` for
+# commodities, and the commodity stamps turned out to be Sydney's.
+CANDIDATE_TZS = ("UTC", "America/New_York", "America/Chicago", "Europe/London",
+                 "Asia/Tokyo", "Asia/Singapore", "Australia/Sydney")
+
+
+# What to do with a wall clock that happened twice, and one that never happened.
+#
+# Both are real events in `Australia/Sydney` and both are information the VENDOR lost when
+# it stamped a naive local time — no conversion here can invent it back. Measured across
+# the whole commodity cache on 2026-08-28 the exposure is almost nil, and the reason is
+# structural rather than lucky: **Sydney switches at 02:00-03:00 on a Sunday morning
+# local, which is Saturday afternoon UTC, when spot metals are shut.** Counts, all
+# timeframes, all five symbols: **0 nonexistent stamps** and **one** ambiguous hour, on
+# 2026-04-05 (60 bars at 1m, 12 at 5m, 4 at 15m, 1 at 1h), inside the stretch from mid-2025
+# where the vendor started serving continuous round-the-clock minutes.
+#
+# `ambiguous="infer"` is the right answer where BOTH copies of the repeated hour are
+# present, and it is not usable here: the vendor sent the hour once, so there is nothing to
+# infer from and pandas raises. The fallback is the FIRST pass (`ambiguous=True`, DST still
+# in force), chosen because the bars run contiguously into it from the earlier side — and
+# it is at worst a one-hour error on one hour of one weekend in six years, in a stretch of
+# bars the market was closed for.
+#
+# `nonexistent="shift_forward"` moves a stamp inside the skipped hour to the instant the
+# clock jumped to. Nothing in the cache hits it today; it is here so a future fetch cannot
+# die on a stamp the vendor should never have produced.
+AMBIGUOUS_POLICY = True
+NONEXISTENT_POLICY = "shift_forward"
+
+
+def to_cache_clock(index, asset_class: str):
+    """A vendor-stamped naive intraday index -> this repo's cache clock, still naive.
+
+    Identity where the class's two clocks agree, which is four of the five. Pure: it
+    reads only the table above, so `td_loader` (on fetch), the migration script,
+    `check_data` and the live desk all get the same answer from one definition.
+
+    pandas is imported here rather than at module scope on purpose — `config` is a
+    declaration module that currently pulls in no third-party package, and the paper
+    API's bootstrap chain leans on cheap imports.
+    """
+    import pandas as pd
+
+    src, dst = vendor_tz(asset_class), cache_tz(asset_class)
+    if src == dst:
+        return index
+    idx = pd.DatetimeIndex(index)
+    if idx.tz is None:
+        try:
+            idx = idx.tz_localize(src, ambiguous="infer",
+                                  nonexistent=NONEXISTENT_POLICY)
+        except Exception:
+            # See AMBIGUOUS_POLICY: "infer" needs both copies of the repeated hour and
+            # the vendor sends one. Falling back is not a silent guess — the count is
+            # reported by `td_loader.fetch` and by `migrate_commodity_clock.py`.
+            idx = idx.tz_localize(src, ambiguous=AMBIGUOUS_POLICY,
+                                  nonexistent=NONEXISTENT_POLICY)
+    return idx.tz_convert(dst).tz_localize(None)
+
+
+def dst_hazard(index, asset_class: str) -> dict[str, int]:
+    """How many stamps in `index` are ambiguous or nonexistent in the vendor's own zone.
+
+    Reported, never hidden. These are bars whose true instant the vendor destroyed when
+    it stamped a naive local time, and the honest thing is to say how many there are
+    rather than to let a conversion policy quietly absorb them.
+    """
+    import numpy as np
+    import pandas as pd
+
+    src = vendor_tz(asset_class)
+    if src == cache_tz(asset_class):
+        return {"ambiguous": 0, "nonexistent": 0}
+    idx = pd.DatetimeIndex(index)
+    if idx.tz is not None:
+        return {"ambiguous": 0, "nonexistent": 0}
+    missing = idx.tz_localize(src, ambiguous=np.zeros(len(idx), dtype=bool),
+                              nonexistent="NaT")
+    # A stamp is ambiguous exactly when the two DST readings of it disagree.
+    early = idx.tz_localize(src, ambiguous=True, nonexistent="shift_forward")
+    late = idx.tz_localize(src, ambiguous=False, nonexistent="shift_forward")
+    return {"ambiguous": int((early != late).sum()),
+            "nonexistent": int(pd.isna(missing).sum())}
+
 # `start` is the vendor's own earliest_timestamp for that (class, interval), measured
 # 2026-08-03, rounded up to a clean date. `window_days` is sized so one request stays
 # comfortably under the 5000-bar response cap given that class's bars-per-calendar-day

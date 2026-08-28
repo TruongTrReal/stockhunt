@@ -345,6 +345,45 @@ Twelve Data copy to under 1 bp/day on their overlap. One named vendor per asset 
 stays the rule; a second source is admissible only where it has been proved against the
 first, and only behind an explicit flag that the output labels.
 
+### And an intraday bar can be the right price on the wrong CLOCK
+
+Every intraday parquet here has a tz-**naive** index, so the wall clock inside it is a fact
+about who sold the bars and nothing in the file announces it. **The vendor does not reliably
+declare it either.** `meta.exchange_timezone` is `America/New_York` for equities and `UTC`
+for crypto; for `commodities` it is **`null`** — and until 2026-08-28 this repo assumed UTC
+while Twelve Data was stamping **`Australia/Sydney`**, ten or eleven hours out.
+
+Same family as the two above, one layer further in: the bars are well formed, the
+instrument is right, the sequence is complete, and only the joint between the stamps and
+the world is wrong. **No bar-level test can see it**, and the answer is the same kind —
+an external fact, checked against. Spot metals reopen at a published instant, **18:00
+Sunday New York**, so the weekly gap is that fact. Read as UTC the 278 reopens in
+`XAU/USD`'s 1m cache scattered over Monday 05:00 and 04:00; read as Sydney they land on
+**Sunday 18:00, 224 of them**, and the two-hour seasonal split in the raw stamps is New
+York's daylight saving and Sydney's moving in opposite directions.
+
+Three things now stand where nothing stood:
+
+* **`config.INTRADAY_CLOCK` is the declaration** — per class, the vendor's clock, the
+  cache's clock, and the zone the class's weekly reopen is fixed in. `td_loader` converts
+  **on fetch**, not on load, so the file on disk holds one convention: several places read
+  these parquets directly, and a file that lies is the bug.
+* **`check_data.py --check-clock` is the gate**, and it is the measurement above made
+  general. A class fails when some other candidate zone explains its session boundary
+  materially better than the declared one.
+* **`backtest engine/migrate_cache_clock.py`** restamped the cache that predates all this.
+  `data/` is gitignored, so a bad migration is not recoverable except by refetching.
+
+**Most research was unharmed, and that is measured rather than assumed.** A uniform
+relabelling does not alter the bar SEQUENCE, and commodities carry `flatten_eod: False` —
+a 24-hour market with no session to flatten into — so nothing on the class keys on
+time-of-day. Positions are byte-identical across the migration on 1,140 (symbol, rule)
+cells at 1h, 15m and 5m; scores move only in the fifth significant figure, through
+`bars_per_year`. What it did break was everything that JOINS ON TIME: the daily/intraday
+reconciliation, cross-class alignment, the `4h` sheet's grid, and the live desk's clock
+reasoning — where it had been silently discarding the newest commodity bar on every read
+since the leg started. The detail is in `backtest engine/CLAUDE.md`.
+
 ### There are two vendors, and the futures class may only ask the second one
 
 Twelve Data carries **no CME contract at all**, and — exactly as above — it does not
