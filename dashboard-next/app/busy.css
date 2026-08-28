@@ -100,3 +100,59 @@
   font-size: 13.5px;
   user-select: none;
 }
+
+/* ------------------------------------------------------- the detail page, side by side
+ *
+ * A strategy's page was one column of full-width sections, so reading it meant scrolling
+ * past a chart to reach the metrics OF that chart, then past those to reach the matrix.
+ * Every one of those pairs is two views of one thing, and the reader is comparing them —
+ * which is exactly the case for putting them beside each other rather than in sequence.
+ *
+ * It only became possible when `--rail` went full-bleed: at 1240px there was no room for a
+ * second column, which is why the page grew downwards in the first place.
+ *
+ * The breakpoint is 1180px and the fallback is the old single column, unchanged. Nothing
+ * here reorders content — the DOM order IS the reading order on a phone, and the argument
+ * that robustness comes before the per-name table is an argument about which one a reader
+ * should meet first.
+ */
+@media (min-width: 1180px) {
+  .d-split {
+    display: grid;
+    /* The chart is the wider half: it carries a 25-year log axis and end-labels, and it
+       degrades much faster than a table does when squeezed. */
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    gap: 52px;
+    align-items: start;
+  }
+
+  /* Each column is its own stack, so the two sides pack independently and neither is held
+     open by the other's height. */
+  .d-col {
+    display: flex;
+    flex-direction: column;
+    gap: 52px;
+    min-width: 0;
+  }
+
+  .d-col > .sec {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+/* Below the breakpoint `.d-col` is not a grid child and adds nothing: the sections are
+   already a single flowing column, which is the reading order on a phone. */
+
+/* Something that explains itself when you hover it. The dotted rule is the affordance: an
+ * explanation nobody can see the existence of is one nobody asks for.
+ *
+ * `title` and not the `.coldoc` popover, deliberately. That popover exists for a
+ * nineteen-column table whose explanations run to paragraphs and where a stray hover would
+ * flicker panels across the row; these are one sentence on a fixed twelve-row list, and a
+ * native tooltip needs no timer, no placement pass and no dismiss handler.
+ */
+.explains {
+  border-bottom: 1px dotted var(--hair-2);
+  cursor: help;
+}

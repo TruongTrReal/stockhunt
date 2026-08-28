@@ -35,24 +35,23 @@ export function MetricsTable({ metrics, lines, assetN, hasAssetTable }: MetricsT
   if (!metrics) return null;
   const ix = (lines ?? []).filter((i) => i && i.metrics);
 
+  /* Holding is a single trade that is still open, so its win rate is either 100% or 0% and
+   * its profit factor has no denominator. The em-dashes on these rows are therefore a fact
+   * about buy-and-hold rather than missing data, which is worth saying ON them. */
+  const NO_BENCH = new Set(["profit_factor", "win_rate_pct", "trades",
+                            "avg_win_pct", "avg_loss_pct"]);
+  const noBench = "No buy-and-hold counterpart: holding is one trade that is still open, "
+    + "so its win rate is 100% or 0% and its profit factor has no denominator.";
+
   return (
     <section className="sec">
       <div className="sec-head">
         <h2>Performance metrics</h2>
         <span className="sec-note">
           the book against every benchmark <b>at its own volatility</b>, same window
+          &middot; hover a name for what it means
         </span>
       </div>
-
-      {hasAssetTable && assetN != null && (
-        <div className="note">
-          One portfolio holding all {assetN} names at once, at 1&times; size. These are the
-          same numbers as the row on the leaderboard &mdash; one book, measured once. The
-          per-name breakdown is the <em>Asset by asset</em> table below, and those are{" "}
-          {assetN} separate single-name backtests: they do not add up to this, because a
-          book diversifies and a list of backtests cannot.
-        </div>
-      )}
 
       <div className="tbl-wrap">
         <table>
@@ -62,59 +61,56 @@ export function MetricsTable({ metrics, lines, assetN, hasAssetTable }: MetricsT
               <th>Strategy</th>
               {ix.map((i) => (
                 <th key={i.label}>
-                  {i.label}
+                  {/* WHY THIS COLUMN IS NOT WHAT IT LOOKS LIKE, on the column itself. The
+                      caption that used to carry it ran to three paragraphs under a table
+                      most readers had already stopped reading. */}
+                  <span
+                    className="explains"
+                    title={
+                      `${i.label} held at the strategy's own volatility, the rest in cash ` +
+                      "— scaled down, never levered up. That is why the volatility row is " +
+                      "identical across the table: it is the point, not a bug. Drawdown, " +
+                      "CAGR and total return are directly comparable. " +
+                      "Sharpe and Sortino are UNCHANGED by the matching and are the " +
+                      "full-size instrument's own — holding less of something divides its " +
+                      "return and its volatility by the same number. If a benchmark's " +
+                      "Sharpe beats the strategy's here, it beat it at any size."
+                    }
+                  >
+                    {i.label}
+                  </span>
                   {i.weight != null && (
                     <span className="mut"> {fmtNum(i.weight * 100, 0)}%</span>
                   )}
                 </th>
               ))}
-              <th className="l">What it means</th>
             </tr>
           </thead>
           <tbody>
             {METRIC_ROWS.map(([k, name, help, dp, sfx]) => (
               <tr key={k}>
-                <td className="l">{name}</td>
+                {/* The explanation moved OFF the row and onto it. It was a column —
+                    twelve sentences of prose standing permanently beside twelve numbers,
+                    which is the shape the leaderboard's 800-word legend had before it
+                    became a per-column `doc`. A reader who does not recognise `Calmar`
+                    asks; one who does should not have to read past the answer. */}
+                <td className="l">
+                  <span
+                    className="explains"
+                    title={NO_BENCH.has(k) ? `${help}  ${noBench}` : help}
+                  >
+                    {name}
+                  </span>
+                </td>
                 <td>{mval(metrics, k, dp, sfx)}</td>
                 {ix.map((i) => (
                   <td key={i.label}>
                     {i.metrics && k in i.metrics ? mval(i.metrics, k, dp, sfx) : "—"}
                   </td>
                 ))}
-                <td
-                  className="l"
-                  style={{ whiteSpace: "normal", color: "var(--muted)", fontSize: "12.5px" }}
-                >
-                  {help}
-                </td>
               </tr>
             ))}
           </tbody>
-          <caption>
-            Every benchmark column is that instrument <b>held at the strategy&apos;s own
-            volatility</b>, the rest in cash — so the volatility row is the same across the
-            table by construction, and drawdown, CAGR and total return are directly
-            comparable. Scaled down, never levered up.
-            {ix.length > 0 && (
-              <>
-                <br />
-                <br />
-                <b>Sharpe and Sortino are unchanged by the matching</b> and are the
-                full-size instrument&apos;s own: with idle cash earning nothing, holding
-                less of something divides its return and its volatility by the same number.
-                If a benchmark&apos;s Sharpe beats the strategy&apos;s here, it beat it at
-                any size.
-              </>
-            )}
-            <br />
-            <br />
-            Trade-level statistics (profit factor, win rate, average win and loss) have no
-            buy-and-hold counterpart — holding is a single trade that is still open, so its
-            win rate is either 100% or 0% and its profit factor has no denominator. None of
-            these replace the verdict: a strategy can carry a better Sharpe than every
-            column here and still fail the standard, which is exactly what the best rows on
-            this sheet do.
-          </caption>
         </table>
       </div>
     </section>

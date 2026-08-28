@@ -254,18 +254,23 @@ function HeroStrip({ row, criteria }: { row: BoardRow; criteria: GateDef[] }) {
       </div>
 
       {bk.wealth != null && (
+        /* The book/per-asset distinction decides how every figure above is read, so it
+         * stays — as a line, with the reasoning on hover. It used to be a paragraph. */
         <p className="sec-note">
-          Every figure in this strip is <b>the book</b>: one account holding{" "}
-          {bk.n_names ?? row.asset_n ?? DASH} names at once over {fmtNum(bk.years, 1)}{" "}
-          out-of-sample years, idle capital earning nothing, which is the account the chart
-          below draws and the same numbers as this rule&apos;s row on the leaderboard.
-          Breadth{" "}
-          (
+          <span
+            className="explains"
+            title={"One account holding every name at once, idle capital earning nothing — " +
+                   "the same account the chart draws and the same numbers as this rule's " +
+                   "row on the leaderboard. Breadth and the per-name table below are per " +
+                   "asset by construction: a book has no breadth, it has one equity curve."}
+          >
+            every figure above is <b>the book</b>
+          </span>
+          {" "}· {bk.n_names ?? row.asset_n ?? DASH} names · {fmtNum(bk.years, 1)}y
+          out-of-sample
           {row.asset_pos != null && row.asset_n
-            ? `${row.asset_pos} of ${row.asset_n} names positive`
-            : "not available on this sheet"}
-          ) and the per-name table further down are per asset by construction — a book has
-          no breadth, it has one equity curve.
+            ? ` · ${row.asset_pos} of ${row.asset_n} names positive`
+            : ""}
         </p>
       )}
     </>
@@ -371,21 +376,34 @@ function RuleView() {
    * are three different absences. A pair and an off-board single both reach the chart with
    * no per-asset rows, and the pair's reason — leg diagnostics instead of per-symbol
    * backtests — is untrue of the other. Two absences, two reasons, two sentences. */
+  /* The per-name pointer, as a clause rather than a paragraph. Both ABSENCES still get
+   * named, because "no table below" is a fact about what this sheet ran and not an
+   * omission — but each is one phrase now, with the reason on hover. */
   const tail = hasAssetTable ? (
-    <>
-      {" "}How the rule did name by name is the <em>Asset by asset</em> table below —
-      single-name backtests, which will not add up to this.
-    </>
+    <> · per name below</>
   ) : isPair ? (
     <>
-      {" "}A pair has no per-name table — the sweep records leg diagnostics instead — so
-      breadth is all this sheet knows about where it worked.
+      {" "}·{" "}
+      <span
+        className="explains"
+        title={"A pair has no per-name table — `combo_wf.py` records leg-correlation " +
+               "diagnostics instead of per-symbol rows — so breadth is all this sheet " +
+               "knows about where it worked."}
+      >
+        no per-name table
+      </span>
     </>
   ) : (
     <>
-      {" "}This rule is not on this sheet&apos;s ranked board, so there is no per-name table
-      below: the book stage records the account and its curve, and the per-symbol backtests
-      come from a stage that was never run here.
+      {" "}·{" "}
+      <span
+        className="explains"
+        title={"This rule is not on this sheet's ranked board. The book stage records the " +
+               "account and its curve; the per-symbol backtests come from a stage that was " +
+               "never run here."}
+      >
+        not on the ranked board
+      </span>
     </>
   );
 
@@ -430,8 +448,24 @@ function RuleView() {
 
       {loading && <div className="note busy-note">Loading {stemName(rule)}…</div>}
 
-      <LogicSection rule={rule} />
+      {/* Moved DOWN, out of the position between the strip and the chart. What a rule does
+          is worth reading, and it is prose — several hundred words of it — which is the
+          worst possible thing to put between a reader and the picture they came for. It
+          sits beside the robustness matrix instead, where the two questions it belongs
+          with are: what does this do, and where else does it hold. */}
 
+      {/* TWO COLUMNS THAT FLOW INDEPENDENTLY, not two rows of two.
+       *
+       * Paired in rows, the taller half of each pair sets the row height and the shorter
+       * one leaves a hole under it: the metrics table is twelve rows and the chart is
+       * fixed-height, so pairing them put a screen of dead space beside the matrix. As
+       * columns, each side packs on its own.
+       *
+       * Left is the PICTURE half — the curve, then where it holds up. Right is the NUMBERS
+       * half — the same curve's metrics, then what the rule actually does. Each row of the
+       * reading is beside its own evidence. See `.d-split` in `app/busy.css`. */}
+      <div className="d-split">
+      <div className="d-col">
       {curve && (
         <section className="sec">
           <div className="sec-head">
@@ -482,6 +516,10 @@ function RuleView() {
         </div>
       )}
 
+      <Robustness rule={rule} cls={cls} tf={tf} />
+      </div>
+
+      <div className="d-col">
       {curve && (
         <MetricsTable
           metrics={curve.metrics}
@@ -490,10 +528,13 @@ function RuleView() {
           hasAssetTable={hasAssetTable}
         />
       )}
+      <LogicSection rule={rule} />
+      </div>
+      </div>
 
       {/* ROBUSTNESS SITS ABOVE THE PER-NAME TABLE, and the order is the argument. See the
           header comment in `components/Robustness.tsx`. */}
-      <Robustness rule={rule} cls={cls} tf={tf} />
+
 
       {hasAssetTable ? (
         <AssetTable

@@ -163,31 +163,36 @@ export function EquityChart({ curve, drawn, dates, ruleLabel, mm, tail }: Equity
   return (
     <div className="panel">
       <Plot sets={[curve, ...drawn.map((l) => l.curve)]} labels={labels} dates={dates} />
+      {/* ONE LINE, and everything it used to say is still reachable.
+       *
+       * This was six sentences: what the lines are, what "matched" does, what the same
+       * instruments do at full size, why closing the gap the other way needs margin, that
+       * idle capital earns nothing, and where the per-name numbers live. All of it true and
+       * all of it load-bearing — and all of it in front of somebody who came to read a
+       * chart. It is the same move the leaderboard made when its 800-word legend became a
+       * column explanation: the caption states the BASIS, and the reasoning is on hover.
+       */}
       <p className="sec-note">
-        Every line starts at 100 and covers the same out-of-sample bars, and{" "}
-        <b>
-          every benchmark is held at{" "}
-          {mm.vol_pct == null ? "the book's own" : `${fmtNum(mm.vol_pct, 1)}%`} volatility —
-          the strategy&apos;s — with the rest in cash
-        </b>
-        . Scaled down, never levered up: no margin, no borrow. What is left between the
-        lines is the signal rather than the risk taken to get it.
-        {full.length > 0 && (
-          <>
-            {" "}At full size these same instruments end on{" "}
-            {full.map((l, i) => (
-              <span key={l.label}>
-                {i > 0 && ", "}
-                <b>{l.label}</b> {fmtMoney(l.raw_wealth)}
-              </span>
-            ))}
-            , against {fmtMoney(mm.strategy?.wealth)} for the strategy — more, in some
-            cases, and more risk with it. Closing that gap the other way means gearing the
-            strategy up, which needs margin and is not tested anywhere here.
-          </>
-        )}{" "}
-        This is the <b>book</b>: the same series the <b>$10k / book</b> column is computed
-        from. Idle capital earns nothing, on every line.
+        <span
+          className="explains"
+          title={
+            "Every line starts at 100 over the same out-of-sample bars. Each benchmark is " +
+            "held at the strategy's own volatility with the rest in cash — scaled DOWN, " +
+            "never levered up: no margin, no borrow. What is left between the lines is the " +
+            "signal rather than the risk taken to get it." +
+            (full.length > 0
+              ? " At full size these same instruments end on " +
+                full.map((l) => `${l.label} ${fmtMoney(l.raw_wealth)}`).join(", ") +
+                `, against ${fmtMoney(mm.strategy?.wealth)} for the strategy — more, in ` +
+                "some cases, and more risk with it. Closing that gap the other way means " +
+                "gearing the strategy up, which needs margin and is not tested here."
+              : "")
+          }
+        >
+          at equal risk
+        </span>
+        {mm.vol_pct != null && <> · {fmtNum(mm.vol_pct, 1)}% vol</>} · idle cash earns
+        nothing · this is the book
         {tail}
       </p>
     </div>
