@@ -323,7 +323,20 @@ async function root<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin", cache: "no-store" });
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined") window.location.href = "/login";
-    throw new ApiError(res.status, res.statusText);
+    /* THE SERVER'S OWN SENTENCE, not the status text. `/v1` refusals are written to be
+     * read — "the legs share no overlapping history", "no book curves for this leg yet,
+     * run run_book.sh" — and this threw away every one of them in favour of the HTTP
+     * reason phrase. The portfolio page printed `No combined curve. Conflict`, which tells
+     * a reader nothing and cost an SSH session to diagnose. `apiSend` below already did
+     * this; only the read path did not. */
+    let detail = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body?.detail === "string" && body.detail) detail = body.detail;
+    } catch {
+      /* not JSON — the status text is all there is */
+    }
+    throw new ApiError(res.status, detail);
   }
   return res.json() as Promise<T>;
 }

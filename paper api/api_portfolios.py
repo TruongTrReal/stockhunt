@@ -444,9 +444,16 @@ def backtest(portfolio_id: str, start: str | None = None,
         raise HTTPException(status.HTTP_409_CONFLICT,
                             detail="This portfolio holds no legs yet, so there is "
                                    "nothing to combine.")
+    # `start` only when the CALLER asks for one. It used to default to the portfolio's
+    # inception, which is the day the basket was created — so every basket clipped its own
+    # research history to a window that had not happened yet and the endpoint answered
+    # "no shared history at or after today" for all nine of them.
+    #
+    # Inception belongs to the LIVE record; this is the other measurement. What the legs
+    # did together over the years the research covers does not begin when somebody pressed
+    # a button, and pretending it does throws away the only history there is.
     return _blend(legs, float(row.get("capital") or DEFAULT_CAPITAL),
-                  row.get("rebalance") or "monthly",
-                  start or row.get("inception"))
+                  row.get("rebalance") or "monthly", start)
 
 
 @router.post("/preview", summary="Blend legs without creating anything")

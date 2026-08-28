@@ -403,3 +403,26 @@ def test_a_member_cannot_add_a_leg_to_another_members_basket(client):
                     json=[{"cls": "us_stocks", "tf": "1d", "rule": "MAXINDEX"}])
     assert r.status_code == 404
     assert len(portfolios.legs(pid)) == 2
+
+
+def test_the_backtest_does_not_clip_to_inception(client, fake_blend):
+    """Inception is the LIVE record's start; the blend is the research history.
+
+    Defaulting `start` to it clipped every basket to a window beginning the day it was
+    created, and the endpoint answered "no shared history at or after today" for all nine.
+    """
+    headers = key_for("m@example.com")
+    pid = client.post("/v1/portfolios", headers=headers,
+                      json={"name": "dated", "kind": "manual",
+                            "inception": "2026-08-28T14:05:43+00:00",
+                            "legs": [{"cls": "us_stocks", "tf": "1d", "rule": "ibs"}]},
+                      ).json()["portfolio_id"]
+    client.get(f"/v1/portfolios/{pid}/backtest", headers=headers)
+    assert fake_blend["start"] is None, "the whole history, unless the caller asks"
+
+
+def test_an_explicit_start_is_still_honoured(client, fake_blend):
+    headers = key_for("m@example.com")
+    pid = make(client, headers, name="w").json()["portfolio_id"]
+    client.get(f"/v1/portfolios/{pid}/backtest?start=2021-01-01", headers=headers)
+    assert fake_blend["start"] == "2021-01-01"
