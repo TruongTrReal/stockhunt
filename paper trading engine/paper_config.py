@@ -450,6 +450,48 @@ for _cls, _syms in UNIVERSE.items():
 CLASS_OF = _seen
 
 
+def to_cache_clock(index, asset_class: str):
+    """Vendor stamps -> the clock this class's backtest CACHE is on. Naive in, naive out.
+
+    Both zones are declared in `config.INTRADAY_CLOCK`, which is the one place that says
+    what a wall clock in a parquet means. Where the two agree — every class but
+    `commodities` — this is the identity, and it must stay exactly the identity: shifting an
+    equity bar by even an hour moves `ts_event`, and `ts` is part of the fills table's
+    natural key, so a warm-up replay would stop collapsing against what is already recorded
+    and would double the position history.
+
+    Kept here rather than in `td_live` because `td_nautilus` and the desk's clock arithmetic
+    need the same fold, and two implementations of a timezone conversion is how a class ends
+    up on two clocks at once.
+    """
+    import pandas as pd
+
+    vendor = bt_config.vendor_tz(asset_class)
+    cache = bt_config.cache_tz(asset_class)
+    if vendor == cache:
+        return index
+
+    idx = pd.DatetimeIndex(index)
+    aware = idx.tz_localize(vendor, ambiguous="NaT", nonexistent="shift_forward")         if idx.tz is None else idx.tz_convert(vendor)
+    return aware.tz_convert(cache).tz_localize(None)
+
+
+def research_class_of(symbol: str) -> str:
+    """Which RESEARCH class claims this symbol — not which desk leg trades it.
+
+    The two differ in reach and `td_live.class_of` needs the wider one. `class_of` below
+    knows only the forward-test universe and calls `SystemExit` on anything outside it,
+    which is right where a desk symbol must resolve to a venue and a sheet, and wrong where
+    the question is only "what clock does the vendor stamp this in": a member may register
+    anything the vendor prices, and `config.INTRADAY_CLOCK` is keyed on the research class.
+
+    Raises `KeyError` for a symbol no class claims, which is what `bt_config.class_of`
+    does and what `td_live.class_of` already catches to mean "leave the vendor's stamps
+    alone".
+    """
+    return bt_config.class_of(symbol)
+
+
 def class_of(symbol: str) -> str:
     """Which research class a desk symbol belongs to.
 
