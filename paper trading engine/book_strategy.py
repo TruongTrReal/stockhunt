@@ -280,16 +280,11 @@ class BookStrategy(Strategy):
             price = float(bar.close)
             if price > 0:
                 self._last_price.setdefault(symbol, price)
-        # AFTER the batch, never before: the check needs the vendor's window in the buffer
-        # to have anything to compare against.
-        for symbol in touched:
-            try:
-                self._splice_cache(symbol)
-            except Exception as exc:
-                # A warm-up improvement may not take a book down. Whatever went wrong, the
-                # vendor's own history is already in the buffer and the book is tradable.
-                self._spliced.add(symbol)
-                self.log.warning(f"book {self._sid}: {symbol} cache skipped ({exc})")
+        # The splice is NOT attempted here. Historical bars arrive in batches and there is
+        # no "last batch" signal, so a decision taken during delivery is taken against a
+        # partial window — measured on the desk, 30 bars, which is too small a sample for
+        # the aggregated classes and let `XTZ/USD` read as a different series. `on_bar` is
+        # where the window is known to be complete.
 
     def _splice_cache(self, symbol: str) -> None:
         """Put the disk history in FRONT of the vendor window, once it can be judged.
@@ -484,6 +479,20 @@ class BookStrategy(Strategy):
         price = float(bar.close)
         if price > 0:
             self._last_price[symbol] = price
+
+        # The first LIVE bar is the only moment the vendor's warm-up is known to be
+        # finished, so it is where the disk history is judged and joined on — before this
+        # bar is appended and before anything is computed from it. Historical delivery
+        # arrives in batches with no end marker; deciding during it means deciding on a
+        # partial window, which is what made a 30-bar sample reject healthy crypto series.
+        try:
+            self._splice_cache(symbol)
+        except Exception as exc:
+            # A deeper warm-up may never take a book down. The vendor's own history is
+            # already in the buffer and the book is tradable without this.
+            self._spliced.add(symbol)
+            self.log.warning(f"book {self._sid}: {symbol} cache skipped ({exc})")
+
         self._append(symbol, bar)
 
         # The benchmark is watched, never traded.

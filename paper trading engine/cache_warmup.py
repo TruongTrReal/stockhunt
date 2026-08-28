@@ -36,9 +36,18 @@ those reproduce at the buffer the desk already had.
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 
 import paper_config
+
+# The switch that turns this off, in the shape the rest of the repo already uses
+# (`STOCKHUNT_NO_POSCACHE`, `STOCKHUNT_WORKERS`). A warm-up path that cannot be disabled is
+# one nobody can bisect against when a book starts behaving differently, and this one
+# changes what a rule SEES — which is the most consequential thing a desk can change
+# quietly.
+DISABLED = bool(os.environ.get("STOCKHUNT_NO_CACHE_WARMUP"))
 
 # How far the RATIO between the two series may wander, once its own median is divided out.
 #
@@ -60,9 +69,14 @@ SEAM_TOLERANCE = 2e-3
 #
 # The first version judged on whatever the first callback delivered, which on the live desk
 # was ONE bar. One bar always has a constant ratio, so the check could neither pass nor fail
-# honestly — it was a coin toss wearing a measurement. Thirty is enough that a real
-# divergence cannot hide and small enough that any warm-up worth splicing onto reaches it.
-MIN_OVERLAP = 30
+# honestly — it was a coin toss wearing a measurement.
+#
+# 250 rather than a token handful, because the classes most likely to carry a revised print
+# are the aggregated ones and a small sample cannot tell a revision from a divergence: at 30
+# bars `XTZ/USD` read as 1.30% off and was refused, and over 250 the same series reconciles
+# exactly. The caller waits for the FIRST LIVE BAR before asking, so a full vendor window is
+# in hand and this floor costs nothing.
+MIN_OVERLAP = 250
 
 # How many overlapping bars to actually compare, once there are enough.
 SEAM_BARS = 250
@@ -80,7 +94,7 @@ EXCLUDED_CLASSES = {"cme_futures"}
 
 
 def usable(asset_class: str) -> bool:
-    return asset_class not in EXCLUDED_CLASSES
+    return not DISABLED and asset_class not in EXCLUDED_CLASSES
 
 
 def _interval(timeframe: str) -> pd.Timedelta:
