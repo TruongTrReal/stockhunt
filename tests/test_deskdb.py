@@ -505,16 +505,61 @@ def test_a_registration_that_never_traded_can_be_removed(db):
     assert db.registration(sid) is None
 
 
-def test_one_order_makes_it_permanent(db):
-    """Not "no OPEN orders" — one order ever, even a rejected one, means the row is
-    referenced by history. A forward test somebody can erase is not a record."""
+def test_one_FILLED_order_makes_it_permanent(db):
+    """A fill is the record. One of them locks the row forever."""
     sid = _reg(db, name="traded")["strategy_id"]
-    db.submit_order("a7", sid, "coid-1", symbol="SPY", side="buy", qty=1)
+    o, _ = db.submit_order("a7", sid, "coid-1", symbol="SPY", side="buy", qty=1)
+    db.mark_order(o["seq"], "filled", filled_qty=1.0, avg_price=100.0)
     db.mark_registration(sid, "retired")
 
     deleted, why = db.delete_registration("a7", sid)
-    assert not deleted and "1 order" in why
+    assert not deleted and "1 filled order" in why
     assert db.registration(sid) is not None
+
+
+def test_orders_that_never_FILLED_do_not_make_it_permanent(db):
+    """The bug this replaced, and it stranded exactly the rows the exception is for.
+
+    The test used to be "no orders, ever", which is a PROXY for "recorded nothing" — and
+    the proxy comes apart in the one case that matters. A registration the desk REFUSED
+    never attached, so it has no instrument and no book, and its orders cannot fill: they
+    sit in the ledger as a record of a client talking to something that never existed.
+    That is litter, which is what this exception exists for, and it was unremovable
+    forever — retiring did not help, because the orders stayed.
+    """
+    sid = _reg(db, name="refused")["strategy_id"]
+    db.submit_order("a7", sid, "coid-1", symbol="NQ.v.0", side="buy", qty=1)
+    db.submit_order("a7", sid, "coid-2", symbol="ES.v.0", side="buy", qty=1)
+    db.mark_registration(sid, "rejected", "1m is not a bar this desk can feed there")
+
+    deleted, why = db.delete_registration("a7", sid)
+    assert deleted, why
+    assert "2 orders" in why and "never filled" in why, "say what went with it"
+    assert db.registration(sid) is None
+
+
+def test_a_partial_fill_is_still_a_record(db):
+    """`filled_qty > 0`, not `state == 'filled'`. A partial moved real money."""
+    sid = _reg(db, name="partial")["strategy_id"]
+    o, _ = db.submit_order("a7", sid, "coid-1", symbol="SPY", side="buy", qty=10)
+    db.mark_order(o["seq"], "canceled", filled_qty=3.0, avg_price=100.0)
+    db.mark_registration(sid, "retired")
+
+    deleted, why = db.delete_registration("a7", sid)
+    assert not deleted and "filled" in why
+
+
+def test_removing_takes_the_unfilled_orders_with_it(db):
+    """Otherwise the ledger keeps orders pointing at a `strategy_id` that no longer
+    resolves — the same litter under a different name, and still listed by the API."""
+    sid = _reg(db, name="refused")["strategy_id"]
+    db.submit_order("a7", sid, "coid-1", symbol="NQ.v.0", side="buy", qty=1)
+    db.mark_registration(sid, "rejected")
+
+    assert db.delete_registration("a7", sid)[0]
+    left = db.connect().execute(
+        "SELECT COUNT(*) FROM orders WHERE strategy_id = ?", (sid,)).fetchone()[0]
+    assert left == 0
 
 
 def test_a_live_registration_is_not_removable(db):

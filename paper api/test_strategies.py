@@ -563,20 +563,53 @@ def test_purge_removes_a_strategy_that_never_traded(client):
     assert client.get(f"/v1/strategies/{sid}", headers=auth(raw)).status_code == 404
 
 
-def test_purge_refuses_anything_that_ever_placed_an_order(client):
+def test_purge_refuses_anything_that_ever_FILLED(client):
     """The rule the whole exception rests on. If this can be talked round, the desk's
-    forward record becomes a track record its author filtered."""
+    forward record becomes a track record its author filtered.
+
+    A FILL is the record — that is what moved money, opened a position and put a point on
+    a curve. The test used to submit an unfilled order and expect a refusal, which was the
+    proxy rather than the rule; see the companion test below for why the difference is not
+    academic.
+    """
     raw = key_for("traded@example.test")
     sid = register(client, raw, name="real").json()["strategy_id"]
     client.post("/v1/orders", headers=auth(raw), json={
         "strategy_id": sid, "client_order_id": "c1", "symbol": "SPY",
         "side": "buy", "qty": 1})
+    seq = client.get(f"/v1/orders?strategy_id={sid}", headers=auth(raw)).json()[0]["seq"]
+    deskdb.mark_order(seq, "filled", filled_qty=1.0, avg_price=100.0)
     deskdb.mark_registration(sid, "retired")
 
     r = client.delete(f"/v1/strategies/{sid}?purge=true", headers=auth(raw))
     assert r.status_code == 409
-    assert "order" in r.json()["detail"]
+    assert "filled" in r.json()["detail"]
     assert deskdb.registration(sid) is not None
+
+
+def test_purge_allows_a_REFUSED_strategy_whose_orders_never_filled(client):
+    """The case the old rule stranded forever, and it is the common one.
+
+    A registration the desk REFUSED never attached, so it has no instrument and no book
+    and its orders cannot fill — they sit in the ledger as a record of a client talking to
+    something that never existed. Under "no orders, ever" that row was permanent:
+    retiring did not help, because the orders stayed. It is litter, which is precisely
+    what `?purge=true` is for.
+    """
+    raw = key_for("refused@example.test")
+    sid = register(client, raw, name="futures1m", cls="cme_futures",
+                   symbols=["ES.v.0"], tf="1m").json()["strategy_id"]
+    for i in (1, 2):
+        client.post("/v1/orders", headers=auth(raw), json={
+            "strategy_id": sid, "client_order_id": f"c{i}", "symbol": "ES.v.0",
+            "side": "buy", "qty": 1})
+    deskdb.mark_registration(sid, "rejected", "1m is not a bar the CME leg can be fed")
+
+    r = client.delete(f"/v1/strategies/{sid}?purge=true", headers=auth(raw))
+    assert r.status_code == 204, r.text
+    assert deskdb.registration(sid) is None
+    left = client.get(f"/v1/orders?strategy_id={sid}", headers=auth(raw))
+    assert left.json() == [], "the unfilled orders go with it"
 
 
 def test_purge_refuses_a_strategy_the_desk_is_still_running(client):

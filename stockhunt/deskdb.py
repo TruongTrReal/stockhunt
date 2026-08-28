@@ -432,8 +432,20 @@ def delete_registration(account: str, strategy_id: str) -> tuple[bool, str]:
       only for a strategy that trades ON INSTRUCTION. A house rule or a book trades itself
       — it fills constantly and submits no orders through this ledger at all, so the same
       test would read as "never traded" for something with months of record behind it.
-    * **no orders, ever.** Not "no open orders": one order in the ledger, even rejected,
-      means the row is referenced by history and stays.
+    * **nothing ever FILLED.** Not "no orders" — that was the test until 2026-08-28 and it
+      was the wrong one, by this docstring's own definition. The paragraph above says the
+      removable case is "no fill, no curve point, no row in the desk's `strategies`
+      table"; counting orders is a PROXY for that, and the proxy comes apart in exactly
+      the case that matters. A registration the desk REFUSED never attached, so it has no
+      instrument and no book and its orders cannot have filled — they sat in the ledger as
+      a record of a client talking to something that never existed. That is litter, which
+      is what this exception is for, and it was unremovable forever: retiring it did not
+      help, because the orders stayed.
+
+      So the test is `filled_qty > 0`. An unfilled order moved no money, opened no
+      position and put no point on a curve; refusing to delete one protects nothing and
+      strands the rows this function exists to clear. A single fill still locks the row
+      permanently, which is the property that actually matters.
     """
     row = _shape(_row("SELECT * FROM registrations WHERE strategy_id = ? AND account = ?",
                       (strategy_id, account)))
@@ -446,16 +458,31 @@ def delete_registration(account: str, strategy_id: str) -> tuple[bool, str]:
         return False, (f"it is a {row['kind']}, which trades on its own rule rather than "
                        f"on orders. Its record is in the desk's book whether or not this "
                        f"ledger has anything for it")
-    n = int(connect().execute(
-        "SELECT COUNT(*) FROM orders WHERE strategy_id = ?", (strategy_id,)).fetchone()[0])
-    if n:
-        return False, (f"it has {n} order{'s' if n > 1 else ''} on the ledger, so it has a "
-                       f"record. A forward test somebody can erase is not a record")
-
+    filled, submitted = connect().execute(
+        "SELECT COUNT(*) FILTER (WHERE filled_qty > 0), COUNT(*) "
+        "FROM orders WHERE strategy_id = ?", (strategy_id,)).fetchone()
+    if filled:
+        return False, (f"it has {filled} filled order{'s' if filled > 1 else ''}, so it "
+                       f"has a record. A forward test somebody can erase is not a record")
+    # The unfilled orders go WITH the registration, in one transaction. Deleting the row
+    # and leaving them would put orders in the ledger pointing at a `strategy_id` that no
+    # longer resolves — `strategy_of` would find nothing, and they would sit in `GET
+    # /v1/orders` forever as the residue of a strategy the console says was removed. They
+    # are the same litter by a different name.
     conn = connect()
     with _lock:
-        conn.execute("DELETE FROM registrations WHERE strategy_id = ? AND account = ?",
-                     (strategy_id, account))
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("DELETE FROM orders WHERE strategy_id = ?", (strategy_id,))
+            conn.execute("DELETE FROM registrations WHERE strategy_id = ? AND account = ?",
+                         (strategy_id, account))
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    if submitted:
+        return True, (f"removed, along with {submitted} order"
+                      f"{'s' if submitted > 1 else ''} that never filled")
     return True, ""
 
 

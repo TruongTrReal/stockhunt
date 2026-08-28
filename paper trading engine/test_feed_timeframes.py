@@ -238,3 +238,116 @@ def test_a_missing_schema_says_so_about_ITSELF(tf):
     assert not can
     assert f"no {tf} schema" in why
     assert "stale" not in why, "these are absent, not late — a different problem"
+
+
+class _Recorder:
+    """A stand-in for the controller's logger, so a test can read what it said."""
+
+    def __init__(self):
+        self.errors, self.warnings, self.infos = [], [], []
+
+    def error(self, msg):
+        self.errors.append(str(msg))
+
+    def warning(self, msg):
+        self.warnings.append(str(msg))
+
+    def info(self, msg):
+        self.infos.append(str(msg))
+
+
+# ------------------------------------------------------- retiring closes the book
+#
+# `_retire` called `remove_strategy` and nothing else until 2026-08-28. Stopping a strategy
+# does NOT close what it holds — neither `BookStrategy.on_stop` nor `MemberStrategy.on_stop`
+# ever did — so a retired strategy left an open position at the venue with nothing managing
+# it: nothing to mark it, size it or exit it, and no way to reach it again short of
+# restarting the node. "Retired" on the console read as flat when it was not.
+
+class _Pos:
+    def __init__(self, name):
+        self.instrument_id = name
+        self.quantity = 1
+
+
+class _Strategy:
+    def __init__(self, sid="s1"):
+        self.id = sid
+        self.closed = []
+        self._sid = None
+
+    def close_position(self, pos):
+        self.closed.append(pos.instrument_id)
+
+
+class _Cache:
+    def __init__(self, positions):
+        self._positions = positions
+
+    def positions_open(self, strategy_id=None):
+        return list(self._positions)
+
+
+def _controller(cache, log=None):
+    """A controller whose `cache` and `log` are ours, WITHOUT touching the real class.
+
+    `cache` and `log` are read-only properties on `Actor`, so a stub has to override them
+    — and doing that by assigning to `DeskController.cache` would patch the class every
+    other test in this process shares, including the ones that build a real node. A
+    throwaway subclass keeps it local.
+    """
+    import desk_control
+    recorder = log or _Recorder()
+
+    class _Stubbed(desk_control.DeskController):
+        cache = property(lambda self: cache)
+        log = property(lambda self: recorder)
+
+    ctl = _Stubbed.__new__(_Stubbed)
+    ctl._running, ctl._attached_at, ctl._quiet = {}, {}, set()
+    return ctl
+
+
+def test_retiring_closes_every_open_position():
+    strategy = _Strategy()
+    ctl = _controller(_Cache([_Pos("ES.v.0.GLBX"), _Pos("NQ.v.0.GLBX")]))
+    assert ctl._flatten("rid", strategy) == 2
+    assert strategy.closed == ["ES.v.0.GLBX", "NQ.v.0.GLBX"]
+
+
+def test_flattening_a_flat_book_does_nothing_and_says_nothing():
+    strategy = _Strategy()
+    ctl = _controller(_Cache([]))
+    assert ctl._flatten("rid", strategy) == 0
+    assert strategy.closed == []
+
+
+def test_one_position_that_will_not_close_does_not_stop_the_others():
+    """...and it must not raise: `_flatten` runs inside `tick()`.
+
+    An exception here aborts the pass, so the registration is never marked `retired`, so
+    the next tick tries again — forever, with the strategy already gone from `_running`.
+    A position that cannot be closed is a thing to report loudly, not a reason to wedge
+    the desk.
+    """
+    class Stubborn(_Strategy):
+        def close_position(self, pos):
+            if pos.instrument_id == "BAD":
+                raise RuntimeError("no market")
+            self.closed.append(pos.instrument_id)
+
+    strategy = Stubborn()
+    rec = _Recorder()
+    ctl = _controller(_Cache([_Pos("BAD"), _Pos("GOOD")]), log=rec)
+    assert ctl._flatten("rid", strategy) == 1
+    assert strategy.closed == ["GOOD"]
+    assert any("STILL OPEN" in e for e in rec.errors), "an unclosed position must shout"
+
+
+def test_an_unreadable_cache_does_not_raise_either():
+    class Boom:
+        def positions_open(self, strategy_id=None):
+            raise RuntimeError("cache gone")
+
+    ctl = _controller(Boom(), log=_Recorder())
+    assert ctl._flatten("rid", _Strategy()) == 0

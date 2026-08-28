@@ -384,6 +384,47 @@ class DeskController(Controller):
         deskdb.mark_registration(rid, "live")
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
 
+    def _flatten(self, rid: str, strategy) -> int:
+        """Close everything a strategy holds, before it is detached. Returns how many.
+
+        Asked of the CACHE rather than of the strategy's own book, because the two answer
+        different questions and only one of them binds: `BookStrategy` tracks intended
+        units in `self._cash`/`holdings()`, while the venue holds whatever actually
+        filled. It is the venue's position that would be stranded, so it is the venue's
+        position that is closed.
+
+        **Failures are logged and never raised.** This runs inside `tick()`, which the
+        controller's timer drives — an exception here would abort the pass, so the
+        registration would never be marked `retired`, so the next tick would try to retire
+        it again, forever, with the strategy already gone from `self._running`. A position
+        that could not be closed is a thing to report loudly; it is not a reason to wedge
+        the desk.
+
+        The close is a market order, so on this venue it fills against the next BAR rather
+        than instantly. "Retired" therefore means "told to close" for one bar's width, and
+        on a 1d book that is a day. Saying so in the log is the honest version.
+        """
+        closed = 0
+        try:
+            # `self.cache`, not `self._trader.cache` — a `Trader` exposes no cache, and
+            # a Controller is an Actor, which does.
+            positions = self.cache.positions_open(strategy_id=strategy.id)
+        except Exception as exc:                       # noqa: BLE001 - never fatal
+            self.log.error(f"{rid}: could not read open positions to flatten: {exc}")
+            return 0
+        for pos in positions:
+            try:
+                strategy.close_position(pos)
+                closed += 1
+            except Exception as exc:                   # noqa: BLE001 - never fatal
+                self.log.error(
+                    f"{rid}: could not close {pos.instrument_id} ({pos.quantity}): {exc}. "
+                    f"IT IS STILL OPEN at the venue and nothing owns it now.")
+        if closed:
+            self.log.info(f"{rid}: closing {closed} position(s) before retiring — market "
+                          f"orders, so they fill on the next bar, not instantly")
+        return closed
+
     def _minute_budget_exceeded(self, reg: dict) -> str:
         """Would attaching this 1m registration take the desk past `MAX_1M_SYMBOLS`?
 
@@ -547,9 +588,23 @@ class DeskController(Controller):
         strategy = self._running.pop(rid, None)
         if strategy is None:
             return
-        # `remove_strategy` stops it first. The record is deliberately NOT deleted: a
-        # forward test somebody can erase is not a record, and a manager who could remove
-        # a losing run could remove the evidence of it.
+        # FLATTEN FIRST, and this was missing until 2026-08-28.
+        #
+        # `remove_strategy` stops the strategy and detaches it, and stopping a strategy
+        # does not close what it holds — neither `BookStrategy.on_stop` nor
+        # `MemberStrategy.on_stop` ever did. So retiring left an open position at the
+        # venue with NOTHING managing it: no strategy to mark it, none to size it, none to
+        # exit it, and no way to reach it again short of restarting the node. It sat in
+        # the venue account distorting every balance drawn from it, and "retired" on the
+        # console read as flat when it was not.
+        #
+        # Retiring is the owner saying "stop trading this", and a position is trading. So
+        # the book is closed before the strategy that owns it goes away — while it can
+        # still be closed by the thing that opened it.
+        self._flatten(rid, strategy)
+        # The record is deliberately NOT deleted: a forward test somebody can erase is not
+        # a record, and a manager who could remove a losing run could remove the evidence
+        # of it. Flattening ENDS the position; it does not erase the history of it.
         self._trader.remove_strategy(strategy.id)
         # The published projection is not the record: a retired book must leave the board
         # rather than sit on it frozen until the next restart happens to clear it.
