@@ -740,7 +740,11 @@ a.pill.on{border-bottom-color:var(--ink);}
 /* The robustness matrix — the one place on the page with a filled cell, because a
  * heat-map's fill IS its statement. color-mix against transparent keeps the tint honest
  * in both themes, where a hard-coded rgba() would glow in dark mode. */
-.mx{max-width:820px;}
+/* The matrix fills its column. 820px was chosen against a 1240px rail and is a leftover of
+   the same prose-measure mistake `--rail` fixed: five classes by five timeframes squeezed
+   into two thirds of the width while the rest of the column sat empty. Twenty-five cells
+   are the whole point of the view, so they get the room. */
+.mx{width:100%;}
 .mx td.l{white-space:nowrap;}
 .mx-cell{cursor:pointer;}
 .mx-cell:hover{outline:1px solid var(--ink-2);outline-offset:-1px;}

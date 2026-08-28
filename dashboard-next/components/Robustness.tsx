@@ -176,9 +176,12 @@ export function Robustness({ rule, cls, tf }: RobustnessProps) {
     <section className="sec">
       <div className="sec-head">
         <h2>Robustness</h2>
+        {/* The one thing from the old caption that is an AFFORDANCE rather than a
+            footnote, so it belongs where it is read before clicking rather than under the
+            table it describes. */}
         <span className="sec-note">
           does it generalise — the same rule on every sheet the book stage scored,
-          including the ones it lost on
+          including the ones it lost on · <b>any tinted cell opens that environment</b>
         </span>
       </div>
 
@@ -284,7 +287,26 @@ export function Robustness({ rule, cls, tf }: RobustnessProps) {
             <table className="mx">
               <thead>
                 <tr>
-                  <th className="l">{ROB_METRICS[metric][0]}</th>
+                  {/* WHAT THE TINT MEANS lives on the header the tint is keyed to. It
+                      was a caption under the table — read after the thing it explains, if
+                      at all — and it is two facts a reader needs BEFORE reading a cell:
+                      the colour is not the displayed metric, and the weak environments are
+                      here because this is built from the full book sheets. */}
+                  <th className="l">
+                    <span
+                      className="explains"
+                      title={
+                        "Tinted on the book's SHARPE against the same universe held " +
+                        "passively, whichever metric is displayed — green cleared it, red " +
+                        "trailed it, deeper is further.\n\n" +
+                        "Built from the full book sheets, ~400 rules per cell, so the weak " +
+                        "environments are here too. A leaderboard can only show where a " +
+                        "rule ranked."
+                      }
+                    >
+                      {ROB_METRICS[metric][0]}
+                    </span>
+                  </th>
                   {view.tfs.map((t) => <th key={t}>{t}</th>)}
                 </tr>
               </thead>
@@ -308,14 +330,6 @@ export function Robustness({ rule, cls, tf }: RobustnessProps) {
                   </tr>
                 ))}
               </tbody>
-              <caption>
-                Tinted on the book&apos;s <b>Sharpe against the same universe held
-                passively</b>, whichever metric is displayed — green cleared it, red trailed
-                it, deeper is further. Built from the full book sheets, ~400 rules per cell,
-                so the weak environments are here too; a leaderboard can only show where a
-                rule ranked. <b>Any tinted cell opens that environment&apos;s page for this
-                same rule.</b>
-              </caption>
             </table>
           </div>
         </>
