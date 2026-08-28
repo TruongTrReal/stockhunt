@@ -151,3 +151,55 @@ has no data without an API to ask. That artifact stays with the vanilla builder.
 
 `enhanceTables` — the site-wide horizontal-scroll fade over every table — is an `app.js`
 enhancer rather than a feature of any one view. Tables still scroll via `.tbl-wrap`.
+
+## Portfolios, and the one seam that makes them buildable
+
+A **portfolio** is a named basket of strategy legs with one pot of money, one combined
+curve and one switch. Four routes, and a fifth thing bolted onto the leaderboard:
+
+| route | what |
+|---|---|
+| `/portfolio/` | every basket visible to the reader, with a sparkline of its combined curve |
+| `/portfolio/detail/?id=` | THE page: the curve, the legs and what each contributed, how alike the legs are, the membership log, the switch |
+| `/paper/` | rebuilt portfolio-first — the desk's top-level row is a basket, and what belongs to none of them is its own labelled section |
+| `/` | "As a portfolio" on the floating selection bar: preview the ticked rows blended, then create |
+
+Both new pages take a **query string**, for the same reason `/rule/` does: `output:
+"export"` pre-renders every route and a dynamic segment would mean enumerating every id
+at build time from an API that needs a session.
+
+**`lib/portfolio.ts` is the whole seam, and that is the point.** `BlendResponse` is
+`stockhunt/blend.py`'s wire shape and `adaptBlend` is the ONLY function that reads it;
+every component — chart, leg table, correlation panel, sparkline — is written against
+`Blend`, which that file defines. The front end was built against the assumed shape before
+the engine existed and moved to the real one by editing the adapter and nothing else.
+Keep it that way: a component that reaches into a response field directly is the thing
+this seam exists to prevent.
+
+Two conversions live in the adapter and nowhere else. The engine's `curve` is **dollars
+starting at `capital`**, and it is rebased to growth of 100 there because that is the
+convention every chart on this site is written against; and every rate it reports is a
+**fraction** (`cagr: 0.085`), so each page has one `pct()` helper rather than a scattering
+of `* 100`.
+
+**Three honesty properties belong to these pages specifically.**
+
+* **`want` vs `state`, with the heartbeat.** The API writes intent, the desk writes what it
+  did, and they disagree while it catches up. `want <> state` alone says the same thing
+  whether the desk read the row a second ago or has been down since Tuesday, so
+  `settlementOf` reads `/v1/desk` and draws the four states `paper api/web/desk.html`
+  established: settled, in flight, nobody is home, and *never beaten* — which is NOT the
+  same claim as down. The switch shows `want` and never moves optimistically.
+* **A portfolio may print a combined figure; the DESK may not.** A portfolio is genuinely
+  one pot split equally, so the equal-weight mean across its legs is that pot's result —
+  but only when every leg has a record, and it prints an em-dash until then. There is still
+  no desk total and no mean across portfolios.
+* **Correlation is not a heat map.** Colour means gained or lost here, so a tinted matrix
+  would be read as profit and loss. Magnitude is bar length from a centre line in one
+  neutral ink; the six series hues carry leg IDENTITY only, in their fixed order, matching
+  the slot each leg has elsewhere on the page.
+
+`NEXT_TURBOPACK_ROOT` in `next.config.ts` is unset in a normal checkout and exists for one
+case: building inside a git worktree, whose `node_modules` is a junction back to the main
+checkout. Turbopack refuses to follow a symlink out of the project root and dies before
+compiling; point this at a directory containing both and it builds.

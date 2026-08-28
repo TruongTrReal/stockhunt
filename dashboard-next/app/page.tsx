@@ -4,6 +4,7 @@ import { cloneElement, useCallback, useEffect, useMemo, useRef, useState } from 
 import { useRouter } from "next/navigation";
 import { api, ApiError, board, type Gate, type Group, type SheetRef } from "@/lib/api";
 import BoardChart, { CLASS_GROUP } from "@/components/BoardChart";
+import { AddToPortfolio } from "@/components/AddToPortfolio";
 import { useColumnDocs } from "@/components/ColumnDocs";
 import {
   BenchRow, LB_COLS, LB_SEL_MAX, LB_SEL_SEED, SERIES_COLORS,
@@ -147,6 +148,13 @@ export default function ResearchPage() {
   const [rob, setRob] = useState<Record<string, Rob> | null>(null);
   const [sel, setSel] = useState<Selection>(emptySel("", ""));
   const chartRef = useRef<HTMLDivElement | null>(null);
+  /* THE SAME TICKED ROWS, asked a second question. The boxes that put a rule on the chart
+     are the boxes that put it in a basket — one selection, because two sets of checkboxes in
+     one table is two things to keep in step and one of them will be wrong. Closed by
+     default: assembling a portfolio is something the reader asks for, and a blend panel that
+     opened itself on every tick would fire a request per click. */
+  const [pfOpen, setPfOpen] = useState(false);
+  const pfRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     api.sheets().then(setSheets).catch((e) => setError(String(e.message ?? e)));
@@ -318,6 +326,10 @@ export default function ResearchPage() {
     // A sort is a statement about a column of THIS sheet's rows. Carried across, it would
     // silently re-order the next sheet under a note that says it was ranked.
     setSort(null);
+    // ...and it invalidates the BASKET being previewed. The selection is pinned to one
+    // sheet — rows from two sheets sit on different bars, benchmarks and cost grids — so a
+    // panel left open would be blending the sheet the reader just left.
+    setPfOpen(false);
     (which === "cls" ? setCls : setTf)(next);
   }, []);
 
@@ -679,6 +691,21 @@ export default function ResearchPage() {
             />
           </div>
 
+          {/* IN THE FLOW, directly under the chart the same ticks drew. It is a place the
+              reader ACTS — there is a name field and a button in it — so it cannot be the
+              hover popover `.coldoc` is, and it belongs beside the picture of the same
+              selection rather than at the bottom of a fifty-row table. */}
+          {pfOpen && picked.length > 0 && (
+            <div ref={pfRef}>
+              <AddToPortfolio
+                cls={cls}
+                tf={tf}
+                rules={picked}
+                onClose={() => setPfOpen(false)}
+              />
+            </div>
+          )}
+
           <section className="sec" ref={secRef}>
             <div className="sec-head">
               <h2>Leaderboard</h2>
@@ -823,6 +850,24 @@ export default function ResearchPage() {
               }
             >
               Show me
+            </button>
+            {/* The same ticks, asked what they do TOGETHER — one pot split equally between
+                them rather than six lines side by side. It opens a preview and writes
+                nothing; creating is a separate click inside it. */}
+            <button
+              onClick={() => {
+                setPfOpen(true);
+                // Opening and scrolling in one gesture: the panel renders under the chart,
+                // which is usually off screen from wherever the ticking happened.
+                requestAnimationFrame(() =>
+                  (pfRef.current ?? chartRef.current)?.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                  }),
+                );
+              }}
+            >
+              As a portfolio
             </button>
             <button
               className="quiet"

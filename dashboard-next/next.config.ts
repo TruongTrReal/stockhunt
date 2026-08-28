@@ -38,6 +38,25 @@ const nextConfig: NextConfig = {
   assetPrefix: BASE_PATH || undefined,
   images: { unoptimized: true },
 
+  /* AN ESCAPE HATCH FOR A GIT WORKTREE, and unset everywhere else.
+   *
+   * Turbopack refuses to follow a symlink that leaves the project root, and a worktree under
+   * `.claude/worktrees/` reaches its dependencies through a junction pointing back at the
+   * main checkout's `dashboard-next/node_modules` — deliberately, so a second session can
+   * build without a second `npm install`. Turbopack sees that as "points out of the
+   * filesystem root" and the build dies before it compiles anything.
+   *
+   * Widening the root to a directory containing BOTH the worktree and the junction's target
+   * fixes it. That directory is different for every worktree, so it cannot be a literal:
+   *
+   *     NEXT_TURBOPACK_ROOT=/path/to/stockhunt npm run build
+   *
+   * Unset — which is every normal checkout — Turbopack infers the root as it always did and
+   * this key is not present at all. */
+  ...(process.env.NEXT_TURBOPACK_ROOT
+    ? { turbopack: { root: process.env.NEXT_TURBOPACK_ROOT } }
+    : {}),
+
   /* DEV ONLY. `next dev` serves on :3000 and the API lives on :8000, so the session
    * cookie would be cross-origin and every request would arrive unauthenticated. A
    * rewrite makes the browser see one origin in development, which is what production

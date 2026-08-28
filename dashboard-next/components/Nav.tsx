@@ -21,6 +21,10 @@ import { usePathname } from "next/navigation";
  * `/next/desk` and 404. */
 const IN_APP = [
   ["/paper", "Paper trading"],
+  /* Its own entry rather than a link buried on the desk, because a portfolio is now the
+     unit the desk is organised around: `/paper` lists what is RUNNING, and this lists what
+     exists, including the baskets nobody has switched on. */
+  ["/portfolio", "Portfolios"],
   ["/", "Research"],
 ] as const;
 
@@ -34,7 +38,11 @@ export function Nav() {
   // to export `metadata` — so the active state lives in this one small client island rather
   // than turning the whole shell into one.
   const path = usePathname() ?? "/";
-  const active = path.startsWith("/paper") ? "/paper" : "/";
+  const active = path.startsWith("/paper")
+    ? "/paper"
+    : path.startsWith("/portfolio")
+      ? "/portfolio"
+      : "/";
 
   return (
     <nav className="nav">

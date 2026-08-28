@@ -1,0 +1,76 @@
+cls,tf,rank,rule,family,source,window,n_eval_per_symbol,n_symbols,n_symbols_failed,n_bars_compared,n_bars_agree,agree_frac,n_symbols_below_100pct,worst_symbol,worst_symbol_frac,verdict,diagnosis,note
+cme_futures,15m,1,ibs,published,book_csv,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+cme_futures,15m,2,volmanaged,published,book_csv,1500,200,19,0,3800,1671,0.439737,11,NQ.v.0,0.0,anchored_state,w4500=67% w18000=67%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+cme_futures,15m,3,ssl_hybrid@allow_short=0,published,book_csv,1500,200,19,0,3800,1120,0.294737,14,ES.v.0,0.0,window_too_short,w4500=0% w18000=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+cme_futures,15m,4,CDLHOMINGPIGEON,talib,book_csv,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+cme_futures,15m,5,MAXINDEX~MININDEX|or,combo,book_csv,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+cme_futures,1h,1,MAXINDEX,talib,board,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,
+cme_futures,1h,2,CDLGAPSIDESIDEWHITE,talib,board,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,
+cme_futures,1h,3,CDLMATCHINGLOW,talib,board,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,
+cme_futures,1h,4,CDLINVERTEDHAMMER,talib,board,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,
+cme_futures,1h,5,CDLHIKKAKEMOD,talib,board,1500,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,reproduces,,
+cme_futures,1h,1,MAXINDEX,talib,board,5000,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,re-measure at the largest single warm-up request td_live can make,,
+cme_futures,1h,2,CDLGAPSIDESIDEWHITE,talib,board,5000,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,re-measure at the largest single warm-up request td_live can make,,
+cme_futures,1h,3,CDLMATCHINGLOW,talib,board,5000,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,re-measure at the largest single warm-up request td_live can make,,
+cme_futures,1h,4,CDLINVERTEDHAMMER,talib,board,5000,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,re-measure at the largest single warm-up request td_live can make,,
+cme_futures,1h,5,CDLHIKKAKEMOD,talib,board,5000,200,19,0,3800,3800,1.0,0,ES.v.0,1.0,re-measure at the largest single warm-up request td_live can make,,
+commodities,15m,1,CDLINVERTEDHAMMER,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,15m,2,CDLGRAVESTONEDOJI,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,15m,3,CDL3LINESTRIKE,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,15m,4,CDLMATCHINGLOW,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,15m,5,CDLTHRUSTING,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,1,CDLGRAVESTONEDOJI,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,2,CDL3LINESTRIKE,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,3,MAXINDEX,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,4,CDLHOMINGPIGEON,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,5,CDLIDENTICAL3CROWS,talib,board,1500,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,reproduces,,
+commodities,1h,1,CDLGRAVESTONEDOJI,talib,board,5000,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,re-measure at the largest single warm-up request td_live can make,,
+commodities,1h,2,CDL3LINESTRIKE,talib,board,5000,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,re-measure at the largest single warm-up request td_live can make,,
+commodities,1h,3,MAXINDEX,talib,board,5000,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,re-measure at the largest single warm-up request td_live can make,,
+commodities,1h,4,CDLHOMINGPIGEON,talib,board,5000,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,re-measure at the largest single warm-up request td_live can make,,
+commodities,1h,5,CDLIDENTICAL3CROWS,talib,board,5000,200,5,0,1000,1000,1.0,0,XAU/USD,1.0,re-measure at the largest single warm-up request td_live can make,,
+crypto,15m,1,ema_cross_sniper@allow_short=0,published,book_csv,1500,200,10,0,2000,0,0.0,10,BTC/USD,0.0,window_too_short,w4500=67% w18000=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,15m,2,bb_outside_in@allow_short=0,published,book_csv,1500,200,10,0,2000,1000,0.5,5,BTC/USD,0.0,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,15m,3,macd_cross,published,book_csv,1500,200,10,0,2000,0,0.0,10,BTC/USD,0.0,window_too_short,w4500=0% w18000=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,15m,4,donchian_s1,published,book_csv,1500,200,10,0,2000,0,0.0,10,BTC/USD,0.0,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,15m,5,bb_outside_in,published,book_csv,1500,200,10,0,2000,0,0.0,10,BTC/USD,0.0,anchored_state,w4500=33% w18000=67%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,1,renko_delta,published,book_csv,1500,200,10,0,2000,1863,0.9315,7,ETH/USD,0.79,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,2,bb_outside_in@allow_short=0,published,book_csv,1500,200,10,0,2000,1800,0.9,1,BNB/USD,0.0,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,3,bb_outside_in,published,book_csv,1500,200,10,0,2000,1360,0.68,4,ETH/USD,0.0,window_too_short,w4500=67% w18000=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,4,ema_cross_sniper@allow_short=0,published,book_csv,1500,200,10,0,2000,1044,0.522,9,ETH/USD,0.0,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,5,macd_cross,published,book_csv,1500,200,10,0,2000,1875,0.9375,6,AVAX/USD,0.655,window_too_short,w4500=100%,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,1,renko_delta,published,book_csv,5000,200,10,0,2000,1983,0.9915,1,TRX/USD,0.915,re-measure at the largest single warm-up request td_live can make,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,2,bb_outside_in@allow_short=0,published,book_csv,5000,200,10,0,2000,2000,1.0,0,BTC/USD,1.0,re-measure at the largest single warm-up request td_live can make,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,3,bb_outside_in,published,book_csv,5000,200,10,0,2000,2000,1.0,0,BTC/USD,1.0,re-measure at the largest single warm-up request td_live can make,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,4,ema_cross_sniper@allow_short=0,published,book_csv,5000,200,10,0,2000,2000,1.0,0,BTC/USD,1.0,re-measure at the largest single warm-up request td_live can make,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+crypto,1h,5,macd_cross,published,book_csv,5000,200,10,0,2000,1999,0.9995,1,XRP/USD,0.995,re-measure at the largest single warm-up request td_live can make,,board sheet empty (no edge_standard rows for this cell); ranked from book CSV on cashmatch_excess_cagr
+us_etfs,15m,1,volmanaged,published,board,1500,200,4,0,800,256,0.32,3,QQQ,0.0,anchored_state,w4500=33% w18000=67%,
+us_etfs,15m,2,renko_delta,published,board,1500,200,4,0,800,711,0.88875,2,IWM,0.72,window_too_short,w4500=100%,
+us_etfs,15m,3,ichimoku,published,board,1500,200,4,0,800,327,0.40875,3,IWM,0.0,anchored_state,w4500=98% w18000=99%,
+us_etfs,15m,4,donchian_s1,published,board,1500,200,4,0,800,800,1.0,0,QQQ,1.0,reproduces,,
+us_etfs,15m,5,supertrend_lf,published,board,1500,200,4,0,800,799,0.99875,1,IWM,0.995,window_too_short,w4500=99% w18000=100%,
+us_etfs,1h,1,ichimoku,published,board,1500,200,4,0,800,795,0.99375,2,GLD,0.985,window_too_short,w4500=100%,
+us_etfs,1h,2,donchian_s1,published,board,1500,200,4,0,800,796,0.995,1,QQQ,0.98,window_too_short,w4500=97% w18000=100%,
+us_etfs,1h,3,MAXINDEX,talib,board,1500,200,4,0,800,800,1.0,0,QQQ,1.0,reproduces,,
+us_etfs,1h,4,volmanaged,published,board,1500,200,4,0,800,326,0.4075,3,QQQ,0.0,window_too_short,w4500=67% w18000=100%,
+us_etfs,1h,5,faber_gtaa,published,board,1500,200,4,0,800,800,1.0,0,QQQ,1.0,reproduces,,
+us_etfs,1h,1,ichimoku,published,board,5000,200,4,0,800,794,0.9925,2,QQQ,0.985,re-measure at the largest single warm-up request td_live can make,,
+us_etfs,1h,2,donchian_s1,published,board,5000,200,4,0,800,796,0.995,1,QQQ,0.98,re-measure at the largest single warm-up request td_live can make,,
+us_etfs,1h,3,MAXINDEX,talib,board,5000,200,4,0,800,800,1.0,0,QQQ,1.0,re-measure at the largest single warm-up request td_live can make,,
+us_etfs,1h,4,volmanaged,published,board,5000,200,4,0,800,400,0.5,2,QQQ,0.0,re-measure at the largest single warm-up request td_live can make,,
+us_etfs,1h,5,faber_gtaa,published,board,5000,200,4,0,800,800,1.0,0,QQQ,1.0,re-measure at the largest single warm-up request td_live can make,,
+us_stocks,15m,1,volmanaged,published,board,1500,200,100,0,20000,3350,0.1675,93,AAPL,0.0,anchored_state,w4500=0% w18000=33%,
+us_stocks,15m,2,donchian_s1,published,board,1500,200,100,0,20000,19920,0.996,9,MS,0.865,window_too_short,w4500=100%,
+us_stocks,15m,3,ichimoku,published,board,1500,200,100,0,20000,8224,0.4112,73,ABBV,0.0,anchored_state,w4500=97% w18000=97%,
+us_stocks,15m,4,MININDEX,talib,board,1500,200,100,0,20000,20000,1.0,0,AAPL,1.0,reproduces,,
+us_stocks,15m,5,renko_delta,published,board,1500,200,100,0,20000,18848,0.9424,22,COST,0.31,window_too_short,w4500=100%,
+us_stocks,1h,1,tsmom12,published,board,1500,200,100,0,20000,7047,0.35235,74,AAPL,0.0,window_too_short,w4500=100%,
+us_stocks,1h,2,voltgt_tsmom,published,board,1500,200,100,0,20000,7047,0.35235,74,AAPL,0.0,window_too_short,w4500=1% w18000=100%,
+us_stocks,1h,3,momo_regime,published,board,1500,200,100,0,20000,8303,0.41515,69,AAPL,0.0,window_too_short,w4500=100%,
+us_stocks,1h,4,ichimoku,published,board,1500,200,100,0,20000,19957,0.99785,21,CVX,0.975,window_too_short,w4500=100%,
+us_stocks,1h,5,faber_gtaa,published,board,1500,200,100,0,20000,19983,0.99915,13,GILD,0.985,window_too_short,w4500=100%,
+us_stocks,1h,1,tsmom12,published,board,5000,200,100,0,20000,19793,0.98965,19,TSLA,0.8,re-measure at the largest single warm-up request td_live can make,,
+us_stocks,1h,2,voltgt_tsmom,published,board,5000,200,100,0,20000,9462,0.4731,73,AAPL,0.0,re-measure at the largest single warm-up request td_live can make,,
+us_stocks,1h,3,momo_regime,published,board,5000,200,100,0,20000,19915,0.99575,17,PLTR,0.905,re-measure at the largest single warm-up request td_live can make,,
+us_stocks,1h,4,ichimoku,published,board,5000,200,100,0,20000,19954,0.9977,24,C,0.98,re-measure at the largest single warm-up request td_live can make,,
+us_stocks,1h,5,faber_gtaa,published,board,5000,200,100,0,20000,19977,0.99885,17,GILD,0.98,re-measure at the largest single warm-up request td_live can make,,

@@ -156,3 +156,201 @@
   border-bottom: 1px dotted var(--hair-2);
   cursor: help;
 }
+
+/* ---------------------------------------------------------------- portfolios (2026-08-28)
+ *
+ * The one new visual idea in this feature is the correlation reading, and it is deliberately
+ * built out of things `board.css` already establishes rather than new furniture: the six
+ * series hues for leg identity, ink for magnitude, and no fill colour at all.
+ *
+ * COLOUR IS NOT AVAILABLE HERE and that is the constraint the whole design follows from.
+ * Green and red mean gained and lost on this site, so a correlation heat-map's tint would be
+ * read as profit and loss. Magnitude is carried by BAR LENGTH from a centre line, in one
+ * neutral ink; the sign is which side of the line the bar sits on, and it is printed beside
+ * it as well, so the encoding never rests on the picture alone.
+ */
+
+.corr-list {
+  display: flex;
+  flex-direction: column;
+  /* Capped rather than full-bleed. The bars are compared DOWN the list, and at 1,800px a
+     pair of short names leaves a metre of empty rule between the label and its bar — the
+     eye stops being able to pair them. On the detail page the column is narrower than this
+     anyway, so the cap only binds where the panel is full width (the leaderboard preview). */
+  max-width: 760px;
+}
+
+/* Three columns: who, how alike, how much. The name column is allowed to shrink because the
+   bar is the thing being compared down the list, and a bar whose left edge moves row to row
+   cannot be compared at all. */
+.corr-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 260px) 5ch;
+  align-items: center;
+  gap: 0 18px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--hair);
+  font-size: 13.5px;
+}
+.corr-row:first-child {
+  border-top: 1px solid var(--hair);
+}
+
+.corr-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.corr-x {
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+/* Leg identity, and the same slot the leg has on the chart above — so a swatch means one leg
+   in both places. The hue is set inline from `SERIES_COLORS`, in its fixed order. */
+.corr-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
+.corr-name .corr-dot {
+  margin-right: 0;
+}
+
+/* The bar runs either side of a centre line, so −0.4 and +0.4 are the same length pointing
+   opposite ways. A single-ended bar would have to encode the sign as colour, which is the
+   one thing colour cannot say here. */
+.corr-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  background: var(--hair);
+}
+.corr-mid {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--hair-2);
+}
+.corr-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--ink-2);
+}
+
+.corr-val {
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* The per-leg summary reads as a second list rather than a continuation of the pairs. */
+.corr-legs {
+  margin-top: 22px;
+}
+
+/* A contribution cell: the bar and its number on one line, inside a table cell that is
+   otherwise right-aligned mono. */
+.leg-share {
+  display: inline-grid;
+  grid-template-columns: minmax(60px, 110px) 5ch;
+  align-items: center;
+  gap: 0 10px;
+}
+.leg-share b {
+  font-weight: 500;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------- the portfolio list row
+ *
+ * `.grp-row` from `board.css` is a three-column grid authored for the paper desk's systems.
+ * A portfolio row carries two more facts — its kind and its switch — so it declares its own
+ * columns rather than trying to make three hold five.
+ */
+/* THE FIRST TRACK IS THE DISCLOSURE ARROW. `.grp-row::before` is a grid ITEM, not an
+   ornament hung off the side, so `board.css` opens with a 14px column for it — an override
+   that forgets that shifts every cell one place left and pushes the last one out of the
+   grid entirely. */
+.pf-row {
+  grid-template-columns: 14px minmax(0, 1fr) auto auto minmax(90px, 160px) 88px;
+}
+@media (max-width: 900px) {
+  .pf-row {
+    grid-template-columns: 14px minmax(0, 1fr) 88px;
+    row-gap: 6px;
+  }
+}
+
+/* The switch, shrunk to a chip for a list row: the full `.promote` card belongs on the page
+   that can act on it, and a row is a place to SEE the state rather than change it. */
+.pf-state {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pf-state.live {
+  color: var(--gain);
+}
+.pf-state.wait {
+  color: var(--ink-2);
+}
+.pf-state.bad {
+  color: var(--loss);
+}
+
+/* The preview panel on the leaderboard. It opens over the ranking the way `.coldoc` does,
+   but it is a place the reader ACTS, so it sits in the flow under the floating bar instead —
+   a panel with buttons in it must not be `pointer-events: none`. */
+.pf-preview {
+  border: 1px solid var(--hair-2);
+  border-left: 2px solid var(--ink-2);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pf-preview .promote {
+  flex: 1 1 auto;
+}
+.pf-form {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+/* Each half of a pair truncates on its own. Without this the first name takes whatever it
+   needs and the second is the one that disappears, which makes the row unreadable in
+   exactly the case the row exists for — naming BOTH ends of a correlated pair. */
+.corr-lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The blend engine's warnings, inside a `.note`. A bare <ul> inherits the browser's
+   40px indent and its own bullets, neither of which the rest of this site uses. */
+.pf-warn {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+}

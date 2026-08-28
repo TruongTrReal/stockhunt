@@ -50,6 +50,7 @@ import pandas as pd
 
 import fill_pnl
 import live_signal
+import cache_warmup
 import paper_config
 import paper_state
 import store
@@ -106,6 +107,11 @@ class BookStrategy(Strategy):
         self._last_price: dict[str, float] = {}
 
         self._bars: dict[str, list[dict]] = {}
+        # What came off the DISK, kept only until the vendor's window arrives and the two
+        # have been compared. `_seam_checked` is per symbol because the comparison happens
+        # once, on the first historical batch for that instrument.
+        self._seeded: dict[str, list[dict]] = {}
+        self._seam_checked: set[str] = set()
         self._target: dict[str, float] = {}          # what the rule wants, in {-1,0,+1}
         self._traded: dict[str, float] = {}          # what was last actually traded to
 
@@ -232,6 +238,21 @@ class BookStrategy(Strategy):
             # `self.clock.utc_now()`, not the wall clock: a strategy attached to a running
             # trader is handed a fresh clock, and a wall-clock window asks for a range in
             # the future, which Nautilus rejects outright.
+            # THE DISK FIRST. A single vendor request is capped at `td_live.OUTPUT_SIZE`
+            # (5,000 bars), which is twenty years at 1d and ten months at 15m — and every
+            # published strategy expresses its lookback in DAYS, so at a fine timeframe the
+            # cap silently truncates the rule rather than the history. The bars are already
+            # here; `cache_warmup` hands them over and the vendor supplies the tail.
+            #
+            # Seeded before the request, never after: `_append` refuses a bar at or before
+            # the buffer's last timestamp, so seeding first is what makes the vendor's
+            # overlap collapse into a stitch instead of a duplicate.
+            seed = cache_warmup.load(self.config.cls, feed_tf, symbol,
+                                     self.config.window_bars)
+            if seed:
+                self._seeded[symbol] = seed
+                self._bars[symbol] = list(seed)
+
             self.request_bars(bar_type, start=start, limit=self.config.window_bars)
             self.subscribe_bars(bar_type)
 
@@ -266,14 +287,48 @@ class BookStrategy(Strategy):
         with `no market for <instrument>`. The first live bar reaches both this strategy
         and the exchange, and `on_bar` trades it then.
         """
-        bars = data if isinstance(data, list) else [data]
+        bars = [b for b in (data if isinstance(data, list) else [data])
+                if isinstance(b, Bar)]
+        if bars:
+            self._check_seam(self._symbol_of(bars[0]), bars)
         for bar in bars:
-            if isinstance(bar, Bar):
-                symbol = self._symbol_of(bar)
-                self._append(symbol, bar)
-                price = float(bar.close)
-                if price > 0:
-                    self._last_price.setdefault(symbol, price)
+            symbol = self._symbol_of(bar)
+            self._append(symbol, bar)
+            price = float(bar.close)
+            if price > 0:
+                self._last_price.setdefault(symbol, price)
+
+    def _check_seam(self, symbol: str, arriving: list) -> None:
+        """Do the disk and the vendor agree where they overlap? If not, drop the disk.
+
+        This is the whole risk of warming from a cache, and it is not hypothetical: the
+        cache is written with `adjust=all`, so a corporate action lands in it at the next
+        FETCH. A cache that predates a split disagrees with the live feed by the split
+        ratio, and splicing the two puts a step in the middle of the buffer that no
+        indicator can see and every indicator is wrong about.
+
+        The failure mode is a fallback, never a refusal. Dropping the seed leaves the book
+        warming from the vendor exactly as it did before this module existed — shallower,
+        and correct. Refusing to start would turn a stale cache into an outage.
+        """
+        seed = self._seeded.get(symbol)
+        if not seed or symbol in self._seam_checked:
+            return
+        self._seam_checked.add(symbol)
+
+        incoming = [{"Close": float(b.close),
+                     "ts": pd.Timestamp(b.ts_event, unit="ns", tz="UTC")}
+                    for b in arriving]
+        report = cache_warmup.seam_report(seed, incoming)
+        if report["ok"]:
+            self.log.info(f"book {self._sid}: {symbol} warmed from {len(seed):,} cached "
+                          f"bars, {report['overlap']} overlapping bars agree")
+            return
+        self._bars[symbol] = []
+        self._seeded.pop(symbol, None)
+        self.log.warning(
+            f"book {self._sid}: {symbol} cache REJECTED and the disk history dropped — "
+            f"{report['reason']} Warming from the vendor alone, which is shallower.")
 
     # ------------------------------------------------------------------ data
     def _symbol_of(self, bar: Bar) -> str:
