@@ -41,6 +41,13 @@ desk_orders.py    what the desk will and will not do with an order. No Nautilus 
 fill_pnl.py       average cost per position, and what each fill CLOSED against it. Pure
                   arithmetic, no Nautilus and no store, so the live path, the v2->v3
                   migration and the tests all use the same definition
+symbol_resolve.py is this string an instrument, and is it the one the registration means?
+                  The identity guard for a symbol OUTSIDE the pinned legs: shape per
+                  class, then the vendor with `country=United States` pinned — and never
+                  Twelve Data for a future. Verdicts cached in `state/`
+venue_instruments.py  how to hand an instrument to a venue that is ALREADY RUNNING.
+                  `run_paper` registers each sandbox exchange, `desk_control` publishes
+                  into it. Imports neither nautilus nor run_paper, so no import ring
 catalog.py        publishes catalog.json: which rules may be promoted to the desk
 migrate_owner.py  inspect/apply/verify the account migration on paper.db
 paper_state.py    the registry; serialises results/paper_state.json and publishes live.json
@@ -85,6 +92,14 @@ test_futures_leg.py     the CME leg: a fractional instrument, an unfeedable time
 test_live_stream.py     the tick socket: reconnect resubscribes, a silent socket is
                         dropped and says so, arrival is stamped locally, and no
                         futures symbol reaches Twelve Data              (pytest)
+test_open_symbols.py    the widened legs stay disjoint, and the door out of them: the
+                        shape rules, the country pin, the two pair classes told apart,
+                        the ceiling, the cache — and the real SandboxExchange raising
+                        `No matching engine found` until it is told   (pytest)
+test_open_symbol_desk.py
+                        ledger -> resolve -> admit -> running trader -> fill -> record,
+                        for ARKK, which is in no universe; and CTRA, which is a
+                        different company wearing the ticker, refused
 ```
 
 ## The four Twelve Data classes stream, and the stream deliberately makes no bars
@@ -427,6 +442,10 @@ python run_paper.py --futures-feed poll              # the CME leg on the 8-minu
 python db_stream.py ES.v.0,CL.v.0 240                # the LIVE gateway, measured, then
                                                      #   checked against the archive
 python db_live.py                                    # the REST path, against the cache
+python symbol_resolve.py us_etfs ARKK                # is this string the instrument it
+                                                     #   looks like? Ask before registering
+python test_open_symbol_desk.py                      # the open-symbol gate, live vendor
+python test_open_symbol_desk.py --offline            # ...the same, on recorded answers
 ```
 
 **One symbol per `backtest_paper.py` process.** Nautilus initialises its Rust logger once
@@ -592,13 +611,133 @@ from, which venue it trades on, which vendor feeds it, and how it is grouped on 
 
 | leg | symbols | selects from | venue | fed by |
 |---|---|---|---|---|
-| `us_stocks` | MEGA20 + SPY, SOXL, TQQQ | `wf_summary_us_stocks_*` | `SANDBOX` | Twelve Data |
-| `us_etfs` | QQQ, IWM, XLK, TLT, GLD | `wf_summary_us_etfs_*` | `SANDBOX` | Twelve Data |
-| `crypto` | the top 10 by market cap | `wf_summary_crypto_*` | `BINANCE` | Twelve Data |
+| `us_stocks` | `US_STOCKS` (216) + SOXL, TQQQ | `wf_summary_us_stocks_*` | `SANDBOX` | Twelve Data |
+| `us_etfs` | `ETF_TOP10` + XLK | `wf_summary_us_etfs_*` | `SANDBOX` | Twelve Data |
+| `crypto` | `CRYPTO_TOP20` | `wf_summary_crypto_*` | `BINANCE` | Twelve Data |
 | `commodities` | XAU, XAG, XPT, XPD, WTI | `wf_summary_commodities_*` | `SPOT` | Twelve Data |
 | `cme_futures` | the 19 screened CME roots | `wf_summary_cme_futures_1d` | `GLBX` | **Databento** |
 
 Three rules per leg per timeframe (`TOP_N_RULES`), two timeframes.
+
+**Each leg holds its whole research class since 2026-08-28** — it was 23/5/10/5/19 — and
+what made that cheap is worth stating because the old comments claimed the opposite.
+`run_paper.build_node` seeds every instrument into the Nautilus cache and *subscribes to
+nothing*: a name here buys a value object (273 of them build in 0.16s), and a
+subscription is still created per bar type on demand by whichever strategy asks. The cost
+that binds is the vendor's request budget, and subscriptions spend it while rosters do
+not.
+
+**SPY moved legs, and it is the one collision the widening forced.** It was a
+`BRIEF_EQUITY` on `us_stocks` and it is also in `ETF_TOP10`, so taking both classes whole
+put one instrument on two legs — which `paper_config` refuses at import. It is settled to
+the ETF leg because that is the sheet that scores it: `wf_summary_us_etfs_*` ranks SPY and
+`wf_summary_us_stocks_*` does not, so its old home had it selecting rules from a
+leaderboard its own instrument was absent from. The record does not move — a `sid` is
+`{symbol}-{tf}-{rule}` and carries no class — but a HOUSE rule promoted onto SPY now comes
+off a different sheet.
+
+**XLK stays although `universe_screen.py` dropped it** at 19.8 tradable years. That leaves
+the documented defect standing (ranked on a sheet it is absent from) and it is the cheaper
+of the two: retiring an instrument ENDS a forward record rather than pausing it. `XLF`,
+`XLV` and `XLE` are all in `ETF_TOP10` and any of them is the like-for-like swap whenever
+somebody decides the record is worth ending.
+
+**`bt_config.US_STOCKS` is read live and the crypto and ETF lists are named**, which is
+the pin rule kept rather than abandoned: the danger was never reading a list, it was
+reading a *slice* of one (`CLASSES["crypto"]["symbols"][:10]`), which changes under a
+reordering with no diff to review. `CRYPTO_TOP20` and `ETF_TOP10` gain or lose a name only
+when somebody re-runs the screen and commits the result. `FUTURES_SYMBOLS` is still written
+out, because `universes_futures.CME_SCREENED` is GENERATED and re-running the screen would
+silently move a live instrument.
+
+## A symbol the desk was not configured with
+
+A member may register a symbol in no leg at all — `ARKK`, `ARKQ`, `SHIB/USD`, `MES.v.0`.
+It used to be refused, and the reason given was wrong: *"a new one costs an instrument, a
+subscription and a full warm-up"*. Only the middle third is true of a `MemberStrategy`. An
+instrument is a value object, and a warm-up is what a RULE needs — `TalibRuleStrategy`
+recomputes a recursive indicator over `DEFAULT_WINDOW_BARS` and is a *different signal*
+without it, which is what `parity_live.py` measures. A member's strategy computes nothing
+here: it trades on instruction and needs `_last_price`, which is **one bar**.
+
+**That distinction is the boundary and it is not blurred.** The open path is
+`kind='member'` only. A promoted `house_rule` on an unknown symbol is still refused,
+because it is selected off `wf_summary_<cls>_<tf>.csv`, which ranks rules over that class's
+research universe — a ranking on another instrument does not exist — and it needs the full
+warm-up as well. A `book` names no symbols at all and is unaffected.
+
+Three steps, in `desk_control._resolve_open` and `_admit_open`:
+
+| | |
+|---|---|
+| **shape** | free, and it catches the two worst confusions. `cme_futures` is `ROOT.v.RANK` and the root must be in `futures_specs.CME_CONTRACTS`; the pair classes carry exactly one `/`; the equity classes carry neither. This is what refuses `CL` as a future — at Twelve Data `CL` is Colgate-Palmolive — and `ES.v.0` as an equity |
+| **vendor** | one `/quote`, with `country=United States` pinned on equities and ETFs exactly as `td_loader.US_LISTED_CLASSES` does. **`cme_futures` is never asked Twelve Data at all**; its root list is the probe, offline, because a Databento symbology round trip costs ~25s and this runs inside `tick()` |
+| **cache** | the verdict goes to `state/symbol_probe.json` with a timestamp, `PROBE_TTL_SECONDS` = 1 day. One round trip per attach is acceptable; one per one-second tick is not |
+
+**The pin is the whole defence and it was verified against the live vendor, not assumed.**
+Measured 2026-08-28: `CTRA`, `STJ` and `K` all answer HTTP 404 with `country=United States`
+and all three return a full, plausible foreign series without it. A currency check is the
+second lock — a namesake on a foreign venue is quoted in that venue's money, and `STJ` in
+pence is what the cache was once full of.
+
+Two things that bit while building this, both on the first live run:
+
+* **`raise_for_status()` got the reason wrong.** Twelve Data answers an unlisted ticker
+  with **404 and a JSON body**, and that body is the ANSWER. Raising on the status turned
+  the identity guard's finding into *"could not check CTRA, try again once the vendor
+  answers"* — telling a member their symbol was unverifiable when the vendor had said
+  clearly that no US listing exists.
+* **The reason carried the API key.** `requests` puts the full request URL in its
+  exception messages and these URLs carry `apikey=`, so an unscrubbed timeout published
+  the desk's Twelve Data credential into a registration's `reason`, onto the manager
+  console and into the desk log. `symbol_resolve._scrub` is why that cannot happen again;
+  `test_open_symbols.py` holds it.
+
+`XAU/USD` and `BTC/USD` are spelled alike and settle on different venues, so the two pair
+classes are told apart by the vendor's own `exchange` field — `Forex` is a spot/FX pair,
+anything else is a coin — rather than by the separator, which is the inference that once
+priced a metal against the Binance book.
+
+**`MAX_OPEN_SYMBOLS` (200) is a FEED budget, not bookkeeping.** `MAX_MEMBER_STRATEGIES` is
+60 and each may name `SYMBOLS_MAX` (20), so 1,200 distinct names is reachable with nobody
+deciding it — 240 requests a minute at 5m against the 610/minute `td_live` is quoted for.
+200 names at 5m is ~40/min, beside the ~20/min the class-wide 5m books already cost.
+`MAX_1M_SYMBOLS` (120) is finer and still binds first at that size.
+
+### Admitting is three writes, and each one prevents a different silence
+
+`paper_config.admit` grows `CLASS_OF` and `SAFE_TO_VENDOR`; `desk_control._admit_open`
+then adds the instrument to the cache and publishes it to the running venue.
+
+* Without `CLASS_OF`, `run_paper._split_by_feed` and `live_ws.streamable` both read `None`
+  and put the symbol on the **Twelve Data** side of the vendor split. For a futures name
+  that is the one thing this desk may never do.
+* Without `SAFE_TO_VENDOR`, a pair is asked of the vendor as `LTCUSD`, which is not an
+  instrument — and Twelve Data answers an empty frame rather than an error, so the book
+  warms up forever while the log reads healthy.
+* Without the venue, `SimulatedExchange.process_bar` raises
+  `RuntimeError: No matching engine found for X.SANDBOX` **inside**
+  `run_paper.route_bars_to_sandbox`'s handler, which catches everything so one malformed
+  bar cannot kill the feed. So the symptom is not an error — it is a book that receives
+  bars, marks nothing and fills nothing while every log line reads healthy.
+
+**`SandboxExecutionClient.INSTRUMENTS` does not exist in nautilus_trader 1.230.0.**
+`build_node` used to assign it and the comment beside it said the adapter read that list
+once at connect with "no way to add to it afterwards". The assignment was inert and the
+belief is what made an open symbol look impossible. What the adapter actually does is copy
+every **cached** instrument for its venue into the exchange at `connect()`, and
+`process_bar` builds a matching engine by looking the instrument up in that same cache —
+so there is a runtime door, and `venue_instruments` is it. It holds a callable per venue,
+registered by `route_bars_to_sandbox` on its way past, because a Nautilus `Controller` is
+an `Actor` and has no route to the execution engine at all.
+
+`symbol_resolve.py` is also a CLI, which is how to check a name before registering it:
+
+```powershell
+python symbol_resolve.py us_etfs ARKK              # one verdict, live, with detail
+python symbol_resolve.py us_stocks CTRA PLTR K     # the identity guard, demonstrated
+python symbol_resolve.py --cached crypto LTC/USD   # offline: what is already known
+```
 
 ## The fifth leg has its own vendor, and Nautilus routes it by venue
 
@@ -906,31 +1045,25 @@ a yes.
 used to: `MAX_1M_SYMBOLS` applies to it like anything else, and the 19-name universe is
 well under it.
 
-**The legs must stay disjoint** — `paper_config` raises at import if they are not. SPY, SOXL
-and TQQQ are on the *equity* leg because that is the transfer test (rules ranked on
-mega-caps, run on funds the research never held), so the ETF leg deliberately holds five
-other names. One instrument under two rule lists would read on the dashboard as two systems
-agreeing when it is one asset counted twice.
+**The legs must stay disjoint** — `paper_config` raises at import if they are not, and
+`admit` raises at RUNTIME for the same reason, since a symbol can now arrive after start.
+One instrument under two rule lists would read on the dashboard as two systems agreeing
+when it is one asset counted twice. See the universe section above for how SPY was
+settled, which is the collision the 2026-08-28 widening produced.
 
-**The universe lists are pinned, not read from `bt_config`.** They were the same list until
-the research universe grew on 2026-08-09; `bt_config.US_STOCKS` is now the 216-name
-point-in-time TOP 100 (it was 751 S&P names between 2026-08-09 and 2026-08-12) and crypto is
-`CRYPTO_TOP20`, screened down from 34. Widening the desk should be a deliberate act, not a
-side effect of re-running `sp500_membership.py`, `top100_membership.py` or
-`universe_screen.py`.
+**A universe list may be READ from `bt_config`; it may not be a SLICE of one.** That is
+the pin rule as it now stands, and it is narrower than the old one for a reason the old
+one had already half-learned. `CRYPTO_SYMBOLS` was `CLASSES["crypto"]["symbols"][:10]` —
+whatever ten names happened to sit at the front of a live list — so any reordering
+re-pointed the live desk with no diff to review, and the 2026-08-12 screen came within a
+couple of positions of doing it. A stable NAMED list has no such property:
+`bt_config.CRYPTO_TOP20`, `ETF_TOP10` and `US_STOCKS` gain or lose a name only when
+somebody re-runs a screen and commits the result, which is a reviewable act.
 
-**One of those pins was not a pin.** `CRYPTO_SYMBOLS` was
-`CLASSES["crypto"]["symbols"][:10]` — it read the live research universe and took whatever
-ten names sat at its front, so any reordering of that list would have re-pointed the live
-desk with no diff to review. The 2026-08-12 screen reordered it and the roster survived by
-luck, not design. It is now `bt_config.CRYPTO_DEEP`, a stable named list holding exactly the
-ten the desk has always traded. If a pin here is meant to hold, it has to be a literal or a
-list that exists for its own reason — never a slice of something that moves.
-
-The ETF leg's `XLK` is the loose end the screen left: `universe_screen.py` dropped it from
-`us_etfs` at 19.8 tradable years against a 20-year gate, so that leg is now ranked on a
-sheet its own instrument is absent from. `XLF`, `XLV` or `XLE` is the like-for-like swap,
-and it is a deliberate act, so it has not been made here.
+`FUTURES_SYMBOLS` is still written out and must stay that way. `bt_config.CME_FUTURES` is
+`universes_futures.CME_SCREENED`, which is **generated** — `futures_screen.py --write`
+rewrites that file — so reading it live would let a fresh fetch add or drop a live
+instrument with no diff at all.
 
 **`XAU/USD` is not crypto.** Routing used to be `"/" in symbol`, which was right for two
 classes and silently wrong for the third — a metal priced against the Binance book. It is a

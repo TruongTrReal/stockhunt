@@ -225,11 +225,37 @@ def build(depth: int = DEPTH) -> dict:
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        # Which symbols a promotion may name, per class. The desk refuses anything else —
-        # a symbol it does not already subscribe to costs an instrument, a subscription
-        # and a full 1,500-bar warm-up — and publishing the list lets the API say so
-        # immediately instead of leaving a registration pending until the next tick.
+        # Which symbols the desk already holds, per class. Published so the console can
+        # offer them and so the API can answer a registration immediately instead of
+        # leaving it pending until the next control tick.
+        #
+        # **It is no longer the whole answer, and `open_symbols` below is why.** This used
+        # to be the desk's complete list of tradable names and a registration outside it
+        # was refused, on the reasoning that a new symbol "costs an instrument, a
+        # subscription and a full 1,500-bar warm-up". Only the subscription is true of a
+        # MEMBER strategy — it trades on instruction and needs one bar for a price, not a
+        # window for an indicator — so the list stopped being a boundary and became a
+        # suggestion. A promoted rule still needs its warm-up and is still confined to it.
         "universe": {cls: list(syms) for cls, syms in paper_config.UNIVERSE.items()},
+        # What happens to a symbol the list above does NOT hold, said in the document the
+        # console reads rather than assumed by the page. The console offers `universe` as
+        # suggestions and accepts a typed name outside it only when this says it may —
+        # so a desk running an older build, which really would refuse, still gets a picker
+        # that refuses.
+        #
+        # `resolved` names the check the desk applies, because a member typing a symbol
+        # deserves to know it will be verified against the vendor rather than accepted on
+        # spelling: `country=United States` is pinned on equities and ETFs, and futures
+        # are never asked Twelve Data at all.
+        "open_symbols": {
+            "enabled": True,
+            "max": paper_config.MAX_OPEN_SYMBOLS,
+            "in_use": len(paper_config.open_symbols()),
+            "kinds": ["member"],
+            "resolved": "twelvedata quote, country=United States on equities and ETFs; "
+                        "cme_futures resolved offline against futures_specs and never "
+                        "sent to Twelve Data",
+        },
         "timeframes": menu_timeframes(),
         # What a promotion actually creates, published so the board can say it exactly
         # rather than hardcoding numbers that drift. `names` is read LIVE — the top 100

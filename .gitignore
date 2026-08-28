@@ -78,6 +78,12 @@ engine-bakeoff/_probe_store/
 # view of a book this repo already commits in full.
 paper trading engine/state/alpaca.db
 
+# The vendor's answer to "is this ticker the instrument the registration means", cached by
+# `symbol_resolve.py` so the probe does not run on every control tick. Regenerable at one
+# credit per symbol, and it goes stale on purpose (PROBE_TTL_SECONDS), so a committed copy
+# would be a stale answer travelling between machines.
+paper trading engine/state/symbol_probe.json
+
 # --- the results store ---
 # The opposite case to paper.db, and the difference is where the truth lives. This one is
 # BUILT from the tracked result CSVs by `tools/ingest_results.py` and is regenerable in ten

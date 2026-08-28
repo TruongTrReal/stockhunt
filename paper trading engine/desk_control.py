@@ -56,6 +56,8 @@ from datetime import timedelta
 import desk_orders
 import paper_config
 import paper_state
+import symbol_resolve
+import venue_instruments
 from member_strategy import MemberStrategy, MemberStrategyConfig
 from stockhunt import deskdb
 from strategy import TalibRuleConfig, TalibRuleStrategy
@@ -350,6 +352,10 @@ class DeskController(Controller):
         if cls not in paper_config.VENUES:
             raise RuntimeError(f"unknown asset class {cls!r}")
 
+        # Bound here rather than only inside the `else` below, so the admit near the end
+        # of this method cannot depend on two guards agreeing about what a book is.
+        opened: list[str] = []
+
         if reg["kind"] == "book":
             # A book names no symbols: it holds whoever is in the class right now, and
             # `_refresh_universes` keeps that current while it runs. Checking a stored
@@ -359,12 +365,9 @@ class DeskController(Controller):
             if refusal:
                 raise RuntimeError(refusal)
         else:
-            unknown = [s for s in reg["symbols"] if s not in paper_config.CLASS_OF]
-            if unknown:
-                raise RuntimeError(
-                    f"{', '.join(unknown)} is not in the desk's universe. Only symbols "
-                    f"the desk already subscribes to can be traded — a new one costs an "
-                    f"instrument, a subscription and a full warm-up.")
+            # A symbol outside the pinned legs is RESOLVED, not refused. Nothing is
+            # admitted yet — see `_resolve_open` for why the two halves are apart.
+            opened = self._resolve_open(reg)
             # Checked here rather than left to `BAR_SPEC[tf]` in the strategy's `on_start`,
             # where the same mistake surfaces as a bare `KeyError('30m')` in the desk log
             # with the registration stuck at `pending` and nothing said to its owner.
@@ -393,6 +396,15 @@ class DeskController(Controller):
         if not can:
             raise RuntimeError(why)
 
+        # LAST, and only once every refusal above has passed. Admitting is a side effect
+        # on process-wide state — `paper_config.CLASS_OF` grows, an instrument reaches the
+        # cache and the venue, and the symbol counts against `MAX_OPEN_SYMBOLS` — so doing
+        # it before the timeframe and feed checks would leak a symbol per rejected
+        # registration, and sixty rejected 4h futures books would exhaust a ceiling that
+        # exists to bound the FEED. `opened` is empty for a book and for a registration
+        # that named nothing new, so this needs no second guard on the kind.
+        self._admit_open(cls, opened)
+
         strategy = self._build(reg, paper_config.VENUES[cls])
         # Start it ourselves ONLY if the trader is already running. The controller's first
         # tick happens inside `on_start`, i.e. during the trader's own start sequence — so
@@ -416,6 +428,91 @@ class DeskController(Controller):
             caveat = ""
         deskdb.mark_registration(rid, "live", caveat or None)
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
+
+    # --------------------------------------------------------------- open symbols
+    def _resolve_open(self, reg: dict) -> list[str]:
+        """Which of this registration's symbols are new, having checked they are real.
+
+        **The desk used to refuse anything outside `paper_config.CLASS_OF` and the reason
+        it gave was wrong.** It said a new symbol "costs an instrument, a subscription and
+        a full warm-up", and only the middle third of that is true. An instrument is a
+        value object. A warm-up is what a RULE needs — `TalibRuleStrategy` recomputes a
+        recursive indicator over `DEFAULT_WINDOW_BARS` and is a different signal without
+        it — and a `MemberStrategy` computes nothing: it trades on instruction and needs
+        `_last_price`, which is one bar. So a member naming `ARKK` was refused for a cost
+        their strategy does not incur.
+
+        The subscription is the real cost, and it is bounded by `MAX_OPEN_SYMBOLS` in
+        `paper_config.admit` rather than by a roster.
+
+        **That distinction is exactly where `house_rule` parts company**, and it is not
+        blurred here. A promoted rule is selected off `wf_summary_<class>_<tf>.csv`, which
+        ranks rules over that class's research universe; running one on a symbol outside
+        that universe trades a ranking that was never computed on the instrument, and it
+        needs the full warm-up as well. So the open path is for members only and a house
+        rule on an unknown symbol is still refused — with the reason, not with the old
+        sentence about instruments.
+
+        Resolution itself is `symbol_resolve.resolve`, which is where the identity guard
+        lives; this only decides who to ask about and turns a refusal into an exception
+        `_reconcile` will write onto the registration.
+
+        **Nothing is admitted here.** The caller admits after every other refusal has
+        passed, so a registration rejected for its timeframe does not leave a symbol on
+        the desk's books.
+        """
+        unknown = [s for s in reg["symbols"] if s not in paper_config.CLASS_OF]
+        if not unknown:
+            return []
+        if reg["kind"] != "member":
+            raise RuntimeError(
+                f"{', '.join(unknown)} is not in the desk's {reg['cls']} universe, and a "
+                f"promoted rule may only run on symbols that are. The rule was ranked on "
+                f"wf_summary_{reg['cls']}_{reg['tf']}.csv, which scores that universe and "
+                f"nothing else, so a ranking on another instrument does not exist. A "
+                f"member strategy can trade it — it decides for itself and needs the desk "
+                f"only to fill and mark.")
+        for symbol in unknown:
+            verdict = symbol_resolve.resolve(symbol, reg["cls"])
+            if not verdict.ok:
+                raise RuntimeError(verdict.reason)
+            self.log.info(f"{reg['strategy_id']}: {verdict.reason}"
+                          + ("  [cached verdict]" if verdict.cached else ""))
+        return unknown
+
+    def _admit_open(self, cls: str, symbols: list[str]) -> None:
+        """Put a resolved symbol on the desk: the registry, the cache, and the venue.
+
+        All three, in that order, and each one prevents a different silent failure:
+
+        * `paper_config.admit` — without it `run_paper._split_by_feed` and
+          `live_ws.streamable` both read `CLASS_OF.get(symbol)` as `None` and put the
+          symbol on the Twelve Data side of the vendor split. For a futures name that is
+          the one thing this desk may never do.
+        * `self.cache.add_instrument` — `SimulatedExchange.process_bar` builds its
+          matching engine by looking the instrument up HERE. `MemberStrategy.on_start`
+          does the same thing a moment later, and doing it now as well is what makes the
+          venue call below possible at all.
+        * `venue_instruments.publish` — builds the matching engine at attach instead of on
+          the first bar. The lazy path raises `RuntimeError: No matching engine found`
+          inside `run_paper.route_bars_to_sandbox`'s handler, which catches everything so
+          that one bad bar cannot kill the feed — so a miss there is not an error, it is a
+          book that receives bars and fills nothing while every log line reads healthy.
+        """
+        if not symbols:
+            return
+        venue = paper_config.VENUES[cls]
+        for symbol in symbols:
+            paper_config.admit(symbol, cls)
+            inst = instrument_for(symbol, cls, venue)
+            if self.cache.instrument(inst.id) is None:
+                self.cache.add_instrument(inst)
+            at_venue = venue_instruments.publish(inst)
+            self.log.info(
+                f"admitted {symbol} to the {cls} leg on {venue} "
+                f"({'venue notified' if at_venue else 'cache only — no running venue'}); "
+                f"{len(paper_config.open_symbols())} of "
+                f"{paper_config.MAX_OPEN_SYMBOLS} open symbols in use")
 
     def _flatten(self, rid: str, strategy) -> int:
         """Close everything a strategy holds, before it is detached. Returns how many.

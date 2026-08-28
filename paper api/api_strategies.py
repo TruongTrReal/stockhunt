@@ -188,11 +188,23 @@ class LimitsOut(BaseModel):
     max_capital_per_strategy: float
     max_strategies: int
     max_orders_per_minute: int
-    # Per class, the symbols the desk already subscribes to — empty when the desk has not
-    # published a catalog yet. The console offers these and refuses anything else, because
-    # the desk does: a symbol it does not hold an instrument for costs a subscription and a
-    # full warm-up, so it is refused there rather than quietly added.
+    # Per class, the symbols the desk already holds — empty when the desk has not
+    # published a catalog yet. The console offers these as suggestions.
     universe: dict[str, list[str]]
+    # Whether the desk will take a symbol the list above does NOT hold. Read from the
+    # desk's own published catalog, never assumed here, and defaulting to False: this
+    # process cannot import the trading stack to ask, so the only honest default is the
+    # old behaviour. A console that assumed True against a desk that still refuses would
+    # accept a symbol here and have it rejected there, minutes later, in a `reason` on a
+    # table nobody is still watching — which is the exact failure the picker exists to
+    # prevent, inverted.
+    universe_open: bool = False
+    # How many off-list symbols the desk will carry at once, and how many are in use. It
+    # is a FEED budget — each one is a vendor request per bar — so the console can say why
+    # a refusal happened rather than only that one did. Zero when the desk has published
+    # no catalog, which reads the same as `universe_open` being false.
+    open_symbols_max: int = 0
+    open_symbols_in_use: int = 0
 
 
 @limits_router.get("/limits", response_model=LimitsOut,
@@ -217,10 +229,21 @@ def limits(who: dict = Depends(api_auth.current_principal)) -> LimitsOut:
     as `live.json`. An empty one means the desk has not run `catalog.py` yet, and the
     console falls back to accepting a typed symbol rather than refusing to register at all:
     a research artifact that has not been rebuilt must not be able to close the door.
+
+    `universe_open` comes from the same document and says whether the desk will resolve a
+    symbol that is NOT on the list. It is read rather than inferred from the universe being
+    non-empty, because those are different facts: a full list and a closed door was the
+    desk's behaviour until 2026-08-28, and a console that conflated them would offer a
+    typed symbol to a desk that still refuses it.
     """
-    universe = ((api_live.catalog() or {}).get("universe") or {})
+    doc = api_live.catalog() or {}
+    universe = (doc.get("universe") or {})
+    open_syms = (doc.get("open_symbols") or {})
     return LimitsOut(
         universe={k: list(v) for k, v in universe.items() if k in CLASSES},
+        universe_open=bool(open_syms.get("enabled")),
+        open_symbols_max=int(open_syms.get("max") or 0),
+        open_symbols_in_use=int(open_syms.get("in_use") or 0),
         classes=list(CLASSES),
         timeframes=list(api_config.TIMEFRAMES),
         name_max=NAME_MAX,

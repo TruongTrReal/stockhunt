@@ -371,14 +371,29 @@ Three things it must keep doing:
   saying `$10,000` and offering `commodities` the day either changed, and a page that
   misstates the terms is worse than one that omits them. `test_strategies.py` asserts the
   endpoint and the config agree.
-* **Symbols are picked, never typed.** The desk subscribes to a fixed universe and refuses
-  everything else — a new symbol costs an instrument, a subscription and a full warm-up —
-  so a free-text field could only ever produce a registration accepted here and rejected
-  there, minutes later, in a `reason` nobody is still watching. `/v1/limits` carries
+* **Symbols are offered, and — since 2026-08-28 — may also be typed.** `/v1/limits` carries
   `universe` per class, read from what the desk **published** (`catalog.json`), never
-  computed here. When the desk has not published one the field falls back to free text:
-  a research artifact that has not been rebuilt must not be able to stop somebody
-  registering, and the desk checks anyway.
+  computed here, and the picker offers exactly that. What it does with a name outside the
+  list is decided by `universe_open`, from the same document, and there are three modes
+  that must not be conflated:
+
+  | | |
+  |---|---|
+  | list + open | offer the known names, accept anything typed. The desk resolves it |
+  | list + closed | offer the known names, refuse the rest HERE, because the desk does |
+  | no list | the desk published no catalog. Accept what is typed; the desk checks |
+
+  The middle row is the desk's behaviour up to 2026-08-28 and the reason `universe_open`
+  is READ rather than inferred from the list being non-empty. Against a desk that still
+  refuses, a console that assumed otherwise would accept a symbol here and have it
+  rejected there, minutes later, in a `reason` on a table nobody is still watching —
+  which is the exact failure the picker exists to prevent, inverted. It defaults to
+  false, because this process imports no trading code and cannot ask.
+
+  A typed symbol is not taken on trust at the far end either: `desk_control` resolves it
+  through `symbol_resolve`, which pins `country=United States` on equities and ETFs so the
+  vendor errors instead of returning a foreign namesake, and never sends a futures symbol
+  to Twelve Data at all. A refusal comes back in `reason` with the vendor's finding in it.
 * **A symbol is folded through `api_symbols.canonical`, never through `.upper()`.**
   `cme_futures` is the one class whose names are not capitals — `ES.v.0` is root, roll
   rule, rank, and the lower-case roll rule is Databento's, held verbatim by the desk.

@@ -32,6 +32,23 @@ CLASSES = bt_config.CLASSES
 TIMEFRAMES = bt_config.TIMEFRAMES
 FEE_SCENARIOS = bt_config.FEE_SCENARIOS
 
+# The engine's own answers to "which class is this symbol" and "what clock does the vendor
+# stamp that class's intraday bars in". Re-exported rather than restated for the reason
+# every other re-export in this file exists: a live desk that disagrees with the backtest
+# about a symbol's timezone produces a forward test of a different measurement, and nothing
+# says so. `td_live` reads both.
+#
+# `research_class_of` is NOT `class_of`, which this file defines further down and which
+# answers a narrower question — which *leg of this desk* a symbol trades on, and therefore
+# which walk-forward sheet it selects from. That one raises `SystemExit` for anything
+# outside the forward-test universe, which is right where it is used and wrong here: a
+# member may register any symbol the vendor prices, and asking what timezone it is in must
+# not be able to kill the process.
+research_class_of = bt_config.class_of
+vendor_tz = bt_config.vendor_tz
+cache_tz = bt_config.cache_tz
+to_cache_clock = bt_config.to_cache_clock
+
 RESULTS_DIR = HERE / "results"
 LOG_DIR = HERE / "logs"
 for _d in (RESULTS_DIR, LOG_DIR):
@@ -213,37 +230,83 @@ DECIDE_EARLY_WINDOW_BARS = 3000
 # Keeping both means a rule that works on the mega-caps but not the ETFs is visibly a
 # transfer failure rather than a mystery.
 #
-# **`MEGA20`, not `bt_config.US_STOCKS`.** This used to read the live class list, which was
-# right when that list WAS the 20 mega-caps and became wrong the moment the universe grew
-# to the point-in-time S&P 500 on 2026-08-09: `run_paper.py --symbols` would have defaulted
-# to 751 tickers, and a third of the departed ones are impostor penny stocks that Twelve
-# Data resolves from a recycled ticker. The desk's job is a continuous forward record on a
-# fixed set of instruments, so the set is pinned. Widening it is a deliberate act, not a
-# side effect of re-running `sp500_membership.py`.
-RESEARCH_EQUITIES = list(bt_config.MEGA20)
-BRIEF_EQUITIES = ["SPY", "SOXL", "TQQQ"]
+# **The legs now hold their whole research class, and the widening is the deliberate act
+# this paragraph has always demanded rather than an abandonment of it.**
+#
+# It used to be `MEGA20`, 20 of the 216 names the research ranks, and the reason was a
+# real cost: `run_paper.py --symbols` defaults to this list, so every name in it was a
+# subscription and a warm-up the moment anybody passed `--top`. That is no longer what a
+# name here costs. The desk runs `--top 0` by default and trades what is REGISTERED, and
+# `run_paper.build_node` seeds the whole universe into the Nautilus cache while
+# subscribing to nothing — measured, and the reason it is safe to widen: an entry here
+# buys a value object, and a *subscription* is still created per bar type on demand by
+# whichever strategy asks for one. Nothing in this block reaches a vendor.
+#
+# What the old narrow list actually cost was refusals. A registration naming a symbol
+# outside it was rejected by `desk_control._launch`, so a member could not trade a name
+# the research itself ranks — and the ceiling that binds a live desk is the vendor's
+# request budget, which subscriptions spend and rosters do not.
+#
+# **The impostor risk the old note names is answered elsewhere now, and had to be.**
+# `td_loader.US_LISTED_CLASSES` pins `country=United States` at the source and
+# `check_data.py --probe-listing` quarantines what is already cached, so the 216 are the
+# point-in-time top 100's union rather than a list a third of which is somebody else's
+# penny stock. `symbol_resolve.py` applies the same pin to anything registered from
+# OUTSIDE these lists. A roster is not where that defence belongs.
+#
+# The equity side is still two groups with different evidential status:
+#
+#   RESEARCH_EQUITIES  the 216 names that have held a point-in-time top-100 slot — the
+#                      universe the sweeps rank. Paper trading these is a LIKE-FOR-LIKE
+#                      forward test.
+#   BRIEF_EQUITIES     SOXL and TQQQ. A TRANSFER test: they are 3x leveraged and decay
+#                      against their index in chop, so whatever a rule scored on AAPL has
+#                      no claim on them, and the research has never held either.
+#
+# **SPY left this list, and it is the one collision the widening forced.** It was here as
+# the third BRIEF_EQUITY and it is also in `bt_config.ETF_TOP10`, so taking both classes
+# whole would have put one instrument on two legs — which `_seen` below refuses at import,
+# and rightly: two rule lists on one asset reads on the dashboard as two systems agreeing
+# when it is one asset counted twice. It is settled in favour of the ETF leg, where the
+# research actually ranks it: `wf_summary_us_etfs_*` scores SPY and
+# `wf_summary_us_stocks_*` does not, so leaving it here kept it selecting rules from a
+# sheet its own instrument is absent from. See ETF_SYMBOLS for what that costs.
+RESEARCH_EQUITIES = list(bt_config.US_STOCKS)
+BRIEF_EQUITIES = ["SOXL", "TQQQ"]
 EQUITY_SYMBOLS = RESEARCH_EQUITIES + BRIEF_EQUITIES
 
-# Pinned for the same reason, and to the same 10 the desk has been trading since it
-# started: the research class grew to 34 pairs and was then screened back to 20, and
-# swapping this roster would reset nothing but would multiply the credit cost and bury the
-# existing record in new sids.
+# The whole screened class, for the reason above. `CRYPTO_TOP20` is what
+# `universe_screen.py` kept after the tradability gates — the 34 raw pairs are NOT what
+# this reads, so a pair rejected on price grid (SHIB, OP) or on history cannot reach the
+# desk by this door.
 #
-# **This was `CLASSES["crypto"]["symbols"][:10]`, which is not a pin.** It reads the live
-# research universe and takes whatever ten names happen to sit at the front of it, so the
-# desk's roster was one list reordering away from silently changing — exactly the failure
-# the paragraph above claims to prevent, and the 2026-08-12 screen came within a couple of
-# positions of triggering it. `CRYPTO_DEEP` is a stable named list and is already exactly
-# these ten: the pairs with 1-minute history deep enough for the finest grid.
-CRYPTO_SYMBOLS = list(bt_config.CRYPTO_DEEP)
+# **It is still not `CLASSES["crypto"]["symbols"]`, and that distinction is the one the
+# old note was really about.** A slice of a live list — this was
+# `CLASSES["crypto"]["symbols"][:10]` once — changes under a reordering with no diff to
+# review. A stable NAMED list does not: `CRYPTO_TOP20` gains or loses a name only when
+# somebody re-runs the screen and commits the result, which is a reviewable act.
+# `CRYPTO_DEEP` (the ten with 1-minute history deep enough for the finest grid) stays
+# named in `config` and is a subset of this, so nothing the desk has been trading moves.
+CRYPTO_SYMBOLS = list(bt_config.CRYPTO_TOP20)
 
-# The ETF leg deliberately holds NONE of `BRIEF_EQUITIES`. SPY, SOXL and TQQQ are already
-# traded above under the us_stocks leaderboard, and listing them here too would run one
-# instrument against two different rule lists — which reads on the dashboard as two
-# independent systems agreeing or disagreeing when it is really one asset counted twice.
-# These five are the breadth the equity leg has not got: an index that is not the S&P, small
-# caps, a sector, long duration, and gold.
-ETF_SYMBOLS = ["QQQ", "IWM", "XLK", "TLT", "GLD"]
+# `ETF_TOP10`, which is the whole class after `universe_screen.py`, PLUS `XLK`.
+#
+# Two things about that composition:
+#
+# **SPY arrives here from the equity leg.** It is in `ETF_TOP10`, and the legs must stay
+# disjoint, so it can be on exactly one of them — see RESEARCH_EQUITIES above for why this
+# is the side that wins. The forward record does not move: a `sid` is
+# `{symbol}-{tf}-{rule}` and carries no class, so SPY's existing fills and curve points
+# reattach unchanged. What changes is which sheet a HOUSE rule on SPY selects from, and
+# the ETF sheet is the one that has ever scored it.
+#
+# **XLK is kept although the screen dropped it**, at 19.8 tradable years against a 20-year
+# gate. Dropping it is not free: the desk has a forward record on XLK and retiring an
+# instrument ends that record rather than pausing it, which is a worse outcome than the
+# defect keeping it preserves — that it is ranked on a sheet its own instrument is absent
+# from. `XLF`, `XLV` and `XLE` are all in `ETF_TOP10` and any of them is the like-for-like
+# swap whenever somebody decides the record is worth ending.
+ETF_SYMBOLS = list(bt_config.ETF_TOP10) + ["XLK"]
 
 # All five. The class is small enough to trade whole, and `XAU/USD` carries the deepest
 # history in the repo (1979-12-26), which is the only lever there is on a noise ceiling.
@@ -447,7 +510,86 @@ for _cls, _syms in UNIVERSE.items():
             raise SystemExit(f"{_s} is in both {_seen[_s]} and {_cls}; the legs must be "
                              f"disjoint — see UNIVERSE in paper_config.py")
         _seen[_s] = _cls
+
+# The pinned legs as declared above, frozen. Everything that has to distinguish "a name
+# the desk was configured with" from "a name a registration brought in" reads this;
+# `CLASS_OF` below is the same map plus whatever `admit` has since added, and it is what
+# every lookup goes through.
+PINNED_CLASS_OF: dict[str, str] = dict(_seen)
 CLASS_OF = _seen
+
+# How many symbols from OUTSIDE the pinned legs the desk will carry at once.
+#
+# The pinned lists are bounded and reviewable — somebody edits this file and there is a
+# diff. The open path is unbounded by construction: `desk_control.MAX_MEMBER_STRATEGIES`
+# is 60 and each may name `SYMBOLS_MAX` (20), so 1,200 distinct names is reachable without
+# anybody deciding it. That is not a roster problem, it is a FEED problem — every
+# (symbol, timeframe) is one Twelve Data request per bar against the 610/minute budget
+# `td_live` is quoted for, so 1,200 open names at 5m would be 240 requests a minute on
+# their own, before the house books and the mark-to-market poll.
+#
+# 200 is sized off that arithmetic and not off taste: 200 names at 5m is ~40 requests a
+# minute, which sits beside the ~20/min the class-wide 5m books already cost and leaves
+# the budget's shoulder free. It is deliberately NOT a second 1m ceiling —
+# `MAX_1M_SYMBOLS` (120) is finer and binds first at that size, and a symbol admitted here
+# is still subject to it.
+MAX_OPEN_SYMBOLS = 200
+
+
+def open_symbols() -> dict[str, str]:
+    """Symbol -> class for everything `admit` has let in beyond the pinned legs."""
+    return {s: c for s, c in CLASS_OF.items() if s not in PINNED_CLASS_OF}
+
+
+def admit(symbol: str, asset_class: str) -> None:
+    """Let a symbol the pinned legs do not hold trade on this desk, from now on.
+
+    **This is a registry entry, not a permission.** Whether the instrument EXISTS — that
+    the vendor has a US listing for it, that a futures root is a real CME contract and not
+    Colgate-Palmolive wearing the letters `CL` — is `symbol_resolve.resolve`'s question and
+    it must be answered before this is called. This function only records the answer, and
+    it is separate from the probe for the reason the probe is cached at all: the lookups
+    below happen on every bar and must not reach a vendor.
+
+    Four dictionaries key off this, which is why it exists rather than each caller
+    remembering to update its own map:
+
+      `CLASS_OF`        the venue, the instrument shape, and which sheet a house rule
+                        would select from
+      `SAFE_TO_VENDOR`  `LTCUSD` -> `LTC/USD`. Without it a pair admitted here is asked
+                        of Twelve Data as `LTCUSD`, which is not an instrument — and the
+                        vendor answers an empty frame rather than an error, so the book
+                        warms up forever while the log reads healthy
+      `run_paper._split_by_feed` / `live_ws.streamable`   both read `CLASS_OF` to keep
+                        `cme_futures` away from Twelve Data. A futures symbol admitted
+                        without an entry here defaults to the equity side of that split,
+                        which is the one thing this desk may never do
+
+    **Disjointness is enforced here too, not only at import.** `CLASS_OF` is a reverse
+    lookup; a symbol claimed by two classes resolves to whichever was written last, which
+    would silently move an instrument to another venue mid-session. Re-admitting a symbol
+    to the class it already has is a no-op, because two registrations naming the same name
+    is ordinary.
+    """
+    if asset_class not in UNIVERSE:
+        raise RuntimeError(f"unknown asset class {asset_class!r}")
+    held = CLASS_OF.get(symbol)
+    if held == asset_class:
+        return
+    if held is not None:
+        raise RuntimeError(
+            f"{symbol} already trades on this desk as {held}, so it cannot also be "
+            f"{asset_class} — one instrument on two legs would run it against two rule "
+            f"lists and read on the board as two systems agreeing")
+    if len(open_symbols()) >= MAX_OPEN_SYMBOLS:
+        raise RuntimeError(
+            f"the desk is already carrying {MAX_OPEN_SYMBOLS} symbols from outside its "
+            f"pinned universe, which is the ceiling. Each one is a vendor request per "
+            f"bar, so this is a feed budget and not a bookkeeping limit — retire "
+            f"something, or name a symbol the desk already holds")
+    CLASS_OF[symbol] = asset_class
+    if "/" in symbol:
+        SAFE_TO_VENDOR[symbol.replace("/", "")] = symbol
 
 
 def to_cache_clock(index, asset_class: str):
@@ -513,6 +655,9 @@ def class_of(symbol: str) -> str:
 # map rather than re-derived, because the inverse is genuinely ambiguous — `XAUUSD` could
 # be `XAU/USD` or a ticker called XAUUSD, and guessing it wrong asks Twelve Data for an
 # instrument that does not exist and gets an empty frame back rather than an error.
+#
+# Mutable, and `admit` is the only thing that adds to it. A pair let in at runtime whose
+# stripped form is missing from here is asked of the vendor by the WRONG NAME.
 SAFE_TO_VENDOR = {s.replace("/", ""): s for s in CLASS_OF if "/" in s}
 
 # Which sandbox venue each class trades on. `sandbox` is Nautilus's own paper venue: real
