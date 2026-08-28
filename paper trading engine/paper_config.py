@@ -335,6 +335,63 @@ BOOK_CAPITAL = 100_000.0
 BOOK_TIMEFRAMES = ["1d", "4h", "5m"]
 
 
+# --------------------------------------------------- rules a book may never hold
+#
+# A live book recomputes its rule over a ROLLING buffer of the last `window_bars` bars,
+# because a live feed has no full series to hand it. A rule whose value at bar t depends on
+# bar 0 therefore slides underneath that buffer and can never reproduce what was scored --
+# and unlike a short window, this is not fixed by asking for more history. There is no
+# buffer size that makes an expanding statistic converge.
+#
+# `strategies/_indicators._causal_median` and `overlays/regime._causal_quantile` are both
+# EXPANDING rather than rolling, which is what puts each name below on this list.
+#
+# MEASURED 2026-08-28 by `check_book_timeframes.py` -- the fraction of recent bars on which
+# the rolling-window position equals the full-series position, which is 100% for every
+# TA-Lib rule and for `ibs`:
+#
+#   volmanaged      16.8% at 1d, 27.5% at 4h, 40.8% at 1h, 32.0% at 15m
+#   voltgt_tsmom    35.2% at 1h, and it does not improve at 5,000 bars (47.3%)
+#   lorentzian_knn  67-83% at 5m -- the case this list was written for, and which until
+#                   now was a comment saying it was "not promotable" with nothing
+#                   enforcing it
+#   dyn_breakout2   same construction; barred with the family rather than after it fails
+#
+# **`volmanaged` was LIVE on the desk at 1d and 4h when this was measured.** The two
+# timeframes already in `BOOK_TIMEFRAMES` are not exempt from the defect -- it was found
+# while measuring 1h and 15m, and it had been running for months. That is why this list is
+# not scoped to the new sizes.
+UNPROMOTABLE_RULES = ("lorentzian_knn", "volmanaged", "voltgt_tsmom", "dyn_breakout2")
+
+# Every `regime:` label wraps a base rule in `overlays/regime`, whose quantile is expanding
+# for the same reason. A prefix rather than a list because the overlay composes with any
+# base label, so the names cannot be enumerated.
+UNPROMOTABLE_PREFIXES = ("regime:",)
+
+
+def unpromotable_reason(rule: str) -> str:
+    """Why this label may not be traded as a book, or "" if it may.
+
+    Checked in two places on purpose. `catalog.cells` marks the row untradable so the
+    picker says why instead of offering it, and `desk_control._attach` refuses it so a
+    registration written by any other route -- an older catalog, a hand-written row, a
+    member's API call -- cannot reach the node. The picker's check is a courtesy; the
+    desk's is the bind.
+    """
+    label = str(rule or "")
+    base = label.split("@", 1)[0]
+    if base in UNPROMOTABLE_RULES:
+        return (f"{base} computes an EXPANDING statistic anchored at the first bar, so a "
+                f"live book's rolling buffer slides underneath it and it cannot reproduce "
+                f"what the backtest scored. No warm-up size fixes this.")
+    for prefix in UNPROMOTABLE_PREFIXES:
+        if label.startswith(prefix):
+            return (f"the {prefix} overlay thresholds on an expanding quantile anchored at "
+                    f"the first bar, so a live book cannot reproduce what was scored. No "
+                    f"warm-up size fixes this.")
+    return ""
+
+
 def live_top100(on=None) -> list[str]:
     """The US stocks in the point-in-time top 100 *now*.
 
@@ -487,6 +544,40 @@ def all_cells():
 # because the cost of extra warmup is one larger REST page at startup and the cost of too
 # little is a silently different strategy.
 DEFAULT_WINDOW_BARS = 1500
+
+# The buffer, PER TIMEFRAME, because 1,500 bars is not one length of history — it is six
+# years at 1d and ten weeks at 15m, and this repo expresses a strategy's lookback in DAYS.
+# `_bars(bpy, days)` turns "twelve months" into a bar count using `bars_per_year` measured
+# from the buffer itself, so `tsmom12` needs ~1,755 bars at 1h and ~6,500 at 15m. Below
+# that it does not compute a shorter version of itself; it computes nothing, holds flat,
+# and reads as healthy.
+#
+# MEASURED 2026-08-28 (`check_book_timeframes.py`), fraction of recent bars on which the
+# rolling-window position equals the full-series position at 1h: 35% at 1,500 bars, 99% at
+# 5,000. The residual 1% is `bars_per_year` itself being estimated from the buffer, which
+# rounds a period to a different integer on some symbols and shrinks with depth.
+#
+# **These exceed `td_live.OUTPUT_SIZE` (5,000) on purpose.** A single vendor request cannot
+# fill them and is not asked to: `cache_warmup` seeds the buffer from `data/` and the
+# vendor supplies the tail. Where there is no cache the book warms from the vendor alone
+# and is capped at 5,000 by that call — worse than this table promises, better than the
+# 1,500 it had, and it says so in the log rather than pretending otherwise.
+WINDOW_BARS_BY_TF = {
+    "1h": 12_000,      # ~4.6 years of equity sessions; covers a 12-month lookback 4x over
+    "15m": 30_000,     # ~2.9 years of equity sessions
+    "5m": 30_000,      # ~1 year. The 5m sheets are not scored yet; sized for when they are
+    "1m": 30_000,      # members only; a book is never promoted at 1m
+}
+
+
+def window_bars(timeframe: str) -> int:
+    """How many bars a book at this timeframe keeps.
+
+    A function rather than a dict lookup at the call site so that the default is stated
+    once. `BookStrategyConfig.window_bars` still overrides it — a caller who has measured
+    something specific must be able to say so.
+    """
+    return WINDOW_BARS_BY_TF.get(timeframe, DEFAULT_WINDOW_BARS)
 MEASURED_WINDOW_BARS = 1000
 MIN_WARMUP_BARS = 250
 

@@ -328,6 +328,53 @@ async function root<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** A GET anywhere outside `/v1/research/`, exported so a second module can use THIS door
+ *  rather than opening its own. `root` above stays private because the `board` object below
+ *  is the whole of what this file needs it for; `/v1/portfolios` is read from
+ *  `lib/portfolio.ts`, which is a different view's data and does not belong in `board`. */
+export const apiGet = <T,>(path: string): Promise<T> => root<T>(path);
+
+/** A WRITE. Same origin, same cookie, same 401 → `/login` as every read.
+ *
+ * It is here and not in the module that calls it for one reason: the 401 branch. A second
+ * fetch wrapper somewhere else would eventually be written without it, and the failure that
+ * produces — a button that silently does nothing once a session lapses — is indistinguishable
+ * from a broken endpoint.
+ *
+ * The error DETAIL is read out of the JSON body, because FastAPI puts the reason there and
+ * every refusal this app sends is one somebody has to act on: `_check_leg` names the rule it
+ * would not take, `create` names the conflicting portfolio. A bare status code loses all of
+ * that.
+ */
+export async function apiSend<T>(
+  path: string,
+  method: "POST" | "DELETE",
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    if (res.status === 401 && typeof window !== "undefined") window.location.href = "/login";
+    let detail = res.statusText;
+    try {
+      const j = (await res.json()) as { detail?: unknown };
+      if (typeof j?.detail === "string") detail = j.detail;
+    } catch {
+      /* a non-JSON error body is still an error; keep the status text */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  // 204 and friends have no body. `DELETE /v1/portfolios/{id}` returns the row, but a
+  // caller that ignores the answer must not be broken by one that does not.
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
 export interface PaperGroup {
   key: string;
   label?: string;

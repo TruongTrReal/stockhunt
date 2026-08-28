@@ -131,6 +131,80 @@ CREATE TABLE IF NOT EXISTS registrations (
     UNIQUE(account, name)
 );
 
+-- A PORTFOLIO is a basket of strategies with ONE pot of money, one curve and one switch.
+--
+-- It owns no trading and holds no position. Its legs are ordinary rows in `registrations`
+-- — `kind='book'`, exactly what a promotion writes — that additionally carry this table's
+-- `portfolio_id`. That is the whole design, and it is deliberate: warm-up, fills, P&L,
+-- curves and `desk_control`'s attach/retire already work for a book, so a parallel
+-- registration type would be a second lifecycle to keep in step with the first, forever,
+-- and the first one is the one that trades.
+--
+-- Two kinds, differing only in who chooses the legs:
+--
+--   'manual'  somebody picked the rules. Nothing re-checks them.
+--   'follow'  it tracks the top `top_n` of ONE leaderboard sheet (`source_cls`,
+--             `source_tf`), re-checked daily. The sheet moves and the basket moves with
+--             it, which is why `portfolio_changes` exists.
+--
+-- `want` and `state` split for the same reason they do on a registration: the owner writes
+-- the first, the desk writes the second, and they genuinely disagree while the desk
+-- catches up. The toggle cascades `want` to every leg in ONE transaction — half a basket
+-- switched off is a position nobody chose to hold.
+CREATE TABLE IF NOT EXISTS portfolios (
+    portfolio_id TEXT PRIMARY KEY,
+    account      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    kind         TEXT NOT NULL DEFAULT 'manual',   -- 'manual' | 'follow'
+    -- The sheet a 'follow' portfolio tracks, and how deep into it. NULL on a 'manual' one:
+    -- a source recorded for a basket nobody reconciles against it is a claim the row
+    -- cannot keep.
+    source_cls   TEXT,
+    source_tf    TEXT,
+    top_n        INTEGER,
+    -- The pot, split equally across the live legs. The legs' own `capital` is derived from
+    -- it and recomputed on every membership change, so this column is the one to edit.
+    capital      REAL NOT NULL DEFAULT 100000.0,
+    rebalance    TEXT NOT NULL DEFAULT 'monthly',
+    want         TEXT NOT NULL DEFAULT 'live',
+    state        TEXT NOT NULL DEFAULT 'pending',
+    -- When the money started, which is not when the row was written: a portfolio built
+    -- from a backtest can be dated to the day it was decided rather than the day it was
+    -- typed in.
+    inception    TEXT,
+    created_at   TEXT NOT NULL,
+    UNIQUE(account, name)
+);
+
+-- WHEN the basket changed and WHY. Append-only: nothing updates a row here and nothing
+-- deletes one.
+--
+-- Same principle as `delete_registration`'s refusal, one level up. A 'follow' portfolio's
+-- membership is decided by a sheet that moves underneath it, so without this its equity
+-- curve has steps in it and nothing to explain them — and a composition that can be
+-- rewritten afterwards is not a record of what was held.
+CREATE TABLE IF NOT EXISTS portfolio_changes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_id TEXT NOT NULL,
+    at           TEXT NOT NULL,
+    action       TEXT NOT NULL,          -- 'added' | 'removed'
+    strategy_id  TEXT,                   -- the leg, so the change joins to what traded
+    cls          TEXT,
+    tf           TEXT,
+    rule         TEXT,
+    -- Where the rule stood on the sheet when this happened, and which sheet that was.
+    -- A 'follow' change reads as "it fell to 7th" only if the rank is written down at the
+    -- time; the sheet is re-ranked nightly and cannot be asked afterwards.
+    rank_at      INTEGER,
+    source       TEXT,
+    -- The basket AFTER the change: how many legs, and what each was resized to. Without
+    -- them, reconstructing what a dollar was doing on a given day means replaying every
+    -- row from inception and hoping none is missing.
+    n_legs       INTEGER,
+    leg_capital  REAL,
+    reason       TEXT
+);
+
 -- `seq` is the drain order and the desk's clock. AUTOINCREMENT rather than plain rowid so
 -- a deleted row can never have its number reused: the desk remembers how far it has read
 -- as a watermark, and a reissued seq below that watermark would be skipped forever.
@@ -200,6 +274,8 @@ CREATE INDEX IF NOT EXISTS ix_orders_acct  ON orders(account, seq);
 CREATE INDEX IF NOT EXISTS ix_orders_strat ON orders(strategy_id, seq);
 CREATE INDEX IF NOT EXISTS ix_orders_open  ON orders(state, seq);
 CREATE INDEX IF NOT EXISTS ix_reg_acct     ON registrations(account, state);
+CREATE INDEX IF NOT EXISTS ix_pf_acct      ON portfolios(account, want);
+CREATE INDEX IF NOT EXISTS ix_pf_changes   ON portfolio_changes(portfolio_id, id);
 """
 
 
@@ -291,6 +367,18 @@ def _add_late_columns(conn: sqlite3.Connection) -> None:
     if "signal_tf" not in have:
         conn.execute("ALTER TABLE registrations ADD COLUMN signal_tf TEXT")
 
+    # Which PORTFOLIO this book is a leg of, or NULL for the standalone kind — a rule
+    # promoted by hand, or a member's own strategy. A leg is otherwise an ordinary
+    # registration and every existing path treats it as one, which is the point.
+    if "portfolio_id" not in have:
+        conn.execute("ALTER TABLE registrations ADD COLUMN portfolio_id TEXT")
+    # The index cannot live in SCHEMA with the others: `executescript` runs before this
+    # function, so against a database created before the column existed it would be asked
+    # to index a column that is not there yet, and the whole script would fail — taking
+    # `connect()` down for a file the desk is mid-session on.
+    conn.execute("CREATE INDEX IF NOT EXISTS ix_reg_portfolio "
+                 "ON registrations(portfolio_id)")
+
 
 def use(path: Path | str) -> None:
     """Repoint at another file. For tests, and for nothing else."""
@@ -345,7 +433,7 @@ def _shape(row: dict | None) -> dict | None:
 def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
              capital: float, *, kind: str = "member", benchmark: str | None = None,
              rule: str | None = None, allow_short: bool = False,
-             signal_tf: str | None = None) -> dict:
+             signal_tf: str | None = None, portfolio_id: str | None = None) -> dict:
     """Ask the desk to run a strategy. Idempotent on `(account, name)`.
 
     Re-registering an existing name returns the existing row untouched rather than
@@ -354,6 +442,10 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
 
     `strategy_id` is derived from the account and name so it is stable and readable —
     `str_a7_meanrev` — rather than a random token nobody can correlate with anything.
+
+    `portfolio_id` makes this row a LEG of a basket rather than a strategy standing on its
+    own, and changes nothing else about it. Passing None leaves whatever the row already
+    had, so reviving a leg does not orphan it from its portfolio.
     """
     conn = connect()
     existing = _shape(_row("SELECT * FROM registrations WHERE account = ? AND name = ?",
@@ -375,8 +467,10 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
             with _lock:
                 conn.execute("""UPDATE registrations
                                 SET want = 'live', state = 'pending', reason = NULL,
-                                    applied_at = NULL
-                                WHERE strategy_id = ?""", (existing["strategy_id"],))
+                                    applied_at = NULL,
+                                    portfolio_id = COALESCE(?, portfolio_id)
+                                WHERE strategy_id = ?""",
+                             (portfolio_id, existing["strategy_id"]))
             return _shape(_row("SELECT * FROM registrations WHERE strategy_id = ?",
                                (existing["strategy_id"],)))
         return existing
@@ -386,10 +480,11 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
         conn.execute("""
             INSERT INTO registrations
                 (strategy_id, account, name, kind, cls, symbols, tf, signal_tf, capital,
-                 benchmark, rule, allow_short, created_at, want, state)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending')
+                 benchmark, rule, allow_short, created_at, want, state, portfolio_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending',?)
         """, (strategy_id, account, name, kind, cls, json.dumps(list(symbols)), tf,
-              signal_tf, float(capital), benchmark, rule, int(allow_short), utcnow()))
+              signal_tf, float(capital), benchmark, rule, int(allow_short), utcnow(),
+              portfolio_id))
     return _shape(_row("SELECT * FROM registrations WHERE strategy_id = ?",
                        (strategy_id,)))                      # type: ignore[return-value]
 

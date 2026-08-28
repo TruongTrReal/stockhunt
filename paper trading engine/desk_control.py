@@ -132,6 +132,28 @@ def _order_id_tag(strategy_id: str) -> str:
     return strategy_id[:TAG_MAX - TAG_HASH] + digest
 
 
+
+def book_refusal(reg: dict) -> str:
+    """Why this book may not attach, or "" if it may.
+
+    A module-level function rather than an inline check inside `_launch`, because these
+    two refusals are the only thing standing between the leaderboard and a book that
+    trades a different strategy from the one that was scored — and a check that can only
+    be exercised by building a whole `TradingNode` is a check nobody writes a test for.
+
+    **This is the bind, and `catalog.cells` is the courtesy.** The catalog marks a row
+    untradable so the picker can say why instead of offering it, but a registration
+    reaches this path from an older `catalog.json`, a hand-written row or a member's API
+    call, none of which consulted the build that made the mark.
+    """
+    if reg.get("tf") not in paper_config.BOOK_TIMEFRAMES:
+        return (f"books run at {', '.join(paper_config.BOOK_TIMEFRAMES)} only for now")
+    # Buildable and still not runnable. A book recomputes over a ROLLING buffer, so a rule
+    # whose value depends on the first bar of the series trades something the backtest
+    # never scored — silently, with a filling order path and a healthy log.
+    return paper_config.unpromotable_reason(reg.get("rule") or "")
+
+
 class DeskControllerConfig(ControllerConfig, frozen=True):
     tick_seconds: int = TICK_SECONDS
     universe_seconds: int = UNIVERSE_SECONDS
@@ -333,9 +355,9 @@ class DeskController(Controller):
             # `_refresh_universes` keeps that current while it runs. Checking a stored
             # list would freeze the roster at registration time, which is the opposite of
             # what a point-in-time top 100 is for.
-            if reg["tf"] not in paper_config.BOOK_TIMEFRAMES:
-                raise RuntimeError(
-                    f"books run at {', '.join(paper_config.BOOK_TIMEFRAMES)} only for now")
+            refusal = book_refusal(reg)
+            if refusal:
+                raise RuntimeError(refusal)
         else:
             unknown = [s for s in reg["symbols"] if s not in paper_config.CLASS_OF]
             if unknown:
@@ -497,8 +519,14 @@ class DeskController(Controller):
                 # warmup is counted in those bars and not in sessions. Both knobs move
                 # together or the book warms for weeks on a buffer sized for days.
                 signal_tf=signal_tf,
+                # Sized off the TIMEFRAME, not off one constant. 1,500 bars is six years
+                # at 1d and ten weeks at 15m, and a rule whose lookback is expressed in
+                # days does not shrink to fit — it computes nothing and holds flat while
+                # reading as healthy. `cache_warmup` is what makes the deeper numbers
+                # reachable; without a cache the vendor caps the fill at 5,000 and the
+                # book says so in its log.
                 window_bars=(paper_config.DECIDE_EARLY_WINDOW_BARS if signal_tf
-                             else paper_config.DEFAULT_WINDOW_BARS),
+                             else paper_config.window_bars(reg["tf"])),
                 export_state=self.config.export_state,
                 # The note is read by people, on a page that gets shown to people, so
                 # it says the class in words. `reg['cls']` is the internal key and was

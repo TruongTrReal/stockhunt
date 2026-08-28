@@ -106,6 +106,7 @@ def create_app() -> FastAPI:
     import api_document
     import api_house
     import api_orders
+    import api_portfolios
     import api_research
     import api_strategies
     import api_webhook
@@ -119,6 +120,10 @@ def create_app() -> FastAPI:
     # `/v1/orders`.
     app.include_router(api_webhook.router)
     app.include_router(api_house.router)
+    # Baskets of strategies, with one pot of money and one switch each. It writes the same
+    # `registrations` rows a promotion writes, carrying a `portfolio_id` — so nothing
+    # downstream of the ledger had to learn what a portfolio is.
+    app.include_router(api_portfolios.router)
     # The research board, and the queue that puts rows on it. It reads `results.db` and
     # writes job rows; it owns no trading and touches no order path.
     app.include_router(api_research.router)

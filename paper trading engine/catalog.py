@@ -122,6 +122,14 @@ def cells(cls: str, tf: str, depth: int = DEPTH) -> list[dict]:
         why = "" if tradable else (
             "no signal dispatcher can build this label — if it is a pair, one of its legs "
             "is unknown")
+        # Buildable and still not runnable. A dispatcher can produce this label; what it
+        # cannot do is produce the SAME positions from a rolling buffer that the backtest
+        # produced from the full series. Marked here so the picker says why, and refused
+        # again in `desk_control._attach` so no other route reaches the node.
+        if tradable:
+            barred = paper_config.unpromotable_reason(rule)
+            if barred:
+                tradable, why = False, barred
 
         edge, book = r.get("edge") or {}, r.get("book") or {}
         entry = {
@@ -167,10 +175,32 @@ def _num(v):
     return None if f != f else round(f, 6)
 
 
+def menu_timeframes() -> list[str]:
+    """Which timeframes this catalog publishes a sheet for.
+
+    The union of the two lists, in `FORWARD_TIMEFRAMES` order first, and it has to be the
+    union rather than either one alone.
+
+    `FORWARD_TIMEFRAMES` is what the OLD per-symbol legs run at; `BOOK_TIMEFRAMES` is what
+    a promotion — the only thing this menu offers — can actually be made at. Driving the
+    loop off the first published a menu whose keys did not match what a book could be
+    promoted to: every sheet at a book-only timeframe was simply absent, and the API's
+    "no walk-forward sheet for us_stocks_15m" named a file that exists on disk. Driving it
+    off the second would have silently dropped `cme_futures_4h`-shaped rows that readers
+    of this document already expect.
+
+    A timeframe with no sheet on disk still yields nothing — `_sheet` decides that, and it
+    is why widening this list cannot invent a menu entry.
+    """
+    out = list(paper_config.FORWARD_TIMEFRAMES)
+    out += [tf for tf in paper_config.BOOK_TIMEFRAMES if tf not in out]
+    return out
+
+
 def build(depth: int = DEPTH) -> dict:
     sheets, stale = {}, []
     for cls in paper_config.UNIVERSE:
-        for tf in paper_config.FORWARD_TIMEFRAMES:
+        for tf in menu_timeframes():
             exists, path, is_stale = _sheet(cls, tf)
             key = f"{cls}_{tf}"
             if not exists:
@@ -200,7 +230,7 @@ def build(depth: int = DEPTH) -> dict:
         # and a full 1,500-bar warm-up — and publishing the list lets the API say so
         # immediately instead of leaving a registration pending until the next tick.
         "universe": {cls: list(syms) for cls, syms in paper_config.UNIVERSE.items()},
-        "timeframes": list(paper_config.FORWARD_TIMEFRAMES),
+        "timeframes": menu_timeframes(),
         # What a promotion actually creates, published so the board can say it exactly
         # rather than hardcoding numbers that drift. `names` is read LIVE — the top 100
         # moves, and a stale count on the switch is a promise the desk will not keep.
