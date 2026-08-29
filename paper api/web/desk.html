@@ -1218,9 +1218,17 @@ el("open-top").onclick = openWizard;
  * reader at the top of a page carrying their keys, a promote table and the house book has
  * not finished the job it was clicked for. `#register` is what the board links to.
  *
+ * **Opened by the boot sequence, not at parse time.** `openWizard` refuses while `LIMITS`
+ * is null — it states the desk's terms and may not invent them — and `/v1/limits` is
+ * fetched deliberately late, after the tables a returning manager came for. Calling it
+ * here ran before that landed, so the link produced "Still loading the desk's terms" and
+ * no wizard: a race, and one that would have been intermittent rather than reliable if
+ * the fetch had been quicker.
+ *
  * The hash is cleared as it opens, so closing the wizard and reloading does not reopen it,
  * and so the URL a reader might copy is the page rather than an action. */
-if (location.hash === "#register") {
+function openWizardIfLinked() {
+  if (location.hash !== "#register") return;
   history.replaceState(null, "", location.pathname);
   openWizard();
 }
@@ -2046,6 +2054,8 @@ el("signout").addEventListener("click", async ev => {
     // The terms the wizard states. Fetched after the tables so a slow limits call cannot
     // hold up the page a returning manager actually came for.
     LIMITS = await j("GET", "/v1/limits");
+    // Only now can the wizard state the terms, so only now can a `#register` link open it.
+    openWizardIfLinked();
 
     if (me.is_admin) {
       el("house-block").hidden = false;
