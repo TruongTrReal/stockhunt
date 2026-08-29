@@ -90,8 +90,9 @@ export const fmtDelta = (v: number | null | undefined) =>
   v == null || Number.isNaN(v) ? DASH : (v >= 0 ? "+" : "−") + fmtMoney(Math.abs(v));
 
 /** Colour means exactly one thing on this site: gained or lost. Nothing else gets it. */
-export const sign = (v: number | null | undefined) =>
-  v == null || Number.isNaN(v) ? "flat" : v > 0 ? "gain" : v < 0 ? "loss" : "flat";
+/** Re-exported, not redefined — see the note on the definition in `lib/format.ts`. */
+import { sign } from "@/lib/format";
+export { sign };
 
 /** A fraction as a whole percent, the leaderboard's `Long %` convention. */
 export const pctOr = (v: number | null | undefined) =>

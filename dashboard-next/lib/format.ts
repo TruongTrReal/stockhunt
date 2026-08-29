@@ -92,7 +92,21 @@ export const fmtRatio = (v: N) =>
 /** Colour means one thing on this site — gained or lost — so this is the only place a
  *  class is chosen from a number's sign. `flat` for zero AND for missing: neither is a
  *  gain and neither is a loss. */
-export const sign = (v: N) => (v != null && v > 0 ? "gain" : v != null && v < 0 ? "loss" : "flat");
+/* THE colour, and it agrees with what `fmtPct` PRINTS rather than with the raw value.
+ *
+ * A row reading `+0.00%` in red said two things at once — the same contradiction, one
+ * rounding place down, as the sparkline that pointed up beside a negative figure. If a
+ * loss is too small to print it is too small to colour, so the decision is made on the
+ * rounded magnitude and a value that rounds to zero is flat.
+ *
+ * `digits` matches the caller's `fmtPct` precision; the default is that function's. Three
+ * copies of this lived in `format.ts`, `live.ts` and `rule.ts` for the same reason three
+ * copies of `fmtPct` did — the other two now re-export this one. */
+export const sign = (v: N, digits = 2) => {
+  if (v == null || !Number.isFinite(v)) return "flat";
+  if (Number(Math.abs(v).toFixed(digits)) === 0) return "flat";
+  return v > 0 ? "gain" : "loss";
+};
 
 /** React escapes text for us; this exists for the column `doc`s, which are HTML strings
  *  carrying <b>, <code> and <br> and are rendered with `dangerouslySetInnerHTML`. Any

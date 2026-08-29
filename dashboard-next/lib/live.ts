@@ -140,8 +140,9 @@ export const price = (v: number | null | undefined) =>
   v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** Colour means one thing on this site: gained or lost. */
-export const sign = (v: number | null | undefined) =>
-  v == null ? "flat" : v > 0 ? "gain" : v < 0 ? "loss" : "flat";
+/** Re-exported, not redefined — see the note on the definition in `lib/format.ts`. */
+import { sign } from "@/lib/format";
+export { sign };
 
 /** The same slug the backtest side uses. Nothing reverses it — a page finds its rows by
  *  matching `slug(s.rule)` against the segment, so it never has to be reversible. */
