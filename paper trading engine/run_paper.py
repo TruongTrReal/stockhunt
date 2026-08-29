@@ -178,12 +178,20 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     # per-system size — has to cover the books too. It does not: twelve $100,000 equity
     # books are $1.2M against $600,000 of headroom, and the shortfall does not announce
     # itself, it just stops filling partway through.
+    #
+    # ...and it is `capital x leverage`, not capital. A member book registered at 4x may
+    # legitimately hold four times its own capital in gross exposure, and the venue account
+    # is what those fills are paid for out of. Funding it at capital alone would let the
+    # desk accept an order `desk_orders` had correctly approved and then fill part of it —
+    # the shortfall does not raise, it simply stops filling, which is the same silent
+    # under-funding this block was added to fix, wearing the new setting.
     try:
         from stockhunt import deskdb
+        import desk_orders
         for reg in deskdb.active_registrations():
             venue = paper_config.VENUES.get(reg["cls"])
             if venue in funding:
-                funding[venue] += float(reg["capital"])
+                funding[venue] += float(reg["capital"]) * desk_orders.leverage_of(reg)
     except Exception as exc:
         print(f"  ! could not read the ledger to size the venues: {exc}")
     # Doubled, because a book's equity GROWS and Nautilus checks the account balance on

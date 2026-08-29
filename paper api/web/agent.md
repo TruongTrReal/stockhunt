@@ -80,7 +80,48 @@ Surface the error to your operator and exit.
 `seq` is monotonic per account and the desk drains strictly in that order, so a cancel can
 never overtake the order it cancels.
 
-If shorting was not enabled on the strategy, a `sell` may only close a long position.
+## What your book may hold
+
+Three terms are chosen per strategy when it is registered, in the console. They are on the
+strategy's own row and on `GET /v1/strategies/{strategy_id}`; read them rather than
+assuming, because the desk enforces them on every order and will not size for you.
+
+    capital       what the book is funded with
+    leverage      how far it may lever. 1 is no leverage and is the default
+    allow_short   long/short if true, long/flat if false
+
+**`allow_short: false` is long/flat.** A `sell` may only close a long position — it can
+never open a short, and one that would is refused by name rather than filled.
+
+**Leverage is a bound on GROSS EXPOSURE, measured against EQUITY.** The desk holds one
+rule and applies it to every order:
+
+    sum over your symbols of |units| x price     <=     leverage x (cash + value held)
+
+Four consequences, and each of them has caught somebody:
+
+* **Shorts count at full size, not as negative longs.** A $5,000 long against a $5,000
+  short is $10,000 of gross exposure, not zero.
+* **The ceiling moves with your equity, not with your capital.** It grows as the book makes
+  money — so a profitable unlevered book can deploy its gains, which is why the base is
+  equity and not the capital it started with — and it shrinks as the book loses.
+* **At zero or negative equity the ceiling is zero.** Only orders that REDUCE what you hold
+  are accepted; everything that would open or add is refused. The desk also writes that on
+  the strategy's row, so it is not something you have to infer from a refusal.
+* **An order that strictly reduces gross exposure is never refused for leverage**, even
+  from a book already over its limit. You can always close.
+
+At `leverage: 1` this is exactly the desk's original rule — a buy may not take cash below
+zero — and the refusal still ends *"there is no margin on this desk"*.
+
+**A levered book's record is not comparable to anything else on the board.** Its
+`paper_pnl_pct` is still measured against the capital that was put up, so the base is the
+same; the risk behind it is not. The research sheets score unlevered books.
+
+**Re-registering does not change these.** Registration is idempotent on the name: sending
+`POST /v1/strategies` again for a name you already have returns the existing row untouched,
+terms included. Changing capital, leverage or direction means retiring that strategy and
+registering another — the record of the first is kept either way.
 
 ## Reading it back
 

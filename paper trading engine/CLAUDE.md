@@ -361,8 +361,44 @@ rejection can be retried, a fill cannot be undone. The window is one bar of the 
 own timeframe (`STALE_BARS`), so a two-minute restart rejects nothing and only a real outage
 does.
 
-**No leverage on this path.** A buy that would take cash below zero is refused. Arriving at
-margin by accident because nobody checked is how a paper track record stops meaning anything.
+**Leverage is a registered setting, and the ceiling is per class.** One inequality decides
+it, on every order and on both sides:
+
+    gross exposure after the order   <=   leverage x equity after the order
+
+`gross` is the sum of |units| x price, so a short counts at full size rather than as a
+negative long; `equity` is cash plus the mark of what is held, the same figure
+`MemberStrategy.equity()` publishes. `desk_orders.headroom` writes it in its expanded form
+(`L*cash + (L-1)*long - (L+1)*short`), and **that rearrangement is what makes
+`leverage = 1` bit-for-bit the old cash rule** rather than approximately it: evaluated as
+`L*(cash + long - short) - gross`, a $10,000 cash balance beside a $10,000,000 position
+rounds away and a buy the desk has always accepted starts being refused.
+
+Three things follow, and each is deliberate:
+
+* **The base is EQUITY, not capital.** Against capital, "leverage 1" would silently mean
+  "no compounding" — a book up 50% could not deploy its own gains.
+* **An order that strictly REDUCES gross exposure is never refused for leverage.** Without
+  that, a short that has run against its owner refuses the buy that would close it, and
+  the desk bounds a position by trapping somebody in it.
+* **At zero equity the ceiling is zero**, so only closing orders get through. That is
+  arithmetic rather than a special case, and `desk_control._watch_equity` is what makes it
+  VISIBLE — it writes the fact on the registration row instead of leaving the owner to
+  infer it one refusal at a time.
+
+`paper_config.MAX_LEVERAGE` is the ceiling, per class, taken from what the real venue
+behind each class permits and rounded down: 2x on the equity classes (Reg T's 50% initial
+margin), 1x on crypto (spot crypto is not marginable, and `alpaca_mirror` — the desk's
+second record — extends no crypto margin at all), 10x on `cme_futures` (CME initial margin
+is single-digit percentages of notional, so 10 is the bottom of the range the exchange
+implies). `desk_control._launch` refuses a registration above it, and refuses a levered
+`house_rule` or `book` outright — those are selected off walk-forward sheets that score
+UNLEVERED books, and they do not use this order path at all, so a levered one would not
+even be bounded.
+
+**Shorting is bounded by that ceiling and by nothing else.** `allow_short` decides the
+DIRECTION and leverage decides the SIZE, which is why the two are checked separately and
+in that order — a long/flat book asking to go short must be told which of the two it broke.
 
 ## The record grew two columns, and both are about deduplication
 

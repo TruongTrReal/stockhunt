@@ -305,6 +305,7 @@ def _controller(cache, log=None):
 
     ctl = _Stubbed.__new__(_Stubbed)
     ctl._running, ctl._attached_at, ctl._quiet = {}, {}, set()
+    ctl._underwater = set()
     return ctl
 
 
@@ -601,3 +602,199 @@ def test_no_symbols_or_no_capital_says_nothing(monkeypatch):
     import desk_control
     assert desk_control._affordability_caveat(_reg_for("us_stocks", [], 10_000.0)) == ""
     assert desk_control._affordability_caveat(_reg_for("us_stocks", ["SPY"], 0.0)) == ""
+
+
+# ------------------------------------------------- ...and how far the book may lever
+#
+# The affordability caveat above measures against BUYING POWER, which stopped being the
+# capital the day leverage became a member's choice. It is the mechanism that told this
+# desk's owner, correctly, that a $10,000 book cannot hold 2 NQ; told to a $10,000 book at
+# 4x it would be false, and a caveat that contradicts a setting its reader just chose is
+# one they learn to ignore.
+
+def test_the_affordability_caveat_counts_leverage(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    reg = _reg_for("cme_futures", ["NQ.v.0"], 10_000.0)
+    assert desk_control._affordability_caveat(reg), "unlevered, it cannot afford one"
+    # 4x on $10,000 is $40,000 of buying power, which carries one unit with room to spare.
+    assert desk_control._affordability_caveat(dict(reg, leverage=4.0)) == ""
+
+
+def test_the_caveat_names_both_numbers_when_they_differ(monkeypatch):
+    """Saying "this book is $10,000" on a levered registration understates its reach by the
+    leverage, which is the one number the reader has just chosen and will check."""
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "YM.v.0": pd.DataFrame({"Close": [53_700.0]}),
+    })
+    why = desk_control._affordability_caveat(
+        dict(_reg_for("cme_futures", ["YM.v.0"], 10_000.0), leverage=2.0))
+    assert "10,000 at 2x" in why and "20,000 of buying power" in why
+    assert "0.37" in why, "the size it can hold is the LEVERED one"
+
+
+def test_an_unlevered_caveat_reads_exactly_as_it_always_did(monkeypatch):
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "NQ.v.0": pd.DataFrame({"Close": [29_600.0]}),
+    })
+    why = desk_control._affordability_caveat(
+        dict(_reg_for("cme_futures", ["NQ.v.0"], 10_000.0), leverage=1.0))
+    assert "this book is $10,000, so" in why and "buying power" not in why
+
+
+# --------------------------------------------------- and what the desk will not run
+#
+# `desk_orders` bounds an ORDER; this bounds a REGISTRATION, and it is the only place the
+# per-class ceiling is read. The API bounds it too, earlier and more kindly, but a ledger
+# row is untrusted input whatever the API said about it.
+
+def test_a_registration_above_the_class_ceiling_is_refused():
+    import desk_control
+    import paper_config
+    over = paper_config.max_leverage("us_stocks") + 1
+    why = desk_control._leverage_refusal(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=over))
+    assert "ceiling" in why and "us_stocks" in why
+
+
+def test_a_registration_at_the_ceiling_is_run():
+    import desk_control
+    import paper_config
+    at = paper_config.max_leverage("us_stocks")
+    assert desk_control._leverage_refusal(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=at)) == ""
+
+
+def test_crypto_is_offered_no_leverage_at_all():
+    """Spot crypto is not marginable for US retail, and `alpaca_mirror` — this desk's
+    second record — extends no crypto margin, so a levered crypto book is one the broker
+    side structurally cannot copy."""
+    import desk_control
+    import paper_config
+    assert paper_config.max_leverage("crypto") == 1.0
+    assert desk_control._leverage_refusal(
+        dict(_reg_for("crypto", ["BTC/USD"], 10_000.0), kind="member", leverage=2.0))
+
+
+def test_a_promoted_rule_may_not_be_levered_at_all():
+    """A house rule and a book are selected off `wf_summary_*`, and every sheet in this
+    repo scores an UNLEVERED book. They also do not use the order path, so a levered one
+    would not merely be incomparable — it would be unenforced."""
+    import desk_control
+    why = desk_control._leverage_refusal(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="house_rule", leverage=2.0))
+    assert "cannot be levered" in why and "wf_summary_us_stocks_1d" in why
+
+
+def test_an_unlevered_registration_of_any_kind_is_never_refused():
+    import desk_control
+    for kind in ("member", "house_rule", "book"):
+        assert desk_control._leverage_refusal(
+            dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind=kind)) == ""
+
+
+# --------------------------------------------------- and when there is nothing left
+#
+# `desk_orders` refuses every exposure-adding order once equity reaches zero, which is
+# correct and completely silent: the registration still reads `live`, bars still arrive,
+# and the owner's only symptom is that their orders stop working one refusal at a time.
+
+class _Broke:
+    """The smallest thing `_watch_equity` reads: a book's marks and its equity."""
+
+    def __init__(self, equity, priced=True, leverage=2.0):
+        self._equity, self._priced = equity, priced
+
+        class _C:
+            tf = "1d"
+            symbols = ("SPY",)
+        self.config = _C()
+        self.config.leverage = leverage
+
+    def prices(self):
+        return {"SPY": 100.0} if self._priced else {"SPY": 0.0}
+
+    def equity(self):
+        return self._equity
+
+
+def _watched(monkeypatch, strategy):
+    """Run one equity pass and return every `(state, reason)` it wrote to the ledger."""
+    import desk_control
+    from stockhunt import deskdb
+    written = []
+    monkeypatch.setattr(deskdb, "mark_registration",
+                        lambda rid, state, reason=None: written.append((state, reason)))
+    ctl = _controller(_Cache([]))
+    # `_watch_equity` filters on MemberStrategy, so the stub has to be one to be seen.
+    monkeypatch.setattr(desk_control, "MemberStrategy", _Broke)
+    ctl._running = {"rid": strategy}
+    ctl._watch_equity()
+    return ctl, written
+
+
+def test_a_book_at_zero_equity_says_so_on_its_own_row(monkeypatch):
+    ctl, written = _watched(monkeypatch, _Broke(0.0))
+    assert "rid" in ctl._underwater
+    state, reason = written[-1]
+    assert state == "live", "it can still CLOSE, which is the one thing it must be able to"
+    assert "REDUCE" in reason and "2x" in reason
+
+
+def test_a_solvent_book_is_not_accused_of_anything(monkeypatch):
+    ctl, written = _watched(monkeypatch, _Broke(9_000.0))
+    assert ctl._underwater == set() and written == []
+
+
+def test_it_is_reported_once_and_cleared_when_the_book_recovers(monkeypatch):
+    import desk_control
+    from stockhunt import deskdb
+    written = []
+    monkeypatch.setattr(deskdb, "mark_registration",
+                        lambda rid, state, reason=None: written.append(reason))
+    monkeypatch.setattr(desk_control, "MemberStrategy", _Broke)
+    ctl = _controller(_Cache([]))
+    broke = _Broke(-500.0)
+    ctl._running = {"rid": broke}
+
+    ctl._watch_equity()
+    ctl._watch_equity()                          # a second pass must say nothing new
+    assert len(written) == 1
+
+    broke._equity = 250.0
+    ctl._watch_equity()
+    assert written[-1] is None and ctl._underwater == set()
+
+
+def test_an_unfed_book_is_left_to_the_feed_watch(monkeypatch):
+    """Before its first bar a book is worth its cash and nothing is measurable. Two
+    sentences on one row for one problem is worse than one."""
+    ctl, written = _watched(monkeypatch, _Broke(0.0, priced=False))
+    assert ctl._underwater == set() and written == []
+
+
+def test_neither_watch_erases_the_other(monkeypatch):
+    """`reason` is one column and both watches write it. Two independent writers meant the
+    second to fire overwrote the first, and either one CLEARING itself wrote None over the
+    other's live warning — so a book that was both unfed and broke stopped reporting either
+    the moment one of them recovered."""
+    import desk_control
+    from stockhunt import deskdb
+    written = []
+    monkeypatch.setattr(deskdb, "mark_registration",
+                        lambda rid, state, reason=None: written.append(reason))
+    monkeypatch.setattr(desk_control, "MemberStrategy", _Broke)
+    ctl = _controller(_Cache([]))
+    ctl._running = {"rid": _Broke(0.0)}
+    ctl._quiet.add("rid")                        # as if the feed watch had already fired
+
+    ctl._watch_equity()
+    assert "no 1d bar has arrived" in written[-1]
+    assert "REDUCE" in written[-1]

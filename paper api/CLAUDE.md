@@ -363,14 +363,40 @@ still refuse, retire keeps the record forever — is true *before* the first ord
 previously discoverable only after it. It is stated once, up front, where a decision is
 still being made.
 
+**Three of those terms are SET there, and the other rows are read.** Capital, leverage and
+long/short vs long/flat are per strategy; the `202`, the re-check, the order caps and what
+retire does are the same for everybody. They share one screen rather than splitting into a
+form and a notice, because at the moment of deciding a term you agree to and a term you
+choose are the same kind of fact, and the only place either is still changeable is before
+Register is pressed. `.terms.mine` is the block that is yours; the green edge is the whole
+difference.
+
+`allow_short` in particular used to be a checkbox at the bottom of an *Optional* fold on
+step 1, which is not where a permission to take unlimited directional risk belongs — and
+it is not spelled `allow_short` to a member either. **Long/short vs long/flat** is what the
+setting is; the boolean is what the ledger calls it.
+
+Leverage's ceiling is per class (`api_config.MAX_LEVERAGE`, a subset of the desk's
+`paper_config.MAX_LEVERAGE`, asserted by `test_strategies.py` off disk exactly as
+`TIMEFRAMES` is). The console therefore states the ceiling for the class that was actually
+picked, and disables the field entirely where the ceiling is 1 — crypto — with the reason,
+because a disabled field with no sentence beside it reads as a bug.
+
 Three things it must keep doing:
 
-* **It states no number it does not fetch.** Capital, the class list, the timeframes and
-  both caps come from `GET /v1/limits`, which reads `api_config` and `api_strategies`. All
-  of them are settable from the environment; written into the markup they would go on
-  saying `$10,000` and offering `commodities` the day either changed, and a page that
-  misstates the terms is worse than one that omits them. `test_strategies.py` asserts the
-  endpoint and the config agree.
+* **It states no number it does not fetch.** Capital's floor and ceiling, the leverage
+  ceiling per class, the class list, the timeframes and both caps come from
+  `GET /v1/limits`, which reads `api_config` and `api_strategies`. All of them are settable
+  from the environment; written into the markup they would go on saying `$10,000` and
+  offering `commodities` the day either changed, and a page that misstates the terms is
+  worse than one that omits them. `test_strategies.py` asserts the endpoint and the config
+  agree.
+
+  `max_leverage` is published as a **map, one entry per class, including the classes whose
+  ceiling is 1**. A single number would be wrong for four of the five, and a class merely
+  absent from the map is indistinguishable from a class that may not be levered — the
+  console has to be able to say *no leverage on crypto* rather than fall back to a default
+  it invented.
 * **Symbols are offered, and — since 2026-08-28 — may also be typed.** `/v1/limits` carries
   `universe` per class, read from what the desk **published** (`catalog.json`), never
   computed here, and the picker offers exactly that. What it does with a name outside the

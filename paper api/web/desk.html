@@ -267,6 +267,23 @@
   .terms .v{font-size:14px;color:var(--ink)}
   .terms .v em{font-style:normal;color:var(--muted);display:block;font-size:12.5px;margin-top:3px}
 
+  /* The three rows on the terms screen that a member DECIDES, rather than reads.
+     Same grid as the rows above them on purpose: capital, leverage and long/short are
+     terms of the book exactly as the order cap is, and pulling them into a separate form
+     further down would have re-created the shape this wizard replaced — a page where the
+     thing you agree to and the thing you set are in different places. The green edge is
+     the only difference, and it is there so "you chose this" is visible at a glance. */
+  .terms.mine{border-color:var(--hair-2)}
+  .terms.mine .row{box-shadow:inset 2px 0 0 var(--live)}
+  .terms .v .num{width:132px;font-size:14px;padding:7px 9px;border-radius:5px;
+    font-family:var(--mono)}
+  .terms .v .num:disabled{opacity:.5}
+  .terms .v .unit{font-family:var(--mono);font-size:12.5px;color:var(--muted);
+    margin-left:8px}
+  .terms .v .seg{margin-top:1px}
+  .terms .v .seg button{font-size:12.5px;padding:6px 12px}
+  .terms .v em.bad{color:var(--loss)}
+
   .recap{background:var(--sunk);border:1px solid var(--hair);border-radius:6px;
     padding:14px 17px;font-family:var(--mono);font-size:13px;margin-bottom:24px;
     display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline}
@@ -536,19 +553,29 @@
               baseline, and choosing one for you would put this desk's opinion inside your
               track record.</div>
           </div>
-          <label class="check"><input type="checkbox" id="f-short">
-            <span>Allow shorts. Off means a sell is only ever a close.</span></label>
         </div>
       </details>
     </div>
 
     <!-- ------------------------------------------------------------------- 2 · terms -->
+    <!--
+      Two blocks, and the split is the point of the screen. The first is what this member
+      CHOOSES — the size of the book, how far it may lever, and whether it may go short.
+      The second is what the desk does regardless, and is the same for everybody.
+
+      They are one screen rather than two because a term you agree to and a term you set
+      are the same kind of fact at the moment of deciding, and the only place either is
+      still changeable is before Register is pressed. `allow_short` in particular used to
+      be a checkbox at the bottom of an "Optional" fold on step 1, which is where a
+      permission to take unlimited directional risk should never have been.
+    -->
     <div class="col" data-step="2" hidden>
       <div class="eyebrow">Step 2 of 5</div>
       <h3>What the desk will do</h3>
-      <p class="lede">Read this once. It is the same for every member and is not negotiable
-        per strategy.</p>
+      <p class="lede">Three of these are yours to set. The rest are the same for every
+        member and are not negotiable per strategy.</p>
       <div class="recap" id="recap-2"></div>
+      <div class="terms mine" id="settings"></div>
       <div class="terms" id="terms"></div>
       <p class="lede" style="margin:0">Registering writes a request. The desk picks it up on
         its next pass, which is why the next screen says <b>pending</b> rather than live.</p>
@@ -763,7 +790,15 @@ async function loadStrategies() {
     <tr>
       <td>${esc(s.name)}</td>
       <td class="mono">${esc(s.strategy_id)}</td>
-      <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}</td>
+      <!-- Leverage and the short permission ride along here, and only when they are not
+           the default. They change what a row's numbers MEAN — a 4x book's equity curve
+           is not the same measurement as a 1x one's — so the row that carries the numbers
+           has to carry them too. Printed on every row they would be noise; printed on
+           none, a levered book on this desk would be indistinguishable from an ordinary
+           one until somebody opened the wizard again, which nobody does. -->
+      <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}${
+        Number(s.leverage) > 1 ? ` · ${Number(s.leverage)}x` : ""}${
+        s.allow_short ? " · long+short" : ""}</td>
       <td>${stateTag(s.want)}</td>
       <td>${stateTag(s.state)}</td>
       <td>${over || s.kind !== "member" ? "" : `
@@ -1116,6 +1151,11 @@ const HINTS = ["", "Nothing is written until you press Register.",
 const W = {                       // everything one run through the wizard collects
   step: 1, open: false,
   draft: null,                    // what step 1 gathered
+  // What step 2 gathered. Held here rather than read off the DOM at Register time,
+  // because that block is re-rendered whenever the screen is entered — a member who goes
+  // back to fix a symbol and comes forward again must find their own numbers, not the
+  // defaults. `null` until the class is known, since the leverage ceiling depends on it.
+  settings: null,
   strategy: null,                 // what POST /v1/strategies gave back
   key: null,                      // the API key, only if minted in this run
   tv: null,                       // the webhook secret, only if minted in this run
@@ -1172,12 +1212,13 @@ function openWizard() {
         true);
     return;
   }
-  W.open = true; W.draft = null; W.strategy = null; W.key = null; W.tv = null;
+  W.open = true; W.draft = null; W.settings = null; W.strategy = null;
+  W.key = null; W.tv = null;
   W.mint = true; W.tab = 0;
   W.hits = {key: false, order: false, applied: false};
   el("key-out").hidden = true; el("key-pick").hidden = false;
   el("f-name").value = ""; el("f-sym").value = ""; el("f-bench").value = "";
-  el("f-short").checked = false; el("f-klabel").value = "";
+  el("f-klabel").value = "";
   PICKED = []; CURSOR = 0;
   // Remember what each hint says before anything overwrites it with an error, so a field
   // that has been mistyped once goes back to explaining itself afterwards.
@@ -1461,22 +1502,89 @@ function readStepOne() {
   return {
     name, cls: segValue("f-cls"), tf: segValue("f-tf"), symbols: syms,
     benchmark: el("f-bench").value.trim().toUpperCase() || null,
-    allow_short: el("f-short").checked,
   };
 }
 
 // ------------------------------------------------------------------ wizard: step two
 const money = n => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
 
+// The ceiling for THIS class, from `/v1/limits`. Never a literal: it is 2x on equities,
+// 1x on crypto — spot crypto is not marginable and the desk's own Alpaca mirror extends
+// no crypto margin — and 10x on futures, and every one of those is settable on the desk.
+// A number written into this page would go on offering 2x on crypto the day it moved.
+const leverageCap = cls => Number((LIMITS.max_leverage || {})[cls] ?? 1);
+
+// The desk's own defaults, never this page's: the standard book, no leverage, long/flat.
+// Every one of the three is the conservative reading, which is what a default has to be
+// when the thing being defaulted decides how much of somebody's book can move.
+function defaultSettings() {
+  return {capital: LIMITS.capital_per_strategy, leverage: 1, allow_short: false};
+}
+
 function drawTerms() {
   const d = W.draft;
+  // Kept across a trip back to step 1, but re-defaulted when the CLASS changes: a
+  // leverage that was legal on futures is not legal on crypto, and carrying it forward
+  // would show a number the server is about to refuse.
+  if (!W.settings || W.settings.cls !== d.cls) {
+    W.settings = Object.assign({cls: d.cls}, defaultSettings());
+  }
+  const s = W.settings;
+  const cap = leverageCap(d.cls);
+
   el("recap-2").innerHTML =
     `<b>${esc(d.name)}</b><span class="sep">/</span>${esc(d.cls)}<span class="sep">/</span>` +
-    `${esc(d.symbols.join(", "))}<span class="sep">/</span>${esc(d.tf)}` +
-    (d.allow_short ? `<span class="sep">/</span>shorts on` : "");
+    `${esc(d.symbols.join(", "))}<span class="sep">/</span>${esc(d.tf)}`;
+
+  el("settings").innerHTML = `
+    <div class="row"><div class="k">Capital</div><div class="v">
+      <input type="number" class="num" id="s-capital" step="1000"
+             min="${LIMITS.capital_per_strategy}" max="${LIMITS.max_capital_per_strategy}"
+             value="${s.capital}"><span class="unit">USD, paper</span>
+      <em id="e-capital">Between ${money(LIMITS.capital_per_strategy)} and
+        ${money(LIMITS.max_capital_per_strategy)}. Below the floor a whole share stops
+        being a rounding and becomes a decision; the ceiling is there because this is a
+        shared sandbox venue and every book on it is funded from one total.</em></div></div>
+    <div class="row"><div class="k">Leverage</div><div class="v">
+      <input type="number" class="num" id="s-leverage" step="0.5" min="1" max="${cap}"
+             value="${s.leverage}" ${cap <= 1 ? "disabled" : ""}><span class="unit">x equity</span>
+      <em id="e-leverage">${cap <= 1
+        ? `Not available on <b>${esc(d.cls)}</b>: this class is unlevered on the venues ` +
+          `behind it, so the desk offers no margin on it either.`
+        : `1 is no leverage and is the default. Up to <b>${cap}x</b> on ` +
+          `${esc(d.cls)} — longs plus shorts, counted at their absolute size, may reach ` +
+          `that multiple of the book's <b>equity</b>. The ceiling therefore shrinks as ` +
+          `the book loses, and at zero equity only closing orders are accepted. A ` +
+          `levered record is not comparable to the research, which scores unlevered books.`}
+      </em></div></div>
+    <div class="row"><div class="k">Direction</div><div class="v">
+      <div class="seg" id="s-short">
+        <button type="button" data-v="0" class="${s.allow_short ? "" : "on"}">Long / flat</button>
+        <button type="button" data-v="1" class="${s.allow_short ? "on" : ""}">Long / short</button>
+      </div>
+      <em>Long / flat means a sell may only close a long — it can never open a short, and
+        the desk refuses one by name rather than filling it. Long / short lets the book
+        hold either side; a short counts towards the leverage ceiling above at its full
+        size, because a short position is exposure, not negative exposure.</em></div></div>`;
+
+  el("s-capital").addEventListener("input", ev => {
+    s.capital = Number(ev.target.value);
+  });
+  el("s-leverage").addEventListener("input", ev => {
+    s.leverage = Number(ev.target.value);
+  });
+  el("s-short").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    s.allow_short = b.dataset.v === "1";
+    el("s-short").querySelectorAll("button")
+      .forEach(x => x.classList.toggle("on", x === b));
+  });
+
   el("terms").innerHTML = `
-    <div class="row"><div class="k">Capital</div><div class="v">${money(LIMITS.capital_per_strategy)}, paper.
-      <em>Allocated by the desk. There is no real money anywhere in this system.</em></div></div>
+    <div class="row"><div class="k">The money</div><div class="v">Paper, all of it.
+      <em>The capital above is allocated by the desk against a simulated venue. There is no
+      real money anywhere in this system, and nothing here can reach an account that holds
+      any.</em></div></div>
     <div class="row"><div class="k">Who decides</div><div class="v">You do. The desk executes.
       <em>Your code runs on your machine and sends orders here. Nothing of yours runs on ours.</em></div></div>
     <div class="row"><div class="k">An order</div><div class="v"><b>202</b> means written down — never filled.
@@ -1492,18 +1600,70 @@ function drawTerms() {
       erase is not a record.</em></div></div>`;
 }
 
+// How a book's own terms read on a recap line, and on the last screen. Leverage and the
+// short permission are shown only when they are not the default: a row saying "1x" and
+// "long/flat" on every strategy anybody ever registers is noise that hides the one that
+// says 4x.
+function termsRecap(s) {
+  return `<span class="sep">/</span>${money(s.capital)}` +
+         (Number(s.leverage) > 1 ? `<span class="sep">/</span>${Number(s.leverage)}x` : "") +
+         (s.allow_short ? `<span class="sep">/</span>long+short` : "");
+}
+
+// The same bounds the server enforces, checked here only so the answer is instant — the
+// same division `readStepOne` keeps. A number input's `min`/`max` are advisory outside a
+// form submit, so without this a typo goes to the server and comes back as a 422 whose
+// wording is about a field the reader has to go and find again.
+function readStepTwo() {
+  const s = W.settings;
+  const cap = leverageCap(W.draft.cls);
+  const fail = (id, msg) => {
+    const e = el(id);
+    e.classList.add("bad");
+    e.textContent = msg;
+    return null;
+  };
+  el("e-capital").classList.remove("bad");
+  el("e-leverage").classList.remove("bad");
+
+  if (!Number.isFinite(s.capital)
+      || s.capital < LIMITS.capital_per_strategy
+      || s.capital > LIMITS.max_capital_per_strategy) {
+    return fail("e-capital", `Between ${money(LIMITS.capital_per_strategy)} and ` +
+                             `${money(LIMITS.max_capital_per_strategy)}.`);
+  }
+  if (!Number.isFinite(s.leverage) || s.leverage < 1 || s.leverage > cap) {
+    return fail("e-leverage", cap <= 1
+      ? `${esc(W.draft.cls)} is unlevered on this desk; leave it at 1.`
+      : `Between 1 (no leverage) and ${cap}x on ${esc(W.draft.cls)}.`);
+  }
+  return s;
+}
+
 async function doRegister() {
   const known = new Set(STRATEGIES.map(s => s.strategy_id));
-  const s = await j("POST", "/v1/strategies", W.draft);
+  // Step 1's shape plus step 2's terms. The server bounds all three again — it is the
+  // copy that binds, and the desk bounds leverage a third time against the class ceiling
+  // it alone can read.
+  const body = Object.assign({}, W.draft, {
+    capital: W.settings.capital,
+    leverage: W.settings.leverage,
+    allow_short: W.settings.allow_short,
+  });
+  const s = await j("POST", "/v1/strategies", body);
   W.strategy = s;
   // Registration is idempotent on the name, so this may be a strategy they already had.
   // Saying so beats letting them believe they just created a second one.
   el("h3-key").textContent = known.has(s.strategy_id)
     ? "You already had this one. Now it needs a key."
     : "Registered. Now it needs a key.";
+  // Read back off the SERVER's row, not off what was sent: registration is idempotent on
+  // the name, so a member re-registering an existing strategy gets the terms it already
+  // had rather than the ones they just typed, and the recap has to show the book that
+  // actually exists.
   el("recap-3").innerHTML =
     `<b>${esc(s.strategy_id)}</b><span class="sep">/</span>${esc(s.name)}` +
-    `<span class="sep">/</span>${stateTag(s.state)}`;
+    termsRecap(s) + `<span class="sep">/</span>${stateTag(s.state)}`;
   el("f-klabel").value = `${s.name} bot`;
 }
 
@@ -1566,6 +1726,11 @@ AUTH      Authorization: Bearer $STOCKHUNT_API_KEY
 STRATEGY  ${s.strategy_id}     ${s.name} / ${s.cls} / ${s.symbols.join(",")} / ${s.tf}
 SYMBOLS   you may trade ${s.symbols.join(", ")} and nothing else
 SHORTS    ${s.allow_short ? "allowed" : "not allowed — a sell may only close a long"}
+CAPITAL   ${money(s.capital)}, paper
+LEVERAGE  ${Number(s.leverage) > 1
+  ? `${Number(s.leverage)}x — longs plus shorts may reach ${Number(s.leverage)}x the
+            book's EQUITY, which shrinks as it loses. An order past that is refused`
+  : "1x — gross exposure may not exceed the book's equity. There is no margin"}
 
 To trade, POST /v1/orders with:
   {"strategy_id":"${s.strategy_id}","client_order_id":"<yours, unique>",
@@ -1829,8 +1994,10 @@ el("w-next").onclick = async () => {
       const draft = readStepOne();
       if (draft) { W.draft = draft; drawTerms(); showStep(2); }
     } else if (W.step === 2) {
-      await doRegister();
-      showStep(3);
+      if (readStepTwo()) {
+        await doRegister();
+        showStep(3);
+      }
     } else if (W.step === 3) {
       // Minting is a state change inside this step, not a step of its own: the key appears
       // in place and the button becomes Continue. Six screens for five decisions is one
@@ -1842,7 +2009,7 @@ el("w-next").onclick = async () => {
       el("recap-5").innerHTML =
         `<b>${esc(W.strategy.strategy_id)}</b><span class="sep">/</span>` +
         `${esc(W.strategy.symbols.join(", "))}<span class="sep">/</span>${esc(W.strategy.tf)}` +
-        `<span class="sep">/</span>${money(W.strategy.capital)}` +
+        termsRecap(W.strategy) +
         `<span class="sep">/</span>${stateTag(W.strategy.state)}`;
       showStep(5);
     } else {

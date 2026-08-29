@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 import api_auth
 import api_config
@@ -64,13 +64,23 @@ class RegisterRequest(BaseModel):
         None, description="Optional. Declared, never guessed — a multi-symbol strategy "
                           "has no obvious baseline, and choosing one for you would put "
                           "this desk's opinion inside your track record.")
-    allow_short: bool = False
+    allow_short: bool = Field(
+        False,
+        description="Long/short if true, long/flat if false. Long/flat means a sell may "
+                    "only close a long; it can never open a short.")
     capital: float | None = Field(
         None, examples=[10000],
         description="What the book is funded with. Defaults to the desk's standard "
                     "book; ask for more when one unit of what you trade costs more than "
                     "that. On cme_futures a unit is a fractional notional unit of a "
                     "back-adjusted series, so one NQ.v.0 is ~$29,600.")
+    leverage: float | None = Field(
+        None, examples=[1],
+        description="Gross exposure — longs plus shorts, at absolute size — may reach "
+                    "this multiple of the book's EQUITY. 1 is no leverage and is the "
+                    "default. The ceiling is per class and is published by /v1/limits; "
+                    "an order past the ceiling is refused with the numbers in it, and a "
+                    "book at zero equity may only close positions.")
 
     @field_validator("capital")
     @classmethod
@@ -135,6 +145,36 @@ class RegisterRequest(BaseModel):
             raise ValueError("the same symbol twice")
         return out
 
+    @model_validator(mode="after")
+    def _leverage(self):
+        """Bounded per CLASS, which is why this is a model validator and not a field one.
+
+        A field validator cannot see `cls`, and one ceiling for every class would have to
+        be either a lie about futures or a lie about crypto: Reg T gives a cash equity
+        account 2x, spot crypto is not marginable at all, and CME initial margin is single
+        digit percentages of notional. The reasoning per class lives in
+        `paper_config.MAX_LEVERAGE`, where the desk enforces it.
+
+        Below 1 is refused rather than clamped up. `leverage=0.5` is somebody asking to
+        deploy half their capital, which is a decision about SIZE they make by registering
+        a smaller book — silently reading it as 1 would run a book at twice what its owner
+        typed and there would be nothing on the record to say so.
+        """
+        if self.leverage is None:
+            return self
+        lev = float(self.leverage)
+        ceiling = api_config.max_leverage(self.cls)
+        if lev < 1.0:
+            raise ValueError(
+                "leverage is a multiple of your equity and 1 is the smallest — it means "
+                "no leverage. To deploy less than your capital, register a smaller book")
+        if lev > ceiling:
+            raise ValueError(
+                f"{lev:g}x is beyond what this desk runs on {self.cls}: the ceiling is "
+                f"{ceiling:g}x. It is set per class from what the real venue behind that "
+                f"class permits, rounded down")
+        return self
+
 
 class StrategyOut(BaseModel):
     strategy_id: str
@@ -144,6 +184,10 @@ class StrategyOut(BaseModel):
     symbols: list[str]
     tf: str
     capital: float
+    # What was actually registered, always — not only when it is not 1. A field that
+    # appears only on levered books makes "unlevered" and "an older desk that has never
+    # heard of leverage" read identically to a client, and those are different facts.
+    leverage: float = 1.0
     benchmark: str | None = None
     allow_short: bool = False
     # What you asked for, and what the desk has actually done. They disagree for a while
@@ -160,7 +204,13 @@ def _out(row: dict) -> StrategyOut:
     return StrategyOut(
         strategy_id=row["strategy_id"], name=row["name"], kind=row["kind"],
         cls=row["cls"], symbols=row["symbols"], tf=row["tf"],
-        capital=row["capital"], benchmark=row["benchmark"],
+        capital=row["capital"],
+        # A row written before the column existed reads NULL through an older sqlite file
+        # that `_add_late_columns` has not been opened by yet. 1.0 is what the desk reads
+        # it as (`desk_orders.leverage_of`), so it is what this must report — two processes
+        # disagreeing about whether a book is levered is the worst possible place to differ.
+        leverage=float(row.get("leverage") or 1.0),
+        benchmark=row["benchmark"],
         allow_short=bool(row["allow_short"]), want=row["want"], state=row["state"],
         reason=row["reason"], created_at=row["created_at"],
         applied_at=row["applied_at"])
@@ -186,6 +236,12 @@ class LimitsOut(BaseModel):
     symbols_max: int
     capital_per_strategy: float
     max_capital_per_strategy: float
+    # The leverage ceiling PER CLASS, so the console can state the one that applies to what
+    # the member has actually picked. A single number here would be wrong for four of the
+    # five classes — see `api_config.MAX_LEVERAGE` — and the wizard states no number it
+    # does not fetch, so a page that had to pick would have to hardcode.
+    max_leverage: dict[str, float]
+    default_leverage: float
     max_strategies: int
     max_orders_per_minute: int
     # Per class, the symbols the desk already holds — empty when the desk has not
@@ -250,6 +306,12 @@ def limits(who: dict = Depends(api_auth.current_principal)) -> LimitsOut:
         symbols_max=SYMBOLS_MAX,
         capital_per_strategy=api_config.CAPITAL_PER_STRATEGY,
         max_capital_per_strategy=api_config.MAX_CAPITAL_PER_STRATEGY,
+        # Every class gets an entry, including the ones whose ceiling is 1.0. A class
+        # missing from the map and a class that may not be levered would otherwise look the
+        # same to the console, and it has to be able to say "no leverage on crypto" rather
+        # than falling silently back to a default it invented.
+        max_leverage={c: api_config.max_leverage(c) for c in CLASSES},
+        default_leverage=api_config.DEFAULT_MAX_LEVERAGE,
         max_strategies=api_config.MAX_STRATEGIES_PER_ACCOUNT,
         max_orders_per_minute=api_config.MAX_ORDERS_PER_MINUTE,
     )
@@ -333,9 +395,17 @@ def register(body: RegisterRequest, request: Request,
     row = deskdb.register(
         account, body.name, body.cls, body.symbols, body.tf,
         body.capital or api_config.CAPITAL_PER_STRATEGY, kind="member",
-        benchmark=body.benchmark, allow_short=body.allow_short)
+        benchmark=body.benchmark, allow_short=body.allow_short,
+        leverage=body.leverage or 1.0)
+    # Leverage and the short permission are in the audit line, not only in the row. They
+    # are the two settings that change what somebody's money is allowed to do, and a row
+    # can be revived by a later register while the log is append-only — so this is the only
+    # place that records the terms as they were agreed, on the day they were agreed.
     authdb.audit("strategy.registered", who["email"], api_auth.client_ip(request),
-                 f"{row['strategy_id']} {body.cls} {','.join(body.symbols)} {body.tf}")
+                 f"{row['strategy_id']} {body.cls} {','.join(body.symbols)} {body.tf} "
+                 f"{body.capital or api_config.CAPITAL_PER_STRATEGY:.0f} "
+                 f"{body.leverage or 1.0:g}x "
+                 f"{'long/short' if body.allow_short else 'long/flat'}")
     return _out(row)
 
 

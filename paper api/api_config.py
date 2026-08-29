@@ -151,6 +151,40 @@ CAPITAL_PER_STRATEGY = float(env("API_CAPITAL_PER_STRATEGY", "10000") or 10000)
 # contract on the desk with room to hold several names at once.
 MAX_CAPITAL_PER_STRATEGY = float(env("API_MAX_CAPITAL_PER_STRATEGY", "1000000") or 1_000_000)
 
+# How far a book may be levered, PER CLASS, and 1.0 — no leverage — is the default.
+#
+# The desk enforces `gross exposure <= leverage x equity` on every order and refuses a
+# registration above the class ceiling at attach. This is the fast, kind copy of that
+# ceiling: a caller gets the number in their own request instead of a `rejected` row
+# minutes later.
+#
+# **It is restated rather than imported, and it must stay a subset of
+# `paper_config.MAX_LEVERAGE` class by class** — same contract as `TIMEFRAMES`, same
+# reason: this process imports no trading code, so it cannot read the desk's file without
+# dragging the backtest engine into an HTTP server. `test_strategies.py` reads that file
+# off disk and asserts every ceiling here is at or below the desk's. Widen the desk first.
+#
+# The per-class numbers are the desk's, and the reasoning for each is written down once,
+# where they are enforced — `paper_config.MAX_LEVERAGE`. In short: Reg T's 50% initial
+# margin is 2x on cash equities; spot crypto is not marginable and the Alpaca mirror that
+# is this desk's second record extends no crypto margin at all; CME initial margin on the
+# screened roots is single-digit percentages of notional, and 10x is the bottom of the
+# range that implies, so the desk is never looser than the exchange.
+MAX_LEVERAGE = {
+    "us_stocks": 2.0,
+    "us_etfs": 2.0,
+    "commodities": 2.0,
+    "crypto": 1.0,
+    "cme_futures": 10.0,
+}
+# An unnamed class gets no leverage. A new leg should have to state its own number rather
+# than inherit somebody else's venue's margin rules by omission.
+DEFAULT_MAX_LEVERAGE = 1.0
+
+
+def max_leverage(cls: str) -> float:
+    return float(MAX_LEVERAGE.get(cls, DEFAULT_MAX_LEVERAGE))
+
 # Orders per minute, per account. A trading API's cheapest protection: the inbox is a
 # database and a bot in a tight retry loop can fill it faster than the desk drains it.
 MAX_ORDERS_PER_MINUTE = env_int("API_MAX_ORDERS_PER_MINUTE", 60)

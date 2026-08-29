@@ -172,6 +172,7 @@ class DeskController(Controller):
         self._running: dict[str, object] = {}       # registration_id -> strategy instance
         self._attached_at: dict[str, object] = {}   # registration_id -> when it went live
         self._quiet: set[str] = set()               # already reported as receiving nothing
+        self._underwater: set[str] = set()          # ...and as having no equity left
         self._universe_at = None                    # when the slow lane last ran
         self.ticks = 0
         self.applied = 0
@@ -223,6 +224,14 @@ class DeskController(Controller):
         except Exception as exc:
             self.log.error(f"feed watch failed: {exc}")
             failed = failed or f"feed watch failed: {exc}"
+        # Guarded on its own, like every other lane: a book whose marks are momentarily
+        # unreadable must not stop the drain, which is where the orders somebody is waiting
+        # on actually move.
+        try:
+            self._watch_equity()
+        except Exception as exc:
+            self.log.error(f"equity watch failed: {exc}")
+            failed = failed or f"equity watch failed: {exc}"
         try:
             self._drain()
         except Exception as exc:
@@ -352,6 +361,21 @@ class DeskController(Controller):
         if cls not in paper_config.VENUES:
             raise RuntimeError(f"unknown asset class {cls!r}")
 
+        # THE CEILING BINDS HERE, not in `desk_orders`.
+        #
+        # The API bounds `leverage` on the way in, and that check is the fast, kind one:
+        # it answers a caller in their own request. This is the one that binds, for the
+        # reason the whole module docstring gives — a row in the ledger is untrusted input
+        # whatever the API said about it, and this process is the only one that knows
+        # `paper_config.MAX_LEVERAGE` first-hand.
+        #
+        # It REFUSES rather than clamping. Clamping would run somebody's book on terms
+        # their own registration does not record, so the ledger and the desk would disagree
+        # about what was permitted and every refusal afterwards would read as a bug.
+        refusal = _leverage_refusal(reg)
+        if refusal:
+            raise RuntimeError(refusal)
+
         # Bound here rather than only inside the `else` below, so the admit near the end
         # of this method cannot depend on two guards agreeing about what a book is.
         opened: list[str] = []
@@ -415,6 +439,7 @@ class DeskController(Controller):
         self._running[rid] = strategy
         self._attached_at[rid] = self.clock.utc_now()
         self._quiet.discard(rid)
+        self._underwater.discard(rid)
         # A caveat, not a refusal — `reason` beside `live`. See `_caveat`.
         #
         # Caught here rather than inside the caveat builders: a caveat is a courtesy and
@@ -662,15 +687,21 @@ class DeskController(Controller):
                 note=f"{reg['rule']} on {symbol} {reg['tf']}, promoted from the "
                      f"walk-forward sheet."))
 
+        lev = desk_orders.leverage_of(reg)
         return MemberStrategy(config=MemberStrategyConfig(
             order_id_tag=tag,
             registration_id=reg["strategy_id"], account=reg["account"],
             name=reg["name"], cls=reg["cls"], tf=reg["tf"],
             symbols=tuple(reg["symbols"]), venue=venue,
             capital=float(reg["capital"]), allow_short=bool(reg["allow_short"]),
+            leverage=lev,
             benchmark=reg["benchmark"], export_state=self.config.export_state,
             note=f"{reg['name']}: orders arrive over the API. The desk executes and "
-                 f"accounts; the strategy itself runs on the manager's own machine."))
+                 f"accounts; the strategy itself runs on the manager's own machine."
+                 + ("" if lev == desk_orders.NO_LEVERAGE else
+                    f" Levered {lev:g}x — gross exposure up to {lev:g} times equity, so "
+                    f"this curve is not comparable to an unlevered one or to the "
+                    f"research, which scores unlevered books.")))
 
     # ------------------------------------------------------------------ is it fed?
     def _watch_feeds(self, now) -> None:
@@ -703,7 +734,7 @@ class DeskController(Controller):
             if fed:
                 if rid in self._quiet:
                     self._quiet.discard(rid)
-                    deskdb.mark_registration(rid, "live", reason=None)
+                    self._say(rid)
                     self.log.info(f"{rid}: prices are arriving again")
                 continue
             if rid in self._quiet:
@@ -711,16 +742,85 @@ class DeskController(Controller):
             if now - since < _bar_interval(strat.config.tf) * FEED_SILENCE_BARS:
                 continue
             self._quiet.add(rid)
-            reason = (f"attached, but no {strat.config.tf} bar has arrived for "
-                      f"{', '.join(strat.config.symbols)} since it started. Orders will "
-                      f"be refused for want of a price until one does. Check the desk log "
-                      f"for a failed subscription.")
-            deskdb.mark_registration(rid, "live", reason=reason)
-            self.log.error(f"{rid}: {reason}")
+            self._say(rid)
+            self.log.error(f"{rid}: {self._watch_reasons(rid)[0]}")
+
+    # ----------------------------------------------------------------- is it solvent?
+    def _watch_equity(self) -> None:
+        """Say so when a book's equity reaches zero, instead of leaving it to be inferred.
+
+        **This is what a levered book blowing up looks like, and until it is written down
+        it looks like nothing.** `desk_orders` bounds gross exposure at `leverage x equity`,
+        so equity falling to zero collapses the ceiling to zero and every order that would
+        add exposure is refused. That is the correct behaviour and it is completely silent:
+        the registration still reads `live`, the strategy is still attached, bars still
+        arrive, and the only symptom the owner gets is that their orders stop working — one
+        refusal at a time, in a column they have to go looking for.
+
+        An unlevered book reaches the same state and it matters less there, because it
+        cannot be short more than its equity by construction and gets there only by losing
+        everything. It is watched all the same: "you have no money left" is not a fact that
+        should depend on a setting.
+
+        `state` is deliberately untouched. The book IS live — it can still close what it
+        holds, and closing is the one thing somebody at zero equity needs to be able to do.
+        Demoting it would also race `_reconcile`, which owns that column.
+        """
+        for rid, strat in self._running.items():
+            if not isinstance(strat, MemberStrategy):
+                continue
+            # Before the first bar a book is worth its cash and nothing is measurable —
+            # `_watch_feeds` owns that state and reporting both would put two sentences on
+            # one row for one problem.
+            if not any(p for p in strat.prices().values()):
+                continue
+            equity = strat.equity()
+            if equity > 0:
+                if rid in self._underwater:
+                    self._underwater.discard(rid)
+                    self._say(rid)
+                    self.log.info(f"{rid}: equity is positive again ({equity:,.2f})")
+                continue
+            if rid in self._underwater:
+                continue
+            self._underwater.add(rid)
+            self._say(rid)
+            self.log.error(f"{rid}: {self._watch_reasons(rid)[-1]}")
+
+    # ------------------------------------------------------- one writer, one column
+    #
+    # `reason` is a single column and both watches above have something to put in it. Two
+    # writers meant the second condition to fire overwrote the first, and — worse — either
+    # one CLEARING itself wrote `None` over the other's live warning: a book that was both
+    # unfed and broke stopped reporting either the moment one of them recovered. So the
+    # watches keep flags and this composes the column from all of them.
+    def _watch_reasons(self, rid: str) -> list[str]:
+        strat = self._running.get(rid)
+        out = []
+        if rid in self._quiet and strat is not None:
+            out.append(f"attached, but no {strat.config.tf} bar has arrived for "
+                       f"{', '.join(strat.config.symbols)} since it started. Orders will "
+                       f"be refused for want of a price until one does. Check the desk "
+                       f"log for a failed subscription.")
+        if rid in self._underwater and strat is not None:
+            lev = getattr(strat.config, "leverage", 1.0)
+            out.append(f"this book's equity has reached {strat.equity():,.2f}. Its gross "
+                       f"exposure may not exceed {lev:g}x equity, so at zero the "
+                       f"desk will accept only orders that REDUCE what it holds — every "
+                       f"order that would open or add is refused until the book is worth "
+                       f"something again. Close the positions, or retire it: retiring "
+                       f"flattens, and keeps the record.")
+        return out
+
+    def _say(self, rid: str) -> None:
+        """Publish whatever the watches currently hold. Empty clears the column."""
+        reasons = self._watch_reasons(rid)
+        deskdb.mark_registration(rid, "live", "\n\n".join(reasons) or None)
 
     def _retire(self, rid: str) -> None:
         self._attached_at.pop(rid, None)
         self._quiet.discard(rid)
+        self._underwater.discard(rid)
         strategy = self._running.pop(rid, None)
         if strategy is None:
             return
@@ -857,6 +957,41 @@ def _why_not_feedable(tf: str) -> str:
             f"live poll cannot ask for.")
 
 
+def _leverage_refusal(reg: dict) -> str:
+    """Why this registration may not lever as far as it asked. Empty when it may.
+
+    Two separate refusals, and they are not the same mistake:
+
+    * **Above the class ceiling.** `paper_config.MAX_LEVERAGE` records what the real venue
+      behind each class actually permits, so the sentence names the class rather than the
+      desk — a member asking for 4x on crypto has not hit an arbitrary policy, they have
+      hit the fact that spot crypto is not marginable and the desk's own broker-side mirror
+      could not copy the book.
+    * **Levered, and not a member strategy.** A `house_rule` and a `book` trade a rule off
+      a walk-forward sheet, and every one of those sheets scores an UNLEVERED book. Running
+      one at 2x would put a number on the board under a rule's name that the rule's own
+      research does not describe, and nothing downstream would say so. `desk_orders`
+      enforces its ceiling on the order path, which those two kinds do not use at all, so
+      a levered promotion would not even be bounded — it would simply be unenforced.
+    """
+    lev = desk_orders.leverage_of(reg)
+    if lev == desk_orders.NO_LEVERAGE:
+        return ""
+    if reg.get("kind") != "member":
+        return (f"a {reg.get('kind')} cannot be levered. It trades a rule selected off "
+                f"wf_summary_{reg['cls']}_{reg['tf']}.csv, and every sheet in this repo "
+                f"scores an UNLEVERED book — a levered one would publish a curve under "
+                f"that rule's name that the rule's own research does not describe. "
+                f"Register it at 1x, or run it as a member strategy you send orders to.")
+    ceiling = paper_config.max_leverage(reg["cls"])
+    if lev > ceiling:
+        return (f"{lev:g}x is beyond what this desk will run on {reg['cls']}: the ceiling "
+                f"is {ceiling:g}x. It is set per class from what the real venue behind "
+                f"that class permits, rounded down, so the desk is never the more "
+                f"permissive of the two.")
+    return ""
+
+
 def _caveat(reg: dict) -> str:
     """Everything TRUE but surprising about a registration the desk is about to ACCEPT.
 
@@ -865,8 +1000,33 @@ def _caveat(reg: dict) -> str:
     both, or neither. Joined with a blank line so a row carrying two still reads.
     """
     parts = [c for c in (_feed_caveat(reg["cls"], reg["tf"]),
+                         _leverage_caveat(reg),
                          _affordability_caveat(reg)) if c]
     return "\n\n".join(parts)
+
+
+def _leverage_caveat(reg: dict) -> str:
+    """What a member has actually agreed to by asking for leverage.
+
+    Not a refusal — `_leverage_refusal` already ran and let this through — and not a
+    warning about risk, which is the member's business. It is the one consequence they
+    cannot see from their own side: this book's forward record stops being comparable to
+    anything else on the board. `portfolio_wf` and `riskmatch_wf` score UNLEVERED books,
+    so a levered curve beside a research number is two different measurements printed in
+    one column, and the row the owner is already looking at is where that has to be said.
+    """
+    lev = desk_orders.leverage_of(reg)
+    if lev == desk_orders.NO_LEVERAGE:
+        return ""
+    capital = float(reg.get("capital") or 0.0)
+    return (f"Running at {lev:g}x. Gross exposure — longs plus shorts, counted at their "
+            f"absolute size — may reach {lev:g} times this book's equity, so about "
+            f"${capital * lev:,.0f} while it is still worth the ${capital:,.0f} it "
+            f"started with, and less as it loses. An order past that is refused with the "
+            f"numbers in it. The ceiling moves with equity rather than with capital, so a "
+            f"book at zero equity may only close positions, never open one. Its published "
+            f"return is still measured on the capital you put up, so it is comparable to "
+            f"nothing else on the board: the research sheets score unlevered books.")
 
 
 def _affordability_caveat(reg: dict) -> str:
@@ -888,10 +1048,22 @@ def _affordability_caveat(reg: dict) -> str:
     Priced off the CACHED daily close, not off the vendor. It runs inside `tick()`, so a
     network call here would let a slow vendor stall the controller — and a price a day old
     is ample for "can $10,000 buy something that costs $29,600".
+
+    **It is measured against `capital x leverage`, not against capital**, since 2026-08-29.
+    Buying power is what decides whether a whole unit fits, and for a levered book that is
+    no longer the capital: a $10,000 book at 4x carries one `NQ.v.0` comfortably, and
+    warning that it cannot would be actively wrong — it would tell a member to send
+    fractional sizes on the one leg where they had just paid for the ability not to. The
+    mechanism is kept; only the number it compares against changed.
     """
     symbols = list(reg.get("symbols") or [])
     capital = float(reg.get("capital") or 0.0)
-    if not symbols or capital <= 0:
+    leverage = desk_orders.leverage_of(reg)
+    # What one order can actually reach on an untouched book. `desk_orders.headroom` on a
+    # flat book is exactly `leverage * cash`, and cash on a flat book is the capital, so
+    # this is that same number rather than a second opinion about it.
+    buying_power = capital * leverage
+    if not symbols or buying_power <= 0:
         return ""
     # NOT wrapped in a broad `except` any more, and the reason is that the broad one bit
     # me while writing this: a `NameError` in the test's own stub was swallowed and the
@@ -909,14 +1081,20 @@ def _affordability_caveat(reg: dict) -> str:
         # the desk trades live — and is the one case that is genuinely nothing to say.
         if frame is not None and len(frame):
             unit[sym] = float(frame["Close"].iloc[-1])
-    dear = {s: p for s, p in unit.items() if p > capital}
+    dear = {s: p for s, p in unit.items() if p > buying_power}
     if not dear:
         return ""
     worst, price = max(dear.items(), key=lambda kv: kv[1])
-    affordable = capital / price
+    affordable = buying_power / price
     names = ", ".join(sorted(dear))
+    # The book is described by what it can SPEND, and by the two numbers that produced it
+    # when they differ. Saying "this book is $10,000" on a 4x registration would understate
+    # its reach by four, and a member reading a caveat that contradicts their own leverage
+    # setting learns to ignore the caveat.
+    size = (f"${capital:,.0f}" if leverage == desk_orders.NO_LEVERAGE else
+            f"${capital:,.0f} at {leverage:g}x, so ${buying_power:,.0f} of buying power")
     return (f"Running, but note the size this book can carry: one unit of {worst} costs "
-            f"about ${price:,.0f} and this book is ${capital:,.0f}, so the most it can "
+            f"about ${price:,.0f} and this book is {size}, so the most it can "
             f"hold is {affordable:.2f}. On {'these' if len(dear) > 1 else 'this'} symbol"
             f"{'s' if len(dear) > 1 else ''} — {names} — a whole-number size will be "
             f"refused for want of cash. A unit here is a fractional notional unit, not a "

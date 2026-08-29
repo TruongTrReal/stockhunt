@@ -137,6 +137,60 @@ MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "1h", "15m", "5m", "1m")]
 # refuses a futures registration at 1m before this is ever consulted.
 MAX_1M_SYMBOLS = 120
 
+# How far a MEMBER book may be levered, PER CLASS.
+#
+# `desk_orders` enforces `gross exposure <= leverage x equity` on every order; this is the
+# ceiling on the `leverage` a registration may name, and `desk_control._launch` is where it
+# binds. 1.0 — no leverage — is the default everywhere and is bit-for-bit the rule the desk
+# ran under before leverage existed, so nothing here changes what an existing book may do.
+#
+# **It is per class because the real venues are, and one number would have to be either a
+# lie about futures or a lie about crypto.** `futures_screen.py` puts it plainly in its own
+# header: futures are margin instruments and leverage there "is free in a way it is not for
+# cash equities". Each ceiling below is taken from what the corresponding real venue
+# actually permits, and rounded DOWN, so this desk is never the more permissive of the two:
+#
+#   us_stocks, us_etfs   2.0   Reg T initial margin is 50% of the purchase price, which is
+#                              gross leverage 2 on a cash equity account. It is the number
+#                              a member would meet at any US broker, and the universe holds
+#                              no leveraged or inverse funds (`universe_screen.py` cuts
+#                              TQQQ, SPXL, SOXL and eleven others), so 2x here is 2x of
+#                              exposure rather than 2x of an already-3x instrument.
+#   commodities          2.0   spot XAU/USD and friends are held as cash assets on this
+#                              desk, not as margined contracts. Retail spot metals brokers
+#                              offer far more; there is no venue rule this desk actually
+#                              settles against, so the equity number is used rather than an
+#                              invented one. Deliberately conservative.
+#   crypto               1.0   spot crypto is not marginable for US retail, and Alpaca —
+#                              which is this desk's SECOND RECORD (`alpaca_mirror.py`) —
+#                              extends no crypto margin at all. A levered crypto book here
+#                              would be one the broker-side mirror structurally cannot
+#                              copy, so the number it can copy is the number offered.
+#   cme_futures         10.0   CME initial margin on the screened roots runs single-digit
+#                              percentages of notional — an ES contract at ~$385,000 of
+#                              index exposure margins in the low tens of thousands — so the
+#                              real venue is somewhere between 10x and 30x. 10 is the
+#                              BOTTOM of that range on purpose: the ceiling should never be
+#                              looser than the exchange's, and the exact figure moves with
+#                              volatility while this constant does not.
+#
+# A class not named here gets `DEFAULT_MAX_LEVERAGE`, which is 1.0 — an unknown class is
+# not a licence, and a new leg should have to state its own number.
+MAX_LEVERAGE = {
+    "us_stocks": 2.0,
+    "us_etfs": 2.0,
+    "commodities": 2.0,
+    "crypto": 1.0,
+    "cme_futures": 10.0,
+}
+DEFAULT_MAX_LEVERAGE = 1.0
+
+
+def max_leverage(cls: str) -> float:
+    """The most a registration on this class may name. Unknown classes get no leverage."""
+    return float(MAX_LEVERAGE.get(cls, DEFAULT_MAX_LEVERAGE))
+
+
 # A timeframe on offer that the desk cannot subscribe to is a registration that is accepted
 # and then rejected minutes later, which is exactly the confusion the console was rebuilt
 # to remove. Checked at import so it fails on start rather than on somebody's first order.

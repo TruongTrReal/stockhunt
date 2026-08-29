@@ -752,3 +752,106 @@ def test_the_limits_endpoint_publishes_both_bounds(client):
     body = r.json()
     assert body["capital_per_strategy"] == api_config.CAPITAL_PER_STRATEGY
     assert body["max_capital_per_strategy"] == api_config.MAX_CAPITAL_PER_STRATEGY
+
+
+# ---------------------------------------------------------- leverage, and long/flat
+#
+# Three of the terms screen's rows are the member's to choose since 2026-08-29, and two of
+# them already existed on the API and were simply not exposed. Leverage is the new one, and
+# the property that matters most about it is the boring one: at 1 it changes nothing at all.
+
+def test_leverage_defaults_to_none_at_all(client):
+    """Every registration written before this existed means 1.0, and so does every one
+    written since that does not ask. The two have to be the same number or `desk_orders`
+    and this process disagree about whether a book is levered."""
+    r = register(client, key_for("lev1@example.test"), name="plain")
+    assert r.status_code == 201
+    assert r.json()["leverage"] == 1.0
+
+
+def test_leverage_is_reported_on_every_row_not_only_a_levered_one(client):
+    """A field that appears only when it is interesting makes `unlevered` and `an older
+    desk that has never heard of leverage` read identically to a client."""
+    raw = key_for("lev2@example.test")
+    register(client, raw, name="plain")
+    rows = client.get("/v1/strategies", headers=auth(raw)).json()
+    assert all("leverage" in row for row in rows)
+
+
+def test_a_book_can_ask_to_be_levered(client):
+    r = register(client, key_for("lev3@example.test"), name="two", cls="us_stocks",
+                 leverage=2)
+    assert r.status_code == 201, r.text
+    assert r.json()["leverage"] == 2.0
+
+
+def test_leverage_is_bounded_per_class_not_by_one_number(client):
+    """2x is Reg T on a cash equity account and is refused on crypto, where spot is not
+    marginable and the desk's own Alpaca mirror extends no margin at all. One ceiling for
+    every class would have to be a lie about one of them."""
+    raw = key_for("lev4@example.test")
+    ok = register(client, raw, name="equity", cls="us_stocks", symbols=["SPY"],
+                  leverage=2)
+    no = register(client, raw, name="coin", cls="crypto", symbols=["BTC/USD"],
+                  leverage=2)
+    assert ok.status_code == 201, ok.text
+    assert no.status_code == 422
+    assert "crypto" in no.text and "ceiling" in no.text
+
+
+def test_leverage_beyond_the_class_ceiling_is_refused(client):
+    raw = key_for("lev5@example.test")
+    r = register(client, raw, name="toomuch", cls="us_stocks",
+                 leverage=api_config.max_leverage("us_stocks") + 0.5)
+    assert r.status_code == 422 and "ceiling" in r.text
+
+
+def test_leverage_below_one_is_refused_rather_than_clamped(client):
+    """`0.5` is somebody asking to deploy half their capital, which is a decision about
+    SIZE made by registering a smaller book. Reading it as 1 would run the book at twice
+    what its owner typed with nothing on the record to say so."""
+    r = register(client, key_for("lev6@example.test"), name="half", leverage=0.5)
+    assert r.status_code == 422 and "smallest" in r.text
+
+
+def test_the_limits_endpoint_publishes_a_ceiling_for_every_class(client):
+    """Including the ones whose ceiling is 1. A class absent from the map and a class that
+    may not be levered are different facts, and the console has to be able to say which."""
+    import api_strategies
+    body = client.get("/v1/limits",
+                      headers=auth(key_for("lev7@example.test"))).json()
+    assert set(body["max_leverage"]) == set(api_strategies.CLASSES)
+    for cls in api_strategies.CLASSES:
+        assert body["max_leverage"][cls] == api_config.max_leverage(cls)
+    assert body["default_leverage"] == api_config.DEFAULT_MAX_LEVERAGE
+
+
+def test_every_offered_leverage_is_one_the_desk_will_actually_run(client):
+    """The API's ceiling must be at or below the desk's, class by class — same contract as
+    `TIMEFRAMES`, and for the same reason: the desk is what enforces the ceiling on every
+    order, so offering one it refuses is a 201 here and a `rejected` row there.
+
+    Read off disk rather than imported: this process must not import the trading stack.
+    """
+    import re
+    import api_paths
+
+    src = (api_paths.REPO / "paper trading engine" / "paper_config.py").read_text(
+        encoding="utf-8")
+    listed = re.search(r"MAX_LEVERAGE = \{([^}]*)\}", src).group(1)
+    desk = {m: float(v) for m, v in re.findall(r'"([^"]+)":\s*([\d.]+)', listed)}
+    assert desk, "MAX_LEVERAGE is not a literal dict any more; update this test"
+    for cls, ceiling in api_config.MAX_LEVERAGE.items():
+        assert ceiling <= desk.get(cls, 1.0), (
+            f"the API offers {ceiling}x on {cls} and the desk runs at most "
+            f"{desk.get(cls, 1.0)}x")
+
+
+def test_long_flat_is_the_default_and_long_short_is_asked_for(client):
+    """`allow_short` was always a field and was never on the screen. It is the member's
+    choice now, and off is still off."""
+    raw = key_for("dir1@example.test")
+    flat = register(client, raw, name="flat")
+    both = register(client, raw, name="both", allow_short=True)
+    assert flat.json()["allow_short"] is False
+    assert both.json()["allow_short"] is True

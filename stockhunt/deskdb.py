@@ -120,6 +120,10 @@ CREATE TABLE IF NOT EXISTS registrations (
     -- is the default and means they are the same. See `_add_late_columns`.
     signal_tf   TEXT,
     capital     REAL NOT NULL,
+    -- How far the book may lever: gross exposure may not exceed `leverage` times equity.
+    -- 1.0 is no leverage and is what every row written before this column existed means.
+    -- See `_add_late_columns`.
+    leverage    REAL NOT NULL DEFAULT 1.0,
     benchmark   TEXT,
     rule        TEXT,                      -- house_rule only
     allow_short INTEGER NOT NULL DEFAULT 0,
@@ -372,6 +376,18 @@ def _add_late_columns(conn: sqlite3.Connection) -> None:
     # registration and every existing path treats it as one, which is the point.
     if "portfolio_id" not in have:
         conn.execute("ALTER TABLE registrations ADD COLUMN portfolio_id TEXT")
+
+    # How far the book may lever. The DEFAULT is the whole reason this can be a late
+    # column at all: `desk_orders.leverage_of` reads 1.0 for a row that has no value and
+    # for a row that has 1.0, and 1.0 is bit-for-bit the cash rule the desk enforced before
+    # leverage existed. So an existing registration keeps trading under exactly the terms
+    # it was written under, with nothing to migrate and nothing to re-agree.
+    #
+    # `ALTER TABLE ... DEFAULT 1.0` backfills every existing row to 1.0 rather than to
+    # NULL, which is what makes the two readings identical instead of merely equivalent.
+    if "leverage" not in have:
+        conn.execute("ALTER TABLE registrations ADD COLUMN leverage REAL NOT NULL "
+                     "DEFAULT 1.0")
     # The index cannot live in SCHEMA with the others: `executescript` runs before this
     # function, so against a database created before the column existed it would be asked
     # to index a column that is not there yet, and the whole script would fail — taking
@@ -433,6 +449,7 @@ def _shape(row: dict | None) -> dict | None:
 def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
              capital: float, *, kind: str = "member", benchmark: str | None = None,
              rule: str | None = None, allow_short: bool = False,
+             leverage: float = 1.0,
              signal_tf: str | None = None, portfolio_id: str | None = None) -> dict:
     """Ask the desk to run a strategy. Idempotent on `(account, name)`.
 
@@ -480,11 +497,12 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
         conn.execute("""
             INSERT INTO registrations
                 (strategy_id, account, name, kind, cls, symbols, tf, signal_tf, capital,
-                 benchmark, rule, allow_short, created_at, want, state, portfolio_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending',?)
+                 leverage, benchmark, rule, allow_short, created_at, want, state,
+                 portfolio_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending',?)
         """, (strategy_id, account, name, kind, cls, json.dumps(list(symbols)), tf,
-              signal_tf, float(capital), benchmark, rule, int(allow_short), utcnow(),
-              portfolio_id))
+              signal_tf, float(capital), float(leverage), benchmark, rule,
+              int(allow_short), utcnow(), portfolio_id))
     return _shape(_row("SELECT * FROM registrations WHERE strategy_id = ?",
                        (strategy_id,)))                      # type: ignore[return-value]
 

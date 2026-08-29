@@ -58,6 +58,11 @@ class MemberStrategyConfig(StrategyConfig, frozen=True):
     venue: str = "SANDBOX"
     capital: float = 10_000.0
     allow_short: bool = False
+    # Carried for the RECORD, not for the arithmetic. `desk_orders.validate` is what
+    # enforces the ceiling, off the ledger row, before an order ever reaches `place()` —
+    # this copy exists so the published book says under what terms it was run. A curve at
+    # 2x and a curve at 1x are not the same measurement and the document has to say which.
+    leverage: float = 1.0
     # Declared at registration or absent. A house rule benchmarks against buy-and-hold of
     # its own symbol; a multi-symbol strategy has no obvious baseline, and choosing one on
     # the manager's behalf would put this desk's opinion inside their track record.
@@ -117,7 +122,8 @@ class MemberStrategy(Strategy):
 
         self.log.info(f"member strategy {self.config.registration_id} live on "
                       f"{', '.join(self.config.symbols)} at {self.config.tf}, "
-                      f"capital {self.config.capital:,.0f}")
+                      f"capital {self.config.capital:,.0f}, "
+                      f"leverage {self.config.leverage:g}x")
 
         if self.config.export_state:
             paper_state.register(
@@ -129,7 +135,16 @@ class MemberStrategy(Strategy):
                 since=self.clock.utc_now().strftime("%Y-%m-%d"), days=0,
                 paper_pnl_pct=0.0, paper_trades=0, position_units=0, entry=None,
                 capital=self.config.capital, cash=self.config.capital, units=0.0,
-                equity=self.config.capital, turnover=0.0, note=self.config.note)
+                equity=self.config.capital, turnover=0.0,
+                # PUBLISHED, not merely held. `paper_pnl_pct` is `equity / capital - 1` for
+                # a levered book exactly as it is for an unlevered one — the base is the
+                # money the member put up either way, so the percentage is not on a
+                # different base and does not need re-scaling. What differs is the RISK
+                # behind it, and two rows reading `+8%` with nothing to separate 1x from 4x
+                # is a board that looks like it is comparing like with like. So the number
+                # travels with its leverage.
+                leverage=self.config.leverage,
+                note=self.config.note)
             paper_state.flush()
 
     # ------------------------------------------------------------------ the book
@@ -143,6 +158,18 @@ class MemberStrategy(Strategy):
     def equity(self) -> float:
         return self._cash + sum(self._units.get(s, 0.0) * self._last_price.get(s, 0.0)
                                 for s in self._units)
+
+    def gross(self) -> float:
+        """Total notional held, long plus short — what the leverage ceiling bounds.
+
+        Reported rather than enforced: `desk_orders.headroom` is what refuses an order, and
+        it works on the same `book()`/`prices()` pair this is computed from, so the figure
+        on the board and the figure in a refusal cannot disagree. Absolute values, because
+        a $5,000 long against a $5,000 short is $10,000 of market risk and nets to zero
+        only on paper.
+        """
+        return sum(abs(self._units.get(s, 0.0)) * self._last_price.get(s, 0.0)
+                   for s in self._units)
 
     # ------------------------------------------------------------------ instructions
     def place(self, row: dict) -> tuple[bool, str]:
@@ -277,7 +304,8 @@ class MemberStrategy(Strategy):
                 state=self._state_word(),
                 paper_pnl_pct=round((self.equity() / self.config.capital - 1) * 100, 3),
                 equity=round(self.equity(), 2), cash=round(self._cash, 4),
-                units=sum(self._units.values()), capital=self.config.capital)
+                units=sum(self._units.values()), capital=self.config.capital,
+                leverage=self.config.leverage, gross=round(self.gross(), 2))
             paper_state.flush(force=True)
 
     def on_order_rejected(self, event) -> None:
@@ -328,7 +356,8 @@ class MemberStrategy(Strategy):
             paper_pnl_pct=round(pnl_pct, 3), paper_trades=self._n_fills,
             position_units=round(sum(self._units.values()), 6),
             equity=round(equity, 2), cash=round(self._cash, 4),
-            units=sum(self._units.values()), capital=self.config.capital)
+            units=sum(self._units.values()), capital=self.config.capital,
+            leverage=self.config.leverage, gross=round(self.gross(), 2))
         paper_state.flush()
 
     def on_stop(self) -> None:
