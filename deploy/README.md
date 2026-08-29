@@ -321,7 +321,7 @@ Logs: `/opt/stockhunt/logs/autodeploy.log`, and `journalctl -u stockhunt-<unit>`
 ## Installing on a fresh box
 
 ```bash
-git clone https://github.com/TruongTrReal/stockhunt.git /opt/stockhunt
+git clone git@github.com:stockhunt1111/quant-research-sh-vn.git /opt/stockhunt   # PRIVATE: needs the deploy key below
 cd /opt/stockhunt && python3.12 -m venv .venv
 .venv/bin/pip install fastapi 'uvicorn[standard]' httpx nautilus_trader==1.230.0 \
     TA-Lib numpy pandas pyarrow requests websockets       # TA-Lib needs the C library:

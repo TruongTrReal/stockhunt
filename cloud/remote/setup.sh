@@ -29,10 +29,16 @@ ldconfig
 echo "    installed: $(ls /usr/lib/libta* 2>/dev/null | head -1)"
 
 echo "=== repo"
-# Public remote, so no credentials travel to the box. The clone brings the code, the
-# strategies and book_rules/; the bar cache and reference tier arrive separately by rsync
-# because /data/* is gitignored.
-REPO="${REPO:-https://github.com/TruongTrReal/stockhunt.git}"
+# The clone brings the code, the strategies and book_rules/; the bar cache and reference
+# tier arrive separately by rsync because /data/* is gitignored.
+#
+# THIS REMOTE IS PRIVATE as of 2026-08-29, and that broke the property this line used to
+# hold: it read "public remote, so no credentials travel to the box". They do now, or the
+# clone fails. A rented box is destroyed after ~20 hours, so a long-lived deploy key is a
+# poor thing to hand it -- prefer shipping the code the way the bars already travel, as a
+# `git archive` of HEAD piped over the ssh session fleet.sh has open anyway. Until that
+# lands, override REPO with a URL the box can actually read.
+REPO="${REPO:-git@github.com:stockhunt1111/quant-research-sh-vn.git}"
 if [ -d /opt/stockhunt/.git ]; then
   git -C /opt/stockhunt fetch -q origin master && git -C /opt/stockhunt reset -q --hard origin/master
 else
