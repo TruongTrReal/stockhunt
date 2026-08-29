@@ -20,8 +20,14 @@
  *  them: measured, absent from this row, or absent from this sheet. */
 type N = number | null | undefined;
 
-export const fmtPct = (v: N, d = 2) =>
-  v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
+/* `−0.00%` says a loss too small to print and reads as a defect; the sign is decided on
+   what SURVIVES the rounding, not on the raw value. A figure that rounds to zero is zero,
+   and it takes the `+`. */
+export const fmtPct = (v: N, d = 2) => {
+  if (v == null) return "—";
+  const shown = Math.abs(v).toFixed(d);
+  return (v >= 0 || Number(shown) === 0 ? "+" : "−") + shown + "%";
+};
 export const fmtIR = (v: N) =>
   v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);
 /** Annualised growth, printed unsigned: 17.51% reads as a rate, +17.51% reads as a gain. */
