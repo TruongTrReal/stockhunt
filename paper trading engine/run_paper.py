@@ -70,6 +70,9 @@ from nautilus_trader.trading.config import ImportableControllerConfig
 from nautilus_trader.live.node import TradingNode
 from nautilus_trader.model.data import BarType
 from nautilus_trader.model.identifiers import InstrumentId, Symbol, Venue
+# The hard ceiling on a Nautilus account balance. Imported rather than restated because a
+# funding figure above it does not degrade — `Money` raises and the node fails to build.
+from nautilus_trader.model.objects import MONEY_MAX
 
 VENUES = paper_config.VENUES
 # The crypto venue is singled out below when funding accounts: it is the one that must stay
@@ -170,7 +173,13 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     # strategy registering onto a venue the plan barely used would find nothing to trade
     # with. Over-funding a SANDBOX account costs nothing and is invisible: every system
     # sizes against its own book (`self._cash`), never the venue balance.
-    headroom = desk_control.MAX_MEMBER_STRATEGIES
+    # `FUNDING_HEADROOM_STRATEGIES`, NOT `MAX_MEMBER_STRATEGIES`. The two were one constant
+    # until the strategy ceiling was raised to a number no real use reaches — at which
+    # point this line became `$10,000 x 100,000`, and a Nautilus `Money` refuses anything
+    # above 9,223,372,036, so the node would have failed to BUILD on every start. A guess
+    # at how many books might attach before the next restart is not the same quantity as a
+    # refusal ceiling, and it never was.
+    headroom = desk_control.FUNDING_HEADROOM_STRATEGIES
     funding = {v: capital * (n + headroom) for v, n in per_venue.items()}
 
     # Plus whatever is REGISTERED. A venue account is funded before its client connects
@@ -178,18 +187,53 @@ def build_node(plan: list[tuple], allow_short: bool, log_level: str,
     # per-system size — has to cover the books too. It does not: twelve $100,000 equity
     # books are $1.2M against $600,000 of headroom, and the shortfall does not announce
     # itself, it just stops filling partway through.
+    #
+    # ...and it is `capital x leverage`, not capital. A member book registered at 4x may
+    # legitimately hold four times its own capital in gross exposure, and the venue account
+    # is what those fills are paid for out of. Funding it at capital alone would let the
+    # desk accept an order `desk_orders` had correctly approved and then fill part of it —
+    # the shortfall does not raise, it simply stops filling, which is the same silent
+    # under-funding this block was added to fix, wearing the new setting.
+    #
+    # **A mixed-class registration is funded at its FULL size on EVERY venue it touches,
+    # not split between them.** Its cash is one pot (`MemberStrategy._cash`), so the whole
+    # book can legitimately be deployed into any single one of its venues at any moment —
+    # a split would under-fund exactly the case somebody registered a mixed book to run.
+    # Over-funding a sandbox account costs nothing and is invisible: every system sizes
+    # against its own book, never the venue balance, which is the argument the headroom
+    # above already rests on.
+    #
+    # A symbol the desk has not resolved yet has NO venue to name — `symbol_resolve` runs
+    # at attach, minutes or days after this — so it is credited to every venue. There are
+    # four of them and the money is imaginary; guessing one and being wrong is a book that
+    # stops filling halfway through with nothing raised.
     try:
         from stockhunt import deskdb
+        import desk_orders
         for reg in deskdb.active_registrations():
-            venue = paper_config.VENUES.get(reg["cls"])
-            if venue in funding:
-                funding[venue] += float(reg["capital"])
+            size = float(reg["capital"]) * desk_orders.leverage_of(reg)
+            for venue in _venues_of(reg, funding):
+                funding[venue] += size
     except Exception as exc:
         print(f"  ! could not read the ledger to size the venues: {exc}")
     # Doubled, because a book's equity GROWS and Nautilus checks the account balance on
     # every order. A book that doubled would start being refused at exactly the point it
     # was working, which is the least helpful moment for a limit nobody set deliberately.
     funding = {v: f * 2 for v, f in funding.items()}
+    # CLAMPED LAST, and this is a hard vendor limit rather than a policy. A Nautilus
+    # `Money` is bounded at MONEY_MAX (9,223,372,036) and `Money.from_str` RAISES above it,
+    # inside `TradingNode` construction — so an over-funded venue does not degrade, it
+    # stops the desk from starting. Reachable now that a book may be $10,000,000 at 125x:
+    # two such registrations on one venue are $2.5bn before the doubling. Announced rather
+    # than silent, because at the clamp the account no longer covers what is registered on
+    # it and the symptom of that is a fill that stops partway through.
+    for v, f in list(funding.items()):
+        if f > MONEY_MAX:
+            print(f"  ! {v} would need ${f:,.0f} to cover what is registered on it and a "
+                  f"Nautilus account balance stops at ${MONEY_MAX:,.0f}. Funding it at "
+                  f"the ceiling; orders past it will fill partially rather than be "
+                  f"refused, so retire something or register less capital on this venue.")
+            funding[v] = MONEY_MAX
     print("  capital: " + ", ".join(
         f"{v} ${capital:,.0f} × {n} systems (+{headroom} spare) = ${funding[v]:,.0f}"
         for v, n in per_venue.items()))
@@ -385,6 +429,41 @@ FUTURES_MARK_SECONDS = 300
 # because a board that says `stream` and a log line that says `tick socket` describe the
 # same thing to a reader who has no way of knowing that.
 MARK_SOURCE = {"stream": "tick stream", "poll": "REST /price poll"}
+
+
+def _venues_of(reg: dict, known: dict) -> list[str]:
+    """Every venue a registration's fills could land on. Its class is no longer the answer.
+
+    It was `paper_config.VENUES[reg["cls"]]`, one venue per registration, which is correct
+    exactly while a registration holds one class. Since 2026-08-29 it may hold several, so
+    the venue is a property of each SYMBOL and this is the set of them.
+
+    Two cases the symbol cannot answer, and both resolve to "every venue":
+
+    * **A `book` names no symbols at all** — it holds whoever is in its class right now —
+      so its class really is the answer, and it is in `CLASS_OF` for every name it will
+      ever hold.
+    * **A symbol the desk has not resolved yet.** `symbol_resolve` runs at attach, which is
+      minutes or days after this function, so an unadmitted name has no class and no venue.
+      Crediting it to all four is deliberate: the money is imaginary and over-funding a
+      sandbox account is invisible, while guessing one venue and being wrong is a book that
+      stops filling partway through with nothing raised anywhere.
+
+    `known` is the funding map, so a venue that this node did not build is skipped rather
+    than created — the same containment `funding[venue] += ...` already had.
+    """
+    out, unresolved = set(), False
+    for symbol in reg.get("symbols") or ():
+        cls = paper_config.class_of_symbol(symbol)
+        if cls is None:
+            unresolved = True
+            continue
+        out.add(paper_config.VENUES.get(cls))
+    if unresolved:
+        out.update(paper_config.VENUES.values())
+    if not out:                                # a `book`, or a row with no symbols at all
+        out.add(paper_config.VENUES.get(reg["cls"]))
+    return [v for v in sorted(x for x in out if x) if v in known]
 
 
 def _split_by_feed(symbols) -> tuple[list[str], list[str]]:

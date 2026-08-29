@@ -1,13 +1,17 @@
 class,tf,n_rules,n_folds,oos_start
 cme_futures,1d,549,14,2013-06-07
 cme_futures,1h,409,8,2019-01-03
+cme_futures,4h,178,8,2019-01-03
 commodities,15m,391,4,2023-01-19
 commodities,1d,433,24,2003-01-04
 commodities,1h,401,4,2023-01-19
 commodities,4h,543,4,2023-01-19
 commodities,5m,143,4,2023-02-25
+crypto,15m,380,4,2023-02-20
 crypto,1d,543,6,2020-08-29
+crypto,1h,403,4,2023-01-07
 crypto,4h,543,4,2023-01-07
+crypto,5m,362,4,2023-03-26
 us_etfs,15m,412,4,2023-02-10
 us_etfs,1d,553,24,2003-01-03
 us_etfs,1h,412,4,2023-02-10
@@ -16,3 +20,4 @@ us_stocks,15m,412,4,2022-09-17
 us_stocks,1d,553,24,2003-01-03
 us_stocks,1h,412,5,2022-01-08
 us_stocks,4h,553,5,2022-06-21
+us_stocks,5m,391,4,2023-01-09

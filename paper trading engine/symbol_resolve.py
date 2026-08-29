@@ -43,6 +43,13 @@ So resolution here is three things in order, and the first two cost nothing:
 a ticker is even the US company, and cache the verdict so the offline path can apply it.
 This is that question asked at registration time instead of at sweep time.
 
+**There are two doors, and they answer different questions.** `resolve(symbol, cls)` asks
+*is this symbol the instrument this class means* — right while a registration declares one
+class for everything it holds. `classify(symbol, declared)` asks *which class is this
+symbol* and then calls `resolve` for the answer, which is what a registration holding
+`AAPL` and `BTC/USD` needs: there is no single declared class to check either of them
+against. Since 2026-08-29 `desk_control._resolve_open` goes through `classify`.
+
 **A refusal is a sentence, never a bare False.** It lands in the registration's `reason`
 column, which is what its owner is looking at. A wrong instrument that trades is far worse
 than a registration that was declined, and a decline nobody can act on is barely better.
@@ -340,6 +347,68 @@ def resolve(symbol: str, asset_class: str, *, use_cache: bool = True) -> Resolut
         if hit is not None:
             return hit
     return _remember(_probe(symbol, asset_class))
+
+
+def classify(symbol: str, declared: str) -> Resolution:
+    """Which class does this symbol belong to, and may the desk trade it there?
+
+    `resolve` answers "is this symbol the instrument this class means", which is the right
+    question when the registration declares one class for everything it holds. It is the
+    wrong question for a registration holding several classes at once: there is no single
+    declared class to check `BTC/USD` against on a book that also holds `AAPL`.
+
+    So this decides the class first and then calls `resolve` for it. The `Resolution` that
+    comes back carries `asset_class`, which is the answer — the caller reads it rather than
+    the class it passed in.
+
+    Four cases, cheapest first, and only the third can reach a vendor:
+
+    1. **Already on the desk.** `CLASS_OF` holds every pinned leg and everything `admit`
+       has let in. That answer is a human's edit to `UNIVERSE` or a verdict already paid
+       for, and re-litigating it against a vendor at registration time would let one bad
+       `/quote` refuse a symbol the desk is holding a position in.
+    2. **`ROOT.v.RANK`** is Databento's continuous-contract symbology and nothing else on
+       this desk is spelled that way, so the shape IS the classification. It resolves
+       offline — see `_cme_roots`.
+    3. **One `/`** is a settled pair, and the two pair classes are spelled alike. Which one
+       is not inferable from the separator: routing on it is what once priced a metal
+       against the Binance book. The vendor's `exchange` field decides — `Forex` is a
+       spot/FX pair and anything else is a coin — and `resolve` already asks it, so this
+       tries `commodities` and reads the refusal, which NAMES the other class rather than
+       merely rejecting. One probe, one credit, and the answer is cached either way.
+    4. **A bare ticker** is an equity or an ETF, and this desk cannot tell those apart
+       cheaply — Twelve Data's `/quote` carries a name and a venue, not an instrument
+       type. It does not have to: the two share the `SANDBOX` venue, the same whole-share
+       `Equity`, the same vendor and the same clock, so for a MEMBER book the distinction
+       is a dashboard label and nothing else. The declared class is kept when it is one of
+       those two, and `us_stocks` is the fallback otherwise. (It matters for a
+       `house_rule`, which selects off `wf_summary_<cls>_<tf>.csv` — and a house rule can
+       never reach this function: `_resolve_open` refuses an unknown symbol there.)
+    """
+    symbol = (symbol or "").strip()
+    held = paper_config.CLASS_OF.get(symbol)
+    if held is not None:
+        return Resolution(symbol=symbol, asset_class=held, ok=True,
+                          reason=f"{symbol} already trades on this desk as {held}")
+
+    if CONTINUOUS.match(symbol):
+        return resolve(symbol, "cme_futures")
+
+    if "/" in symbol:
+        # Asked as `commodities` on purpose, because that arm's refusal is the one that
+        # says "register it as crypto" with the vendor's own words in it. Asking as crypto
+        # first would work identically and answer the two the other way round; what must
+        # not happen is guessing from the separator, which is the inference that priced a
+        # metal against the Binance book.
+        first = resolve(symbol, "commodities")
+        if first.ok:
+            return first
+        if str(first.detail.get("exchange") or "") not in ("", FOREX_EXCHANGE):
+            return resolve(symbol, "crypto")
+        return first
+
+    equity = declared if declared in EQUITY_CLASSES else "us_stocks"
+    return resolve(symbol, equity)
 
 
 def _probe(symbol: str, asset_class: str) -> Resolution:

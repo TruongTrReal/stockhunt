@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 import api_auth
 import api_config
@@ -56,21 +56,41 @@ SYMBOLS_MAX = 20
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=NAME_MAX, examples=["meanrev"])
     cls: str = Field(..., examples=["us_stocks"],
-                     description="Which asset class, and therefore which venue")
+                     description="The book's HOME class: what the board files it under, "
+                                 "and the class the desk assumes for a symbol it cannot "
+                                 "place on its own. It is no longer a claim about every "
+                                 "symbol — since 2026-08-29 one registration may hold "
+                                 "instruments from several classes and the desk decides "
+                                 "each symbol's class from the symbol.")
     symbols: list[str] = Field(..., min_length=1, max_length=SYMBOLS_MAX,
-                               examples=[["SPY"]])
+                               examples=[["SPY", "BTC/USD"]],
+                               description="They may come from different asset classes. "
+                                           "The desk resolves each one, places it on its "
+                                           "own venue and vendor, and refuses the whole "
+                                           "registration — naming the symbol — if any of "
+                                           "them cannot be fed at this timeframe.")
     tf: str = Field("1d", examples=["1d"])
     benchmark: str | None = Field(
         None, description="Optional. Declared, never guessed — a multi-symbol strategy "
                           "has no obvious baseline, and choosing one for you would put "
                           "this desk's opinion inside your track record.")
-    allow_short: bool = False
+    allow_short: bool = Field(
+        False,
+        description="Long/short if true, long/flat if false. Long/flat means a sell may "
+                    "only close a long; it can never open a short.")
     capital: float | None = Field(
         None, examples=[10000],
         description="What the book is funded with. Defaults to the desk's standard "
                     "book; ask for more when one unit of what you trade costs more than "
                     "that. On cme_futures a unit is a fractional notional unit of a "
                     "back-adjusted series, so one NQ.v.0 is ~$29,600.")
+    leverage: float | None = Field(
+        None, examples=[1],
+        description="Gross exposure — longs plus shorts, at absolute size — may reach "
+                    "this multiple of the book's EQUITY. 1 is no leverage and is the "
+                    "default. The ceiling is per class and is published by /v1/limits; "
+                    "an order past the ceiling is refused with the numbers in it, and a "
+                    "book at zero equity may only close positions.")
 
     @field_validator("capital")
     @classmethod
@@ -82,13 +102,20 @@ class RegisterRequest(BaseModel):
         decision rather than a rounding. The CEILING is that this is a shared sandbox
         venue — `run_paper` funds each venue from the sum of what is registered on it, so
         an unbounded book is a way to make every other book on that venue meaningless.
+
+        **The floor is $1,000 since 2026-08-29 and the rounding argument still holds at
+        it** — it is worse there, not better. It is not blocked because the owner decided
+        so; it is made visible instead, by `desk_control._affordability_caveat`, which
+        prices one unit of every registered symbol against the book's real buying power at
+        attach and writes the arithmetic onto the row.
         """
         if v is None:
             return None
-        if v < api_config.CAPITAL_PER_STRATEGY:
+        if v < api_config.MIN_CAPITAL_PER_STRATEGY:
             raise ValueError(
-                f"the smallest book is ${api_config.CAPITAL_PER_STRATEGY:,.0f} — below "
-                f"that, rounding a whole share stops being a rounding")
+                f"the smallest book is ${api_config.MIN_CAPITAL_PER_STRATEGY:,.0f} — "
+                f"below that a whole share stops being a rounding and becomes the whole "
+                f"position")
         if v > api_config.MAX_CAPITAL_PER_STRATEGY:
             raise ValueError(
                 f"the largest is ${api_config.MAX_CAPITAL_PER_STRATEGY:,.0f}; this is a "
@@ -135,6 +162,66 @@ class RegisterRequest(BaseModel):
             raise ValueError("the same symbol twice")
         return out
 
+    @model_validator(mode="after")
+    def _leverage(self):
+        """One range for every class: 1x to `api_config.MAX_LEVERAGE_ALL`.
+
+        **Still a model validator rather than a field one**, and deliberately so even
+        though it no longer needs `cls`. It was per class because each ceiling was anchored
+        to a real venue's margin rules, and if a ceiling is ever per class again this is
+        where it goes back — moving it to a field validator would have to be undone to do
+        that, and a field validator cannot see `cls`.
+
+        Below 1 is refused rather than clamped up. `leverage=0.5` is somebody asking to
+        deploy half their capital, which is a decision about SIZE they make by registering
+        a smaller book — silently reading it as 1 would run a book at twice what its owner
+        typed and there would be nothing on the record to say so.
+        """
+        if self.leverage is None:
+            return self
+        lev = float(self.leverage)
+        ceiling = api_config.max_leverage(self.cls)
+        if lev < 1.0:
+            raise ValueError(
+                "leverage is a multiple of your equity and 1 is the smallest — it means "
+                "no leverage. To deploy less than your capital, register a smaller book")
+        if lev > ceiling:
+            raise ValueError(
+                f"{lev:g}x is beyond what this desk runs: the ceiling is {ceiling:g}x on "
+                f"every class. At {ceiling:g}x an adverse move of "
+                f"{api_config.wipeout_move_pct(ceiling):.2g}% takes a fully deployed book "
+                f"to zero equity, which is where the number stops")
+        return self
+
+
+class RefusedOrder(BaseModel):
+    """The desk's most recent refusal for a strategy, in the desk's own words.
+
+    `reason` is carried VERBATIM and is never re-worded here. It is written by
+    `desk_orders`, which is the only process that can see the book, and the API's own
+    checks are deliberately the fast, kind ones — a second wording of a refusal would be
+    this layer's opinion about somebody else's finding.
+    """
+    client_order_id: str
+    symbol: str | None = None
+    side: str | None = None
+    qty: float | None = None
+    reason: str | None = None
+    submitted_at: str
+
+
+class OrderStats(BaseModel):
+    """What has happened to this strategy's orders, so "no fills" can stop being ambiguous.
+
+    A book that has never been sent an order and a book that has had every order refused
+    print the same "No fills yet" on any page that only reads fills. They are completely
+    different situations, and the difference is here: `total` against
+    `by_state['rejected']`, with the newest refusal attached.
+    """
+    total: int = 0
+    by_state: dict[str, int] = {}
+    last_rejected: RefusedOrder | None = None
+
 
 class StrategyOut(BaseModel):
     strategy_id: str
@@ -144,6 +231,10 @@ class StrategyOut(BaseModel):
     symbols: list[str]
     tf: str
     capital: float
+    # What was actually registered, always — not only when it is not 1. A field that
+    # appears only on levered books makes "unlevered" and "an older desk that has never
+    # heard of leverage" read identically to a client, and those are different facts.
+    leverage: float = 1.0
     benchmark: str | None = None
     allow_short: bool = False
     # What you asked for, and what the desk has actually done. They disagree for a while
@@ -154,13 +245,26 @@ class StrategyOut(BaseModel):
     reason: str | None = None
     created_at: str
     applied_at: str | None = None
+    # What the desk has done with this strategy's ORDERS, which is where every refusal it
+    # has ever written lives. Absent (None) when the caller asked for one strategy and this
+    # process did not price the whole account's ledger for it — a missing summary and a
+    # summary of zero are different claims, and only the second one means "nothing has been
+    # sent".
+    orders: OrderStats | None = None
 
 
-def _out(row: dict) -> StrategyOut:
+def _out(row: dict, orders: dict | None = None) -> StrategyOut:
     return StrategyOut(
         strategy_id=row["strategy_id"], name=row["name"], kind=row["kind"],
         cls=row["cls"], symbols=row["symbols"], tf=row["tf"],
-        capital=row["capital"], benchmark=row["benchmark"],
+        capital=row["capital"],
+        orders=None if orders is None else OrderStats(**orders),
+        # A row written before the column existed reads NULL through an older sqlite file
+        # that `_add_late_columns` has not been opened by yet. 1.0 is what the desk reads
+        # it as (`desk_orders.leverage_of`), so it is what this must report — two processes
+        # disagreeing about whether a book is levered is the worst possible place to differ.
+        leverage=float(row.get("leverage") or 1.0),
+        benchmark=row["benchmark"],
         allow_short=bool(row["allow_short"]), want=row["want"], state=row["state"],
         reason=row["reason"], created_at=row["created_at"],
         applied_at=row["applied_at"])
@@ -184,8 +288,25 @@ class LimitsOut(BaseModel):
     timeframes: list[str]
     name_max: int
     symbols_max: int
+    # The DEFAULT book, which is not the floor. They were one number until 2026-08-29, and
+    # a console reading `capital_per_strategy` as both would put the floor in the input's
+    # `value` and refuse everything below it — so both are published and both are named.
     capital_per_strategy: float
+    min_capital_per_strategy: float
     max_capital_per_strategy: float
+    # The leverage ceiling per class, still a MAP although every entry is the same number
+    # now. A class absent from the map and a class that may not be levered are different
+    # facts the console has to be able to tell apart, and a ceiling that becomes per class
+    # again should not also be a change of wire format.
+    max_leverage: dict[str, float]
+    # What a book gets when it names no leverage: 1, no leverage. Not a ceiling.
+    default_leverage: float
+    # The adverse move, in per cent, that takes a book at the ceiling to zero equity —
+    # 100 / max_leverage, so 0.8 at 125x. Published rather than computed on the page for
+    # the reason the wizard states no number it does not fetch: it is the one figure that
+    # says what a leverage setting costs, and a page that derived it would go on printing
+    # last month's answer the day the ceiling moved.
+    wipeout_move_pct: float
     max_strategies: int
     max_orders_per_minute: int
     # Per class, the symbols the desk already holds — empty when the desk has not
@@ -249,7 +370,15 @@ def limits(who: dict = Depends(api_auth.current_principal)) -> LimitsOut:
         name_max=NAME_MAX,
         symbols_max=SYMBOLS_MAX,
         capital_per_strategy=api_config.CAPITAL_PER_STRATEGY,
+        min_capital_per_strategy=api_config.MIN_CAPITAL_PER_STRATEGY,
         max_capital_per_strategy=api_config.MAX_CAPITAL_PER_STRATEGY,
+        # Every class gets an entry, even though every entry is now the same number. A
+        # class missing from the map and a class with a ceiling would otherwise look the
+        # same to the console, and it has to be able to state the terms rather than fall
+        # silently back to a default it invented.
+        max_leverage={c: api_config.max_leverage(c) for c in CLASSES},
+        default_leverage=api_config.DEFAULT_LEVERAGE,
+        wipeout_move_pct=api_config.wipeout_move_pct(api_config.MAX_LEVERAGE_ALL),
         max_strategies=api_config.MAX_STRATEGIES_PER_ACCOUNT,
         max_orders_per_minute=api_config.MAX_ORDERS_PER_MINUTE,
     )
@@ -333,21 +462,40 @@ def register(body: RegisterRequest, request: Request,
     row = deskdb.register(
         account, body.name, body.cls, body.symbols, body.tf,
         body.capital or api_config.CAPITAL_PER_STRATEGY, kind="member",
-        benchmark=body.benchmark, allow_short=body.allow_short)
+        benchmark=body.benchmark, allow_short=body.allow_short,
+        leverage=body.leverage or 1.0)
+    # Leverage and the short permission are in the audit line, not only in the row. They
+    # are the two settings that change what somebody's money is allowed to do, and a row
+    # can be revived by a later register while the log is append-only — so this is the only
+    # place that records the terms as they were agreed, on the day they were agreed.
     authdb.audit("strategy.registered", who["email"], api_auth.client_ip(request),
-                 f"{row['strategy_id']} {body.cls} {','.join(body.symbols)} {body.tf}")
+                 f"{row['strategy_id']} {body.cls} {','.join(body.symbols)} {body.tf} "
+                 f"{body.capital or api_config.CAPITAL_PER_STRATEGY:.0f} "
+                 f"{body.leverage or 1.0:g}x "
+                 f"{'long/short' if body.allow_short else 'long/flat'}")
     return _out(row)
 
 
 @router.get("", response_model=list[StrategyOut], summary="Your strategies")
 def mine(who: dict = Depends(api_auth.current_principal)) -> list[StrategyOut]:
-    return [_out(r) for r in deskdb.registrations(who["account_id"])]
+    """Every registration, each carrying what has happened to its orders.
+
+    The order summary rides along on this call rather than being a second endpoint the
+    console polls per strategy. It is TWO grouped queries for the whole account — see
+    `deskdb.order_summary` — against N+1 requests every two seconds, and it means the
+    refusal is on the row at the moment the row is drawn rather than one click away.
+    """
+    summary = deskdb.order_summary(who["account_id"])
+    return [_out(r, summary.get(r["strategy_id"], {}))
+            for r in deskdb.registrations(who["account_id"])]
 
 
 @router.get("/{strategy_id}", response_model=StrategyOut, summary="One strategy")
 def one(strategy_id: str,
         who: dict = Depends(api_auth.current_principal)) -> StrategyOut:
-    return _out(_mine(strategy_id, who["account_id"]))
+    account = who["account_id"]
+    return _out(_mine(strategy_id, account),
+                deskdb.order_summary(account).get(strategy_id, {}))
 
 
 @router.post("/{strategy_id}/pause", response_model=StrategyOut,

@@ -164,3 +164,9 @@ combo_per_asset_*.parquet
 **/results/riskmatch.closefill_archive.parquet
 **/results/riskmatch.mega20.parquet
 *.csv.bak
+
+# Fleet runtime state: instance ids, IPs and per-class file manifests. Session-local, and
+# an instance id in git is a stale pointer at a destroyed box.
+cloud/.fleet/
+cloud/*.log
+cloud/plans.json

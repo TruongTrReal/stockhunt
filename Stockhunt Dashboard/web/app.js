@@ -1169,65 +1169,106 @@ function liveMetrics(rows, curve, cls, tf) {
   };
 }
 
-/* [label, printed value, what it means]. Flat rather than driven by a key list like
- * `METRIC_ROWS`, because half of these are counts and dollars that need their own
- * formatter and a shared one would be a switch statement pretending to be a table. */
+/* [label, printed value, what it means, why it is blank]. Flat rather than driven by a key
+ * list like `METRIC_ROWS`, because half of these are counts and dollars that need their own
+ * formatter and a shared one would be a switch statement pretending to be a table.
+ *
+ * **The fourth element is the whole reason this list is not just rendered.** A young system
+ * can compute four of these fifteen, so the table used to be eleven rows of em-dash with
+ * the explanation buried in a third column nobody reads down a blank column — a table that
+ * says "Sharpe —, Win rate —, Profit factor —, Average win —" reads as a broken page rather
+ * than as a young one. A row with an absence reason is lifted OUT of the table by
+ * `liveMetricsSection` and named in one sentence underneath instead, grouped by reason. The
+ * fact survives, the furniture does not, and a system with a full record loses nothing
+ * because none of its rows carries a reason.
+ *
+ * The reason strings are short and stand alone: they are all the reader gets for that
+ * metric, so they must say what is missing rather than that something is. */
 function liveMetricRows(m) {
   const dash = "—";
   // Not an error and not a gap in the record: these fills predate the desk recording
   // what each one closed, so the closed-trade statistics cannot be derived from them yet.
   // The underlying fills are complete either way, which is what the sentence has to say.
-  const stale = "not available for this period — these fills were recorded before the " +
-    "desk began tracking what each one closed. The fill record itself is complete.";
-  const short = `not yet — needs ${MIN_METRIC_BARS} bars of record, there ` +
+  const stale = "these fills were recorded before the desk began tracking what each one " +
+    "closed, so they cannot be derived. The fill record itself is complete";
+  const shortWhy = `needs ${MIN_METRIC_BARS} bars of record, there ` +
     `${m.bars === 1 ? "is" : "are"} ${m.bars}`;
+  const twoBars = `needs two closed bars, there ${m.bars === 1 ? "is" : "are"} ${m.bars}`;
+  const noClosed = "no fill has closed a position yet — every one so far opened or added";
+  // Present, but only when the desk has recorded what each fill closed AND something has
+  // closed. The three states are different facts and only the middle one is an absence
+  // this page can date: `priced` is about the payload, `closed` is about the desk.
+  const closedWhy = !m.priced ? stale : m.closed ? null : noClosed;
   return [
     ["Total P&L", fmtPct(m.total),
-     "Cumulative percent since this system's first fill, chained across restarts."],
+     "Cumulative percent since this system's first fill, chained across restarts.",
+     m.total == null ? "no closed bar on the record yet" : null],
     ["Max drawdown", m.maxdd == null ? dash : fmtPct(m.maxdd, 2),
-     "Worst fall from a high-water mark of the live record. Percentage points of P&L, not of equity."],
+     "Worst fall from a high-water mark of the live record. Percentage points of P&L, not of equity.",
+     m.maxdd == null ? "no closed bar on the record yet" : null],
     ["Volatility", m.vol == null ? dash : fmtNum(m.vol, 1) + "%",
-     m.vol == null ? short
-       : `Annualised standard deviation of the bar-to-bar record, on ${m.bpy} bars a year.`],
+     `Annualised standard deviation of the bar-to-bar record, on ${m.bpy} bars a year.`,
+     m.vol == null ? shortWhy : null],
     ["Sharpe", m.sharpe == null ? dash : fmtNum(m.sharpe, 2),
-     m.sharpe == null ? short
-       : "Mean bar return over its standard deviation, annualised, idle cash at 0%. Months of record before this means anything."],
+     "Mean bar return over its standard deviation, annualised, idle cash at 0%. Months of record before this means anything.",
+     m.sharpe == null ? shortWhy : null],
     ["Best bar", m.best == null ? dash : fmtPct(m.best),
-     "Largest single-bar gain on the record."],
+     "Largest single-bar gain on the record.", m.best == null ? twoBars : null],
     ["Worst bar", m.worst == null ? dash : fmtPct(m.worst),
-     "Largest single-bar loss on the record."],
+     "Largest single-bar loss on the record.", m.worst == null ? twoBars : null],
     ["Fills", m.lifetime.toLocaleString(),
-     "Every order that filled, lifetime — the count in the database, not this session's."],
+     "Every order that filled, lifetime — the count in the database, not this session's.", null],
     ["Closed trades", m.priced ? m.closed.toLocaleString() : dash,
-     m.priced
-       ? "Fills that closed part of a position. An opening or adding fill is not one, because it closed nothing."
-       : stale],
+     "Fills that closed part of a position. An opening or adding fill is not one, because it closed nothing.",
+     m.priced ? null : stale],
     ["Realised P&L", m.priced ? cash(m.realised) : dash,
-     m.priced
-       ? "Cash actually booked by the closed trades above, against what the closed part cost. Open positions are not in it — those are in Total P&L."
-       : stale],
+     "Cash actually booked by the closed trades above, against what the closed part cost. Open positions are not in it — those are in Total P&L.",
+     closedWhy],
     ["Win rate", m.win_rate == null ? dash : fmtNum(m.win_rate, 1) + "%",
-     m.priced
-       ? "Share of closed trades that realised a gain. A low rate is fine if the wins are large."
-       : stale],
+     "Share of closed trades that realised a gain. A low rate is fine if the wins are large.",
+     closedWhy],
     ["Profit factor", m.profit_factor == null ? dash : fmtNum(m.profit_factor, 2),
-     !m.priced ? stale
-       : m.closed && m.profit_factor == null
-         ? "No closed trade has lost yet, so there is nothing to divide by."
-         : "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses."],
+     "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses.",
+     closedWhy || (m.profit_factor == null
+       ? "no closed trade has lost yet, so there is nothing to divide by" : null)],
     ["Average win", m.priced ? cash(m.avg_win) : dash,
-     m.priced ? "Mean realised P&L of a winning trade." : stale],
+     "Mean realised P&L of a winning trade.",
+     closedWhy || (m.avg_win == null ? "no closed trade has gained yet" : null)],
     ["Average loss", m.priced ? cash(m.avg_loss) : dash,
-     m.priced ? "Mean realised P&L of a losing trade." : stale],
+     "Mean realised P&L of a losing trade.",
+     closedWhy || (m.avg_loss == null ? "no closed trade has lost yet" : null)],
     ["Turnover / yr", m.turnover == null ? dash : fmtNum(m.turnover, 1),
-     "Round trips per name per year — the unit the walk-forward sheets report, so the two compare."],
+     "Round trips per name per year — the unit the walk-forward sheets report, so the two compare.",
+     m.turnover == null ? "the desk has not published one for this system" : null],
     ["Bars recorded", m.bars.toLocaleString(),
-     "Closed bars behind every figure above. This is the number that says how much to trust them."],
+     "Closed bars behind every figure above. This is the number that says how much to trust them.",
+     null],
   ];
+}
+
+/* One sentence per REASON, not one per metric. Five rows held back for the same reason is
+ * one fact about the record, and listing it five times is the same wall of em-dashes in
+ * prose. `Map` and not an object literal: the reasons are sentences and insertion order is
+ * the table's own order, which is the order a reader has just scanned. */
+function heldBackNote(rows) {
+  const byReason = new Map();
+  rows.forEach(([name, , , why]) => {
+    if (!why) return;
+    if (!byReason.has(why)) byReason.set(why, []);
+    byReason.get(why).push(name);
+  });
+  if (!byReason.size) return "";
+  const list = names => names.length === 1 ? `<b>${names[0]}</b>`
+    : names.slice(0, -1).map(n => `<b>${n}</b>`).join(", ")
+      + ` and <b>${names[names.length - 1]}</b>`;
+  return `<p class="held-back">Not on the table yet:
+    ${[...byReason].map(([why, names]) => `${list(names)} — ${why}`).join("; ")}.</p>`;
 }
 
 function liveMetricsSection(rows, curve, cls, tf) {
   const m = liveMetrics(rows, curve, cls, tf);
+  const all = liveMetricRows(m);
+  const have = all.filter(r => !r[3]);
   return `
   <section class="sec">
     <div class="sec-head"><h2>Performance metrics</h2>
@@ -1235,7 +1276,7 @@ function liveMetricsSection(rows, curve, cls, tf) {
     <div class="tbl-wrap metrics-box"><table>
       <thead><tr><th class="l">Metric</th><th>Value</th>
         <th class="l">What it means</th></tr></thead>
-      <tbody>${liveMetricRows(m).map(([name, val, help]) => `
+      <tbody>${have.map(([name, val, help]) => `
         <tr><td class="l">${name}</td>
           <td class="num">${val}</td>
           <td class="l" style="white-space:normal;color:var(--muted);font-size:12.5px">${help}</td>
@@ -1249,6 +1290,7 @@ function liveMetricsSection(rows, curve, cls, tf) {
       are the desk's own live arithmetic and are not directly comparable with the research
       figures.</caption>
     </table></div>
+    ${heldBackNote(all)}
   </section>`;
 }
 
@@ -1291,6 +1333,29 @@ function downloadFills(rows, cls, tf, rule) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/* "No fills yet" is TRUE of two completely different books and used to be all either got.
+ *
+ * A book nobody has ever sent an order to is warming up. A book that has had every one of
+ * its orders refused has been stopped by the desk, which wrote a precise reason on each —
+ * and those reasons live in the order ledger, which this page does not read. So the COUNT
+ * is published into `live.json` by `desk_control._publish_refusals` and the sentence points
+ * at the console, where the reasons already are.
+ *
+ * Only the count crosses over. A refusal names sizes and cash balances, and this document
+ * is the shared one. */
+function refusalNote(rows) {
+  const refused = rows.reduce((a, s) => a + (Number(s.orders_refused) || 0), 0);
+  const total = rows.reduce((a, s) => a + (Number(s.orders_total) || 0), 0);
+  if (!refused) return "";
+  const all = refused >= total;
+  return `<p class="sec-note"><b>${refused.toLocaleString()} order${
+    refused === 1 ? " was" : "s were"} refused by the desk${
+    all ? " and none reached the venue" : ` of ${total.toLocaleString()} sent`}.</b>
+    This book has not traded because the desk would not let it, not because it is waiting
+    for a signal. Each refusal carries the desk's own reason — open the strategy on the
+    manager console to read them.</p>`;
+}
+
 function fillsSection(rows) {
   const fills = systemFills(rows);
   const lifetime = rows.reduce((a, s) => a + fillsOf(s), 0);
@@ -1329,7 +1394,9 @@ function fillsSection(rows) {
       the same second carries the same value. The trade statistics above count only the
       first column.</caption>
     </table></div>`
-    : `<p class="sec-note">No fills yet — this system has not opened a position.</p>`}
+    : (refusalNote(rows)
+       || `<p class="sec-note">No fills yet — this system has not opened a position.
+           Nothing has been refused either: no order has reached the desk for it.</p>`)}
   </section>`;
 }
 
@@ -1360,24 +1427,61 @@ const systemBreaks = rows => rows.length === 1 ? (rows[0].curve_breaks || []) : 
 function pnlPanel(entry, label) {
   if (!entry) return `<p class="sec-note">No simulated history for this window.</p>`;
   const d = entry.dates || [];
+  const c = (entry.curve || []).filter(v => isFinite(v));
+  /* A rule that never took a position over the window has a curve that is a CONSTANT, and
+   * `pnlSpark` baselines at 100, so a constant plots as a straight line pinned to the
+   * bottom edge of a 150px box. That is the same picture-of-nothing this page was full of,
+   * one section down, and it is worse than blank: a flat line under "+0.00%" reads as a
+   * rule that traded and made nothing, when the fact is that it never traded at all. The
+   * distinction is the whole subject of an empty system's page, so it is stated. */
+  const flat = c.length > 1 && Math.max(...c) - Math.min(...c) < 1e-9;
   return `
   <div class="pnl-wrap">
     <div class="pnl-head">
       <span class="pnl-val num ${sign(entry.pnl_pct)}">${fmtPct(entry.pnl_pct)}</span>
       <span class="pnl-lbl">${label}</span>
     </div>
-    ${pnlSpark(entry.curve, 600, 150)}
+    ${flat
+      ? `<p class="pnl-young">Flat across the whole window: the rule opened no position in
+           it, so there is no line to draw.</p>`
+      : pnlSpark(entry.curve, 600, 150)}
     <div class="pnl-axis"><span>${esc(d[0] || "")}</span><span>${esc(d[d.length - 1] || "")}</span></div>
   </div>`;
 }
 
 
+/* Does this row publish a per-name breakdown? A book always does; a member does since
+ * 2026-08-29, and a payload written before that does not — `dist/dashboard.html` is a
+ * frozen snapshot and there are recorded systems that predate the field, so every reader
+ * of `holdings` has to survive its absence rather than assume it. */
+const hasHoldings = s => Array.isArray(s.holdings) && s.holdings.length > 0;
+
+/* How many INSTRUMENTS these rows carry, which is not how many rows they are. A book is
+ * one row holding a whole class; a member is one row holding the handful of names they
+ * registered, under a `symbol` that is those names joined with commas. Counting rows read
+ * "1 assets" for both. Falls back to one per row where nothing says otherwise, which is
+ * the truth for a system deployed on a single instrument and for any payload written
+ * before either field existed. */
+const nameCount = rows => rows.reduce(
+  (a, s) => a + (s.names != null ? s.names : (hasHoldings(s) ? s.holdings.length : 1)), 0);
+
+/* Names with a position. Asked of the breakdown where there is one, because "1 with a
+ * position" off the row's own `state` is a single yes/no about a book that may hold three
+ * names or none of them. */
+const withPosition = rows => rows.reduce((a, s) => a + (hasHoldings(s)
+  ? s.holdings.filter(h => Math.abs(h.units || 0) > 1e-12).length
+  : (s.state && s.state !== "flat" ? 1 : 0)), 0);
+
 /* "1 assets" is a lie about a book. A book is ONE strategy row that holds a whole class
  * internally, so the count the reader wants is the names inside it, not the number of
- * rows — a $100,000 account over the top 100 was reading as a single asset. */
+ * rows — a $100,000 account over the top 100 was reading as a single asset. The same
+ * arithmetic was wrong one kind over: a member's row is also one row over several names. */
 function assetCount(rows) {
   const books = rows.filter(s => s.kind === "book");
-  if (!books.length) return `${rows.length} assets`;
+  if (!books.length) {
+    const n = nameCount(rows);
+    return `${n} asset${n === 1 ? "" : "s"}`;
+  }
   const names = books.reduce((a, s) => a + (s.names || 0), 0);
   const held = books.reduce((a, s) => a + (s.held || 0), 0);
   const rest = rows.length - books.length;
@@ -1385,14 +1489,17 @@ function assetCount(rows) {
 }
 
 
-/* A book is one strategy holding a whole class, so it expands into one row PER NAME
- * rather than the single row every other system gets.
+/* A row that holds several instruments expands into one row PER NAME rather than the
+ * single row a system deployed on one instrument gets. Two kinds arrive here — a house
+ * BOOK holding a whole asset class, and a MEMBER holding the names they registered — and
+ * they share this function because they publish the same `holdings` shape. Two renderers
+ * would be two places for the same formatting bug.
  *
  * Every name is listed, held or not. "46 of 100 held" only reads if the other 54 are
  * visible as waiting — a name the rule is out of is holding its slice in cash, which is a
  * state and not an absence. Held names sort to the top because they are the ones doing
  * something; the rest stay alphabetical so a reader can find one. */
-function bookRows(s) {
+function holdingRows(s) {
   const rows = (s.holdings || []);
   if (!rows.length) {
     return `<tr><td class="l" colspan="${ASSET_COLS}">${esc(s.symbol || "the book")} —
@@ -1429,9 +1536,11 @@ const assetHead = () => `<thead><tr><th class="l">Asset</th><th class="l">State<
   <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
   <th>Trades</th><th class="l">Status</th></tr></thead>`;
 
-/* One row for a system that is deployed on a single instrument. A book expands into one
- * row per name instead — see `bookRows` — and the two shapes share a header, so they have
- * to print the same columns in the same order. */
+/* One row for a system that is deployed on a single instrument, and the fallback for one
+ * that holds several and published no breakdown — a payload written before members
+ * carried `holdings`, which `dist/dashboard.html` freezes forever. Anything with a
+ * breakdown expands into one row per name instead, through `holdingRows`, and the two
+ * shapes share a header, so they have to print the same columns in the same order. */
 const assetRow = s => `
   <tr data-go="#/paper/${s.id}">
     <td class="l">${esc(s.symbol)}</td>
@@ -1523,6 +1632,157 @@ const paperGroupList = () => (D.paper_groups && D.paper_groups.length ? D.paper_
   : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
      { key: "etf", label: "ETFs" }]);
 
+/* ---------- a MEMBER's holdings ----------
+ * One section for one member strategy, and **the heading and the note come from the
+ * STRATEGY rather than from the class group.** That is the whole difference between this
+ * and the group sections beside it.
+ *
+ * `D.paper_groups[].note` says what a universe is worth as EVIDENCE — "the same universe
+ * the equity rules were ranked on", "ranked on the crypto sheet, which has its own rules
+ * and its own cost grid". Both are true and useful sentences about a house rule promoted
+ * off a leaderboard, and both are false about a member: nobody ranked these names, the
+ * member picked them, and the desk trades them on instruction. Printing "Top 10 crypto"
+ * over three tickers somebody typed into a registration is the same mislabel as filing a
+ * hundred-name book under "SPY · SOXL · TQQQ", one kind of strategy over.
+ *
+ * The count is asked of the BREAKDOWN and never of the row: a member is one row over
+ * several names, so counting rows printed "1 assets" over a book holding three.
+ *
+ * It says nothing about what the strategy IS, on purpose — the hero's `.lede` directly
+ * above is exactly that sentence, off the same `note`. */
+function memberHoldings(s) {
+  const known = hasHoldings(s);
+  const cls = Array.isArray(s.classes) ? s.classes.filter(Boolean) : [];
+  /* Every member registration has published `classes` since 2026-08-29 — always, so that
+   * "single-class" and "an older desk" cannot read alike — which is why an absent list
+   * says nothing rather than being read as one class. */
+  const spread = cls.length > 1
+    ? ` Its names come from ${cls.length} asset classes —
+        ${cls.map(c => esc(PAPER_CLASS_LABEL[c] || c)).join(", ")} — settling on a venue
+        each out of one pot of cash.`
+    : "";
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>What it holds</h2>
+      <span class="sec-note">${assetCount([s])} · ${withPosition([s])} with a position ·
+        ${fillsOf(s)} fills</span></div>
+    <p class="grp-note">A member's own strategy: the orders arrive from outside this desk,
+      so these are the instruments the member registered rather than a research universe,
+      and no leaderboard ranked them.${spread}${known ? "" :
+      ` This record was published before the desk broke a member's book out name by name,
+        so it is the one row the desk wrote and not a row each.`}</p>
+    <div class="tbl-wrap"><table>
+      ${assetHead()}
+      <tbody>${known ? holdingRows(s) : assetRow(s)}</tbody>
+    </table></div>
+  </section>`;
+}
+
+/* ---------- which of the two pages is this ----------
+ * A system that has never filled is not a system with a short record; it is a different
+ * thing, and the page was drawing it as the same thing minus the numbers. Every component
+ * rendered at full size around absent data: a 220px chart of a line that cannot move, a
+ * fifteen-row metrics table two thirds of which was an em-dash, a `Trade history — 0 fills`
+ * header over nothing, and six stat tiles spread across a 1900px rail to report four zeros.
+ *
+ * `sysStage` is that decision, taken ONCE, so the chart, the metrics and the fills step
+ * aside together instead of each deciding for itself and half the furniture surviving.
+ *
+ * **`waiting` is read off the FILL COUNT, never off the curve.** With no fill there is no
+ * position, so cumulative P&L is exactly 0.00% on every bar the desk has recorded — the
+ * curve is not short, it is structurally flat, and a chart of it plots its own axis. That
+ * is why five recorded bars still draw nothing here while five bars with a fill behind them
+ * draw a figure. */
+function sysStage(rows, curve) {
+  const fills = rows.reduce((a, s) => a + fillsOf(s), 0);
+  const bars = (curve || []).filter(v => isFinite(v)).length;
+  return { fills, bars, waiting: fills === 0 };
+}
+
+/* ---------- a system that has not traded ----------
+ * Four questions, in the order somebody who opened this page has them: what is this, is it
+ * on, what has it done, and why is that nothing.
+ *
+ * **The last one is the point of the section.** Zero fills has two completely different
+ * causes — nobody sent this system an order, or every order it sent was REFUSED — and they
+ * looked identical here, which has cost hours more than once. The published payload
+ * (`paper_state.json` / `live.json`) carries fills and holdings and no order ledger at all,
+ * so the refusal count is not reachable from this page and must not be invented or fetched
+ * from an endpoint the single-file build cannot answer. What it can do is stop implying the
+ * first cause: it names both, says which of them it can see, and points at the manager
+ * console's **Refused** table, which is where `deskdb` keeps the reason string
+ * ("not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds
+ * 10,000.00").
+ *
+ * The pointer is discovered, not assumed — `DESK_LINK` is only true when this page is being
+ * served by `paper api`, and `dist/dashboard.html` and the loopback `serve.py` have no such
+ * route. Without it the console is still NAMED, because "look there" is useful even when
+ * the link cannot be drawn, and a dead link is worse than a sentence.
+ *
+ * It says NOTHING about what the system is, on purpose: the hero's `.lede` directly above
+ * is exactly that sentence, off the same `note`. Printing it twice on the one page whose
+ * defect was furniture around absent data would only be furniture around present data. */
+function waitingSection(rows) {
+  const holdings = rows.flatMap(s => s.holdings || []);
+  const warming = holdings.filter(h => h.warming).length;
+  /* The instruments, not the rows. A member with three registered names and no fill yet
+   * is the commonest visitor to this page, and "Universe: 1 name" was the same
+   * count-the-rows mistake the holdings heading above it had. */
+  const names = nameCount(rows);
+  const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
+  const bars = Math.max(...rows.map(s => (s.paper_curve || []).length), 0);
+  const halted = rows.filter(s => s.status === "halted").length;
+  const running = rows.filter(s => s.status === "running").length;
+  const since = rows[0].since;
+  const kind = isReplay() ? "replayed" : "live";
+
+  /* Three states the payload CAN tell apart, so they get three different sentences. A
+   * holding is `warming` while the desk has seen no price for that name, which is the one
+   * "not its fault yet" reason; halted is a decision somebody made; otherwise the bars have
+   * arrived, the rule has been asked, and it has said no every time. */
+  const why = halted
+    ? `This system is <b>halted</b>, so it is not being asked for a signal at all. Nothing
+       will fill until it is running again.`
+    : warming === holdings.length && holdings.length
+      ? `Every name is still <b>warming up</b> — the desk has not seen a price for any of
+         them yet, so the rule has not been asked for a signal.`
+      : warming
+        ? `${warming} of ${holdings.length} names are still <b>warming up</b>; on the rest
+           the rule has been asked on every closed bar and has not signalled an entry.`
+        : `Bars are arriving and the rule is being asked on each one — it has simply not
+           signalled an entry yet. That is a normal state for a selective rule, and on a
+           short timeframe it can be a long one.`;
+
+  return `
+  <section class="sec sys-wait">
+    <div class="sec-head"><h2>Nothing has traded yet</h2>
+      <span class="sec-note">0 fills · ${bars} closed bar${bars === 1 ? "" : "s"}
+        recorded</span></div>
+
+    <dl class="sys-facts">
+      <div><dt>Staked</dt><dd>${capital ? money(capital) : "—"}</dd></div>
+      <div><dt>Universe</dt><dd>${names} <span class="of">name${names === 1 ? "" : "s"}</span></dd></div>
+      <div><dt>Closed bars</dt><dd>${bars}</dd></div>
+      <div><dt>${kind === "live" ? "Live since" : "Replaying since"}</dt>
+        <dd>${esc(since || "—")}</dd></div>
+      <div><dt>Deployments</dt><dd>${running} <span class="of">of ${rows.length} running</span></dd></div>
+    </dl>
+
+    <p class="wait-why">${why}</p>
+
+    <p class="wait-blind"><b>A refused order leaves no fill either.</b> This page reads the
+      fills the desk publishes, and that record contains no rejections — so "0 fills" here
+      covers two different things: nothing was sent, or everything sent was turned down
+      (not enough cash for the size, a sell with no position and no <code>allow_short</code>,
+      an unknown symbol). Which of the two it is cannot be answered from this page.
+      ${DESK_LINK
+        ? `The order ledger and the refusal reason are in the manager console, under
+           <a href="/desk">Refused</a>.`
+        : `The order ledger and the refusal reason are in the manager console — the
+           <em>Refused</em> table on the desk page, which this build has no route to.`}</p>
+  </section>`;
+}
+
 /* What `#sys-body` is currently drawing, so a tick repaint can rebuild it without
  * re-reading the hash. Cleared by nothing: `repaintPaper` gates on the hash instead, so a
  * stale value cannot paint over another view. */
@@ -1565,7 +1825,23 @@ function paperSystem(cls, tf, ruleSlug) {
 
   <div id="sys-body"></div>
 
-  <div class="note">${href
+  <div class="note">${
+    /* Three sentences, because there are three different reasons the multi-year answer
+     * might not be one click away, and two of them are house-book reasons.
+     *
+     * A MEMBER was never a candidate for a sheet. "No row on the leaderboard, which ships
+     * only its top rows" says the measurement exists somewhere and this rule missed the
+     * cut — which is exactly backwards for somebody's own strategy trading on instruction:
+     * it was not scored, it will not be scored, and pointing at the board implies a
+     * verdict is pending on it. */
+    rows.every(s => s.kind === "member")
+    ? `There is no walk-forward result for this one, and there is not going to be: it is a
+       member's own strategy, trading on instruction, so this desk never ranked it against
+       anything. What the page shows is
+       ${isReplay() ? "a replay over cached bars" : "days of simulated fills"} — evidence
+       about the execution path, and about nothing else. The
+       <a href="#/backtest">Backtest</a> board is the house's own rules.`
+    : href
     ? `Whether this rule actually works is the multi-year question, and it is not answered
        here — see <a href="${href}">the walk-forward result for ${esc(rule)}</a>. What this
        page shows is ${isReplay() ? "a replay over cached bars" : "days of simulated fills"},
@@ -1609,8 +1885,12 @@ function paintSystem() {
   const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
 
   const groups = paperGroupList();
-  const assets = groups.map(g => {
-    const gs = rows.filter(s => (s.group || "") === g.key)
+  /* A MEMBER's names are not a universe, so they do not go under a universe's heading.
+   * Everything else on this page still groups by `s.group`. */
+  const memberRows = rows.filter(s => s.kind === "member");
+  const houseRows = rows.filter(s => s.kind !== "member");
+  const assets = memberRows.map(memberHoldings).join("") + groups.map(g => {
+    const gs = houseRows.filter(s => (s.group || "") === g.key)
                    .sort((x, y) => x.symbol.localeCompare(y.symbol));
     if (!gs.length) return "";
     const ga = aggregate(gs);
@@ -1623,7 +1903,8 @@ function paintSystem() {
       ${g.note ? `<p class="grp-note">${esc(g.note)}</p>` : ""}
       <div class="tbl-wrap"><table>
         ${assetHead()}
-        <tbody>${gs.map(s => s.kind === "book" ? bookRows(s) : assetRow(s)).join("")}</tbody>
+        <tbody>${gs.map(s => (s.kind === "book" || hasHoldings(s))
+          ? holdingRows(s) : assetRow(s)).join("")}</tbody>
       </table></div>
       ${(() => {
         /* Per-name sparklines, where `paper_curves.py` published any. It drops them for a
@@ -1649,8 +1930,49 @@ function paintSystem() {
     </section>`;
   }).join("");
 
+  const st = sysStage(rows, live);
+
+  /* Not traded, not simulated, and said so twice: the section note and the paragraph under
+   * it. It is the one section a system with no record still has real content in — the same
+   * rule over the same instruments' recent bars — which is why it survives the empty state
+   * while the chart, the metrics and the fills do not. */
+  const simSection = `
+  <section class="sec">
+    <div class="sec-head"><h2>Simulated history</h2>
+      <span class="sec-note">not traded — the same rule over recent bars</span></div>
+    ${sim ? `
+    <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
+      pnlPanel(sim[w], label)).join("")}</div>
+    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: this rule
+      over the same instruments' recent history. They say how it <em>would</em> have gone;
+      ${st.waiting
+        ? `this system has not done anything yet`
+        : `the record above is what it did`}. Whether it beats holding is the multi-year
+      question, and it is answered on the backtest page, not by three months of either
+      line.</p>`
+    : `<p class="sec-note pnl-caveat">No simulated history for this system yet.</p>`}
+  </section>`;
+
+  const holdingsSection = assets
+    || `<p class="sec-note">No holdings published for this system yet.</p>`;
+
+  /* THE EMPTY PAGE. Six tiles of zeros, a chart of a flat line, eleven em-dashes and an
+   * empty fills table are all removed rather than shrunk — `waitingSection` answers what
+   * they were being asked, in a fifth of the height, and says the one thing none of them
+   * could: that a refused order looks exactly like this too. Holdings stay because they
+   * are the live state (which names are warming, which are in cash), and the simulated
+   * windows stay because they are the only thing on the page with content in them. */
+  if (st.waiting) {
+    host.innerHTML = `
+    ${waitingSection(rows)}
+    ${holdingsSection}
+    ${simSection}`;
+    bindGo(host);
+    return;
+  }
+
   host.innerHTML = `
-  <div class="strip">
+  <div class="strip sys-vitals">
     <div class="stat"><span class="k">${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</span>
       <span class="v ${sign(a.mean)}">${fmtPct(a.mean)}</span>
       <span class="s">cumulative${since ? `, since ${esc(since)}` : ""}</span></div>
@@ -1699,24 +2021,11 @@ function paintSystem() {
 
   ${liveMetricsSection(rows, live, cls, tf)}
 
-  <section class="sec">
-    <div class="sec-head"><h2>Simulated history</h2>
-      <span class="sec-note">not traded — the same rule over recent bars</span></div>
-    ${sim ? `
-    <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
-      pnlPanel(sim[w], label)).join("")}</div>
-    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: this rule
-      over the same instruments' recent history. They say how it <em>would</em> have gone;
-      the record above is what it did. Whether it beats holding is the multi-year
-      question, and it is answered on the backtest page, not by three months of either
-      line.</p>`
-    : `<p class="sec-note pnl-caveat">No simulated history for this system yet; only the
-      live record below is available.</p>`}
-  </section>
-
   ${fillsSection(rows)}
 
-  ${assets || `<p class="sec-note">No holdings published for this system yet.</p>`}`;
+  ${holdingsSection}
+
+  ${simSection}`;
 
   bindGo(host);
   /* Re-bound on every tick repaint, which is the point: `#sys-body` is rewritten whole, so

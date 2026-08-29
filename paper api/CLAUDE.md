@@ -313,6 +313,53 @@ fails visibly.
 **One register button.** The heading had one and the empty state had another, so the first
 screen a manager sees offered the same action twice.
 
+## The desk explains every refusal, and until now nothing rendered one
+
+`desk_orders` writes a complete sentence into `orders.reason`, with the arithmetic in it:
+
+```
+not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds 10,000.00
+cannot sell 2 NQ.v.0: this strategy holds 0 and was not registered with allow_short
+```
+
+**The messages were always good. Nothing displayed them.** Reading one meant opening
+`state/desk.db` over SSH, which happened three separate times, while the strategy's page
+said *"No fills yet — this system has not opened a position"*. That sentence is equally
+true of a book with 127 refusals and a book nobody has ever sent an order to, and those are
+completely different situations — the same mistake `Refused` and `Retired` sharing a
+heading was.
+
+Three pieces, and the split between them is about what a two-second poll can afford:
+
+* **`deskdb.order_summary(account)`** — two grouped queries for the WHOLE account: counts
+  by state per strategy, plus the newest refusal in full. Not one call per strategy, which
+  on this page's timer would be an N+1.
+* **It rides along on `GET /v1/strategies`** as `orders`, so the row can say *"127 orders
+  arrived and every one was refused"* and print the reason with nothing clicked. `None`
+  there means the ledger was not priced; `total: 0` means nothing was sent — a missing
+  summary and a summary of zero are different claims.
+* **`GET /v1/orders?strategy_id=` is the expanded log**, fetched only for a strategy
+  somebody opened. The open set lives in a module variable rather than in the DOM, because
+  the 2s refresh rewrites `innerHTML` when it changed and a panel held only in the markup
+  would close itself twice a second.
+
+Two things about the rendering, and both are about signal:
+
+* **A refusal is prose and gets a full-width line**, exactly as the registration's own
+  `reason` does one table up. In a column it wraps to a sliver nobody reads.
+* **`filled` rows collapse to one counting line.** A working strategy produces hundreds of
+  them and the one `rejected` row is the only thing anybody opens the panel to find. It is
+  emphasis, not a filter: the line says how many were collapsed and in what states.
+
+**The reason is never re-derived or re-worded here.** It is the desk's sentence — the desk
+is the only process that can see the book, and its checks are the ones that bind.
+
+The paper BOARD reads `live.json`, which carries fills and not the ledger, so the COUNT is
+published across by `desk_control._publish_refusals` (read from the ledger, not from an
+in-process counter that a restart would reset) and `app.js` points at this console for the
+reasons. Only the count crosses: a refusal names sizes and cash balances, and that document
+is the shared one.
+
 ## The console is a reader of a ledger, so it reads continuously
 
 `want <> state` is the only thing the registrations table says while a request is
@@ -363,14 +410,72 @@ still refuse, retire keeps the record forever — is true *before* the first ord
 previously discoverable only after it. It is stated once, up front, where a decision is
 still being made.
 
+**Three of those terms are SET there, and the other rows are read.** Capital, leverage and
+long/short vs long/flat are per strategy; the `202`, the re-check, the order caps and what
+retire does are the same for everybody. They share one screen rather than splitting into a
+form and a notice, because at the moment of deciding a term you agree to and a term you
+choose are the same kind of fact, and the only place either is still changeable is before
+Register is pressed. `.terms.mine` is the block that is yours; the green edge is the whole
+difference.
+
+`allow_short` in particular used to be a checkbox at the bottom of an *Optional* fold on
+step 1, which is not where a permission to take unlimited directional risk belongs — and
+it is not spelled `allow_short` to a member either. **Long/short vs long/flat** is what the
+setting is; the boolean is what the ledger calls it.
+
+Leverage's ceiling is **one range for every class since 2026-08-29 — 1x to 125x**, the
+owner's number (`api_config.MAX_LEVERAGE_ALL`, at or below the desk's
+`paper_config.MAX_LEVERAGE`, asserted by `test_strategies.py` off disk exactly as
+`TIMEFRAMES` is). It was per class, anchored to real venues — 2x under Reg T, 1x on crypto
+because spot crypto is not marginable, 10x on futures.
+
+**The console states what the number costs, because it can no longer state where it came
+from.** `/v1/limits` publishes `wipeout_move_pct`: at the ceiling, an adverse move of
+`100 / leverage` per cent takes a fully deployed book to zero equity — 0.8% at 125x — and
+the terms screen scales that live against whatever is actually typed in, so the gap between
+2x and 125x is on screen while the decision is being made. It is fetched, not derived on
+the page, for the reason nothing on that screen is hardcoded.
+
+The map shape is kept although every entry is the same number: a class absent from the map
+and a class with a ceiling are different facts. The `cap <= 1` arm of the field is kept too
+— it is what fires if a class is ever set back to unlevered, and a disabled field with no
+sentence beside it reads as a bug.
+
+Capital has **three** bounds now, not two: floor $1,000, default $10,000, ceiling
+$10,000,000. The floor and the default were one constant, and splitting them is what let
+the floor move without moving the default — a console reading `capital_per_strategy` as
+both would put the floor in the input. **The rounding argument that set the floor is not
+withdrawn**; it is worse at $1,000, not better, so it is stated on the screen and the desk
+prices one unit of every registered symbol against the book's real buying power at attach
+(`desk_control._affordability_caveat`, which reads `capital x leverage`).
+
+`MAX_STRATEGIES_PER_ACCOUNT` is 100,000 — the mechanism kept, the number no longer a limit.
+The terms screen therefore stops quoting it as a term and quotes what actually binds: the
+per-minute order cap here, and the desk's feed budgets (`MAX_1M_SYMBOLS`,
+`MAX_OPEN_SYMBOLS`) which refuse a registration with the number in it.
+
+**`cls` is the book's HOME class, not a claim about every symbol.** A registration may name
+symbols from several asset classes since 2026-08-29; the desk decides each symbol's class
+from the symbol and puts it on its own venue and vendor. This process stores what it is
+given — `api_symbols.canonical` was already class-independent, which is what makes that
+safe — and the wizard's class picker still offers one class's universe, with anything else
+typed. Multi-class picking is a UI change nobody has made yet.
+
 Three things it must keep doing:
 
-* **It states no number it does not fetch.** Capital, the class list, the timeframes and
-  both caps come from `GET /v1/limits`, which reads `api_config` and `api_strategies`. All
-  of them are settable from the environment; written into the markup they would go on
-  saying `$10,000` and offering `commodities` the day either changed, and a page that
-  misstates the terms is worse than one that omits them. `test_strategies.py` asserts the
-  endpoint and the config agree.
+* **It states no number it does not fetch.** Capital's floor and ceiling, the leverage
+  ceiling per class, the class list, the timeframes and both caps come from
+  `GET /v1/limits`, which reads `api_config` and `api_strategies`. All of them are settable
+  from the environment; written into the markup they would go on saying `$10,000` and
+  offering `commodities` the day either changed, and a page that misstates the terms is
+  worse than one that omits them. `test_strategies.py` asserts the endpoint and the config
+  agree.
+
+  `max_leverage` is published as a **map, one entry per class, including the classes whose
+  ceiling is 1**. A single number would be wrong for four of the five, and a class merely
+  absent from the map is indistinguishable from a class that may not be levered — the
+  console has to be able to say *no leverage on crypto* rather than fall back to a default
+  it invented.
 * **Symbols are offered, and — since 2026-08-28 — may also be typed.** `/v1/limits` carries
   `universe` per class, read from what the desk **published** (`catalog.json`), never
   computed here, and the picker offers exactly that. What it does with a name outside the

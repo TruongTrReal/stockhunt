@@ -120,6 +120,10 @@ CREATE TABLE IF NOT EXISTS registrations (
     -- is the default and means they are the same. See `_add_late_columns`.
     signal_tf   TEXT,
     capital     REAL NOT NULL,
+    -- How far the book may lever: gross exposure may not exceed `leverage` times equity.
+    -- 1.0 is no leverage and is what every row written before this column existed means.
+    -- See `_add_late_columns`.
+    leverage    REAL NOT NULL DEFAULT 1.0,
     benchmark   TEXT,
     rule        TEXT,                      -- house_rule only
     allow_short INTEGER NOT NULL DEFAULT 0,
@@ -372,6 +376,18 @@ def _add_late_columns(conn: sqlite3.Connection) -> None:
     # registration and every existing path treats it as one, which is the point.
     if "portfolio_id" not in have:
         conn.execute("ALTER TABLE registrations ADD COLUMN portfolio_id TEXT")
+
+    # How far the book may lever. The DEFAULT is the whole reason this can be a late
+    # column at all: `desk_orders.leverage_of` reads 1.0 for a row that has no value and
+    # for a row that has 1.0, and 1.0 is bit-for-bit the cash rule the desk enforced before
+    # leverage existed. So an existing registration keeps trading under exactly the terms
+    # it was written under, with nothing to migrate and nothing to re-agree.
+    #
+    # `ALTER TABLE ... DEFAULT 1.0` backfills every existing row to 1.0 rather than to
+    # NULL, which is what makes the two readings identical instead of merely equivalent.
+    if "leverage" not in have:
+        conn.execute("ALTER TABLE registrations ADD COLUMN leverage REAL NOT NULL "
+                     "DEFAULT 1.0")
     # The index cannot live in SCHEMA with the others: `executescript` runs before this
     # function, so against a database created before the column existed it would be asked
     # to index a column that is not there yet, and the whole script would fail — taking
@@ -433,6 +449,7 @@ def _shape(row: dict | None) -> dict | None:
 def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
              capital: float, *, kind: str = "member", benchmark: str | None = None,
              rule: str | None = None, allow_short: bool = False,
+             leverage: float = 1.0,
              signal_tf: str | None = None, portfolio_id: str | None = None) -> dict:
     """Ask the desk to run a strategy. Idempotent on `(account, name)`.
 
@@ -480,11 +497,12 @@ def register(account: str, name: str, cls: str, symbols: list[str], tf: str,
         conn.execute("""
             INSERT INTO registrations
                 (strategy_id, account, name, kind, cls, symbols, tf, signal_tf, capital,
-                 benchmark, rule, allow_short, created_at, want, state, portfolio_id)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending',?)
+                 leverage, benchmark, rule, allow_short, created_at, want, state,
+                 portfolio_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'live','pending',?)
         """, (strategy_id, account, name, kind, cls, json.dumps(list(symbols)), tf,
-              signal_tf, float(capital), benchmark, rule, int(allow_short), utcnow(),
-              portfolio_id))
+              signal_tf, float(capital), float(leverage), benchmark, rule,
+              int(allow_short), utcnow(), portfolio_id))
     return _shape(_row("SELECT * FROM registrations WHERE strategy_id = ?",
                        (strategy_id,)))                      # type: ignore[return-value]
 
@@ -664,6 +682,50 @@ def orders(account: str, *, strategy_id: str | None = None, state: str | None = 
 def order(account: str, client_order_id: str) -> dict | None:
     return _row("SELECT * FROM orders WHERE account = ? AND client_order_id = ?",
                 (account, client_order_id))
+
+
+def order_summary(account: str) -> dict[str, dict]:
+    """Per strategy: how many orders, in what states, and the newest refusal in full.
+
+    **This exists because the desk already explains every refusal and nothing rendered
+    it.** `desk_orders` writes a precise, well-worded sentence into `orders.reason` —
+    *"not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds
+    10,000.00"* — and the only way to read it was to open this file over SSH. Meanwhile
+    the strategy's page said "No fills yet", which is true and useless: a book that has had
+    127 orders refused and a book nobody has ever sent an order to are completely different
+    situations that printed the same sentence.
+
+    **Two queries for the whole account, not one per strategy.** The console polls every
+    two seconds and lists every registration, so a per-strategy call would be an N+1 on a
+    timer. The counts group in SQLite and the refusal is one indexed scan.
+
+    The reason is returned VERBATIM. It is the desk's sentence — the desk's checks are the
+    ones that bind, and it is the only process that can see the book — so nothing between
+    here and the screen re-derives or re-words it.
+    """
+    out: dict[str, dict] = {}
+    for row in _rows("""SELECT strategy_id, state, COUNT(*) AS n
+                        FROM orders WHERE account = ?
+                        GROUP BY strategy_id, state""", (account,)):
+        entry = out.setdefault(row["strategy_id"],
+                               {"total": 0, "by_state": {}, "last_rejected": None})
+        entry["by_state"][row["state"]] = int(row["n"])
+        entry["total"] += int(row["n"])
+    # The NEWEST refusal per strategy, which is the one worth showing: a bot in a loop
+    # produces the same reason a hundred times, and the most recent is the state of the
+    # world now rather than the first thing that ever went wrong.
+    for row in _rows("""SELECT o.strategy_id, o.client_order_id, o.symbol, o.side, o.qty,
+                               o.reason, o.submitted_at
+                        FROM orders o
+                        JOIN (SELECT strategy_id, MAX(seq) AS seq FROM orders
+                              WHERE account = ? AND state = 'rejected'
+                              GROUP BY strategy_id) newest
+                          ON newest.strategy_id = o.strategy_id AND newest.seq = o.seq""",
+                     (account,)):
+        entry = out.setdefault(row["strategy_id"],
+                               {"total": 0, "by_state": {}, "last_rejected": None})
+        entry["last_rejected"] = dict(row)
+    return out
 
 
 def pulse(now: datetime | None = None) -> dict:

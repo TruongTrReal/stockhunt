@@ -350,3 +350,51 @@ def test_client_order_id_is_deterministic_and_distinct_per_cycle():
     assert a != m.client_order_id("crypto", "BTC/USD", 1001)
     assert a != m.client_order_id("crypto", "ETH/USD", 1000)
     assert len(a) <= 128 and "/" not in a
+
+
+# ------------------------------------------------------ a mixed-class book is not mirrored
+#
+# Since 2026-08-29 one registration may hold symbols from several asset classes, and its
+# published `cls` is its HOME LEG rather than a claim about every symbol. If such a book
+# reached `desk_targets`, a coin held by a book filed under `us_stocks` would be sent to the
+# EQUITIES Alpaca account -- a symbol on an account that cannot trade it, which Alpaca
+# refuses by asset eligibility and which would read as a broker problem.
+#
+# It cannot happen, and the reason is worth a test rather than a comment: a book has to name
+# at least two symbols to be mixed at all, and every multi-symbol member row is already
+# `unmirrorable` because it publishes no per-name units. This asserts the property, so that
+# publishing a per-name breakdown one day cannot quietly open the door.
+
+def _mixed_snapshot():
+    return {"strategies": [{
+        "id": "c9:mixedbook", "kind": "member", "cls": "us_stocks",
+        "status": "running", "state": "long",
+        "symbol": "SPY, BTC/USD", "units": 10.15,
+        "classes": ["crypto", "us_etfs"],
+        "equity": 100_000.0, "capital": 100_000.0,
+    }]}
+
+
+def test_a_mixed_class_book_contributes_no_alpaca_target():
+    snap = _mixed_snapshot()
+    assert m.desk_targets(snap, "us_stocks") == {}
+    assert m.desk_targets(snap, "crypto") == {}
+
+
+def test_a_mixed_class_book_is_reported_as_unmirrorable_by_name():
+    """Absence has to be VISIBLE. A second record that silently misses a $100,000 book
+    looks complete while covering less than it claims."""
+    out = m.unmirrorable(_mixed_snapshot(), "us_stocks")
+    assert len(out) == 1
+    symbol, reason = out[0]
+    assert symbol == "SPY, BTC/USD"
+    assert "cannot be split" in reason
+
+
+def test_the_published_row_names_every_class_it_holds():
+    """`classes` is what a future per-symbol routing would read. It is published on every
+    member row, single-class ones included, so "one class" and "an older desk that never
+    published this" cannot read alike."""
+    row = _mixed_snapshot()["strategies"][0]
+    assert row["classes"] == ["crypto", "us_etfs"]
+    assert row["cls"] == "us_stocks", "the home leg, which is what the board groups on"

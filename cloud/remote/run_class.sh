@@ -206,15 +206,11 @@ riskmatch() {
     i=$((i + CHUNK))
   done
 
-  # Stitch the slices: header from the first, rows from all of them.
-  local first=1
-  rm -f "$out.tmp"
-  for sf in "$SLICES"/*.csv; do
-    [ -f "$sf" ] || continue
-    if [ "$first" = "1" ]; then cat "$sf" > "$out.tmp"; first=0
-    else tail -n +2 "$sf" >> "$out.tmp"; fi
-  done
-  if [ -f "$out.tmp" ] && [ "$(wc -l < "$out.tmp")" -gt 1 ]; then
+  # Stitch with pandas, not `tail -n +2`. riskmatch_wf emits three extra columns
+  # (edge_t_bar_corrected, edge_t_uncorrected_pass, edge_t_bar_source) only on rows where the
+  # corrected t bar exists, so slices differ in width and a byte-wise concat produces a file
+  # pandas refuses to parse -- silently, until something reads it. See stitch_slices.py.
+  if "$PY" /opt/stockhunt/stitch_slices.py "$SLICES" "$out.tmp" 2>&1 | sed 's/^/    /'; then
     mv "$out.tmp" "$out"
     say "  $CLS $tf DONE $((SECONDS-t0))s rows=$(($(wc -l < "$out") - 1))"
   else

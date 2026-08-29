@@ -39,10 +39,23 @@ against the authoritative book, and only then submits. A `202` is not a fill, no
 promise of one, and carries no price. Read the state back with `GET /v1/orders`; `reason`
 is where a refusal explains itself.
 
-**3. You may only trade the symbols, class and timeframe you registered.**
+**3. You may only trade the symbols and timeframe you registered.**
 Anything else is refused with a reason. Registration is a deliberate act performed by a
 human in the console — do not attempt to register, widen, or re-register a strategy to
 make an order fit.
+
+Since 2026-08-29 those symbols **may come from different asset classes** — one book can
+hold `SPY`, `BTC/USD` and `ES.v.0`, each on its own venue and its own vendor. The `cls` on
+your registration is its **home class**: what the board files it under, and the class the
+desk assumes for a symbol it cannot place on its own. It is no longer a claim about every
+symbol you hold, and it is not a second thing an order has to match — `symbol` is.
+
+One consequence to plan for: the desk refuses a registration **whole**, naming the symbol,
+if any one of its symbols cannot be fed at the timeframe asked for. `cme_futures` at `4h`,
+`15m` or `5m` is the case that exists today — Databento's CME archive has no such schema —
+so a book mixing futures with equities is limited to the timeframes the futures leg can
+serve. Trading four of your five symbols and saying nothing would be a book that is not the
+one you registered.
 
 **4. Rate limit: orders per minute, per account, answered with `429` and `Retry-After`.**
 Honour the header. Do not retry in a tight loop. The desk trades on bar closes at `1d` and
@@ -80,7 +93,62 @@ Surface the error to your operator and exit.
 `seq` is monotonic per account and the desk drains strictly in that order, so a cancel can
 never overtake the order it cancels.
 
-If shorting was not enabled on the strategy, a `sell` may only close a long position.
+## What your book may hold
+
+Three terms are chosen per strategy when it is registered, in the console. They are on the
+strategy's own row and on `GET /v1/strategies/{strategy_id}`; read them rather than
+assuming, because the desk enforces them on every order and will not size for you.
+
+    capital       what the book is funded with
+    leverage      how far it may lever. 1 is no leverage and is the default
+    allow_short   long/short if true, long/flat if false
+
+**`allow_short: false` is long/flat.** A `sell` may only close a long position — it can
+never open a short, and one that would is refused by name rather than filled.
+
+**Leverage is a bound on GROSS EXPOSURE, measured against EQUITY.** The desk holds one
+rule and applies it to every order:
+
+    sum over your symbols of |units| x price     <=     leverage x (cash + value held)
+
+Four consequences, and each of them has caught somebody:
+
+* **Shorts count at full size, not as negative longs.** A $5,000 long against a $5,000
+  short is $10,000 of gross exposure, not zero.
+* **The ceiling moves with your equity, not with your capital.** It grows as the book makes
+  money — so a profitable unlevered book can deploy its gains, which is why the base is
+  equity and not the capital it started with — and it shrinks as the book loses.
+* **At zero or negative equity the ceiling is zero.** Only orders that REDUCE what you hold
+  are accepted; everything that would open or add is refused. The desk also writes that on
+  the strategy's row, so it is not something you have to infer from a refusal.
+* **An order that strictly reduces gross exposure is never refused for leverage**, even
+  from a book already over its limit. You can always close.
+
+At `leverage: 1` this is exactly the desk's original rule — a buy may not take cash below
+zero — and the refusal still ends *"there is no margin on this desk"*.
+
+**The range is 1x to 125x on every asset class**, and `GET /v1/limits` publishes it rather
+than this document being the source. It was per class until 2026-08-29, with each ceiling
+anchored to a real venue's margin rules — 2x on equities under Reg T, 1x on crypto because
+spot crypto is not marginable, 10x on CME futures. Two things that table recorded are still
+true and are worth knowing before you use the top of the range:
+
+* **At 125x a 0.8% adverse move takes a fully deployed book to zero equity.** That is
+  `100 / leverage`, not an estimate, and it is written onto your strategy's row when you
+  register above 1x.
+* **A levered crypto book has no broker-side second record.** The desk mirrors its book
+  into an Alpaca paper account so real fills can be compared against the sandbox's, and
+  Alpaca extends no crypto margin — so above 1x on that class the mirror stops being able
+  to copy it.
+
+**A levered book's record is not comparable to anything else on the board.** Its
+`paper_pnl_pct` is still measured against the capital that was put up, so the base is the
+same; the risk behind it is not. The research sheets score unlevered books.
+
+**Re-registering does not change these.** Registration is idempotent on the name: sending
+`POST /v1/strategies` again for a name you already have returns the existing row untouched,
+terms included. Changing capital, leverage or direction means retiring that strategy and
+registering another — the record of the first is kept either way.
 
 ## Reading it back
 
@@ -100,6 +168,18 @@ cannot return the same row twice. Keep the highest `seq` you have processed.
 
 `accepted`, `working` and `partial` are live. `filled`, `rejected` and `cancelled` are
 terminal — an order in one of those states will never change again.
+
+**`reason` on a `rejected` order is the desk's own sentence and it is complete.** It
+carries the arithmetic — *"not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and
+this strategy holds 10,000.00"* — because the desk is the only process that can see your
+book. Log it verbatim; do not summarise it into "order failed", which is what sent three
+separate debugging sessions to the wrong place.
+
+`GET /v1/strategies` also carries an `orders` summary per strategy — `total`, `by_state`
+and the newest refusal in full — so "nothing has filled because nothing was sent" and
+"nothing has filled because every order was refused" are answerable without paging the
+whole ledger. They are completely different situations and they look identical from a fill
+count alone.
 
 ## Cancelling
 

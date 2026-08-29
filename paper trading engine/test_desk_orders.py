@@ -281,3 +281,163 @@ def test_a_cancel_reserves_nothing():
              order(client_order_id="b", qty=1)]
     ok, bad = desk_orders.partition(batch, regs, books, {"SPY": 100.0}, NOW)
     assert len(ok) == 2, bad
+
+
+# ----------------------------------------------------------------------------- leverage
+#
+# The rule is `gross exposure <= leverage x equity`, checked after the order. The first
+# group is the one that matters most: at leverage 1 nothing above this line changes, and
+# the tests above it are the proof for the ordinary cases. These are the ones that would
+# have caught a rewrite that was merely *close*.
+
+def test_leverage_one_is_the_old_cash_rule_exactly():
+    """Not "approximately, on the cases we tried". `headroom` at leverage 1 on a long-only
+    book is `cash` — the identical double the old `cost > cash` was compared against — so
+    the two agree on every input, including the ones where the rearrangement `L*(cash +
+    long - short) - gross` would have rounded the cash away entirely."""
+    b = book(cash=10_000.0)
+    assert desk_orders.headroom(b, {"SPY": 100.0}, 1.0) == 10_000.0
+
+    # A tiny balance beside an enormous position: the case the naive form loses.
+    huge = {"cash": 1e-3, "units": {"SPY": 1e10}}
+    assert desk_orders.headroom(huge, {"SPY": 1_000.0}, 1.0) == 1e-3
+
+
+@pytest.mark.parametrize("cash,qty,price,affordable", [
+    (10_000.0, 100, 100.0, True),        # exactly the cash: the boundary, and it fills
+    (10_000.0, 100.01, 100.0, False),
+    (999.99, 10, 100.0, False),
+    (1_000.0, 10, 100.0, True),
+])
+def test_the_boundary_is_where_it_has_always_been(cash, qty, price, affordable):
+    ok, _ = desk_orders.validate(order(qty=qty), reg(), book(cash=cash), price, NOW)
+    assert ok is affordable
+
+
+def test_an_unlevered_refusal_still_says_there_is_no_margin():
+    """The wording is the contract too. A member who has never asked for leverage must not
+    start getting a sentence about gross exposure ceilings for the same mistake."""
+    ok, why = desk_orders.validate(order(qty=200), reg(), book(cash=1_000.0), 100.0, NOW)
+    assert not ok and "no margin on this desk" in why
+
+
+def test_a_levered_book_admits_what_an_unlevered_one_refuses():
+    o = order(qty=150)                       # $15,000 against a $10,000 book
+    flat, _ = desk_orders.validate(o, reg(), book(cash=10_000.0), 100.0, NOW)
+    lev, why = desk_orders.validate(o, reg(leverage=2.0), book(cash=10_000.0), 100.0, NOW)
+    assert flat is False
+    assert lev is True, why
+
+
+def test_a_levered_book_still_refuses_past_its_own_ceiling():
+    """The ceiling is a ceiling. 2x on $10,000 is $20,000 of gross, and $20,001 is not."""
+    ok, why = desk_orders.validate(order(qty=201), reg(leverage=2.0),
+                                   book(cash=10_000.0), 100.0, NOW)
+    assert not ok
+    assert "leverage ceiling" in why and "2x" in why
+
+
+def test_the_ceiling_is_measured_against_equity_so_a_book_can_deploy_its_gains():
+    """Against CAPITAL, `leverage 1` would silently mean `no compounding` — a book up 50%
+    could not put its own profit to work. Against equity it can, and that is the same
+    behaviour the cash rule always had."""
+    # Bought 50 at 100 (cash 5,000 left), and the name has since doubled.
+    b = {"cash": 5_000.0, "units": {"SPY": 50.0}}
+    ok, why = desk_orders.validate(order(qty=25), reg(), b, 200.0, NOW)
+    assert ok, why
+
+
+def test_gross_counts_a_short_at_full_size_not_as_a_negative_long():
+    """A $5,000 long against a $5,000 short is $10,000 of market risk. Netting them would
+    make a market-neutral book look like an empty one and let it lever without limit."""
+    b = {"cash": 10_000.0, "units": {"SPY": 50.0, "QQQ": -50.0}}
+    assert desk_orders.gross(b, {"SPY": 100.0, "QQQ": 100.0}) == 10_000.0
+    assert desk_orders.equity(b, {"SPY": 100.0, "QQQ": 100.0}) == 10_000.0
+
+
+def test_shorting_is_bounded_by_the_same_ceiling():
+    """`allow_short` says which DIRECTION the book may take; leverage says how much. A
+    $10,000 unlevered book may be short $10,000 of stock and not $30,000 of it."""
+    r = reg(allow_short=1)
+    ok, _ = desk_orders.validate(order(side="sell", qty=100), r, book(), 100.0, NOW)
+    no, why = desk_orders.validate(order(side="sell", qty=300), r, book(), 100.0, NOW)
+    assert ok is True
+    assert no is False and "gross exposure" in why
+
+
+def test_direction_is_refused_before_size():
+    """A long/flat book asking to go short broke the direction rule, not the size one, and
+    telling it about gross exposure would be true and useless."""
+    ok, why = desk_orders.validate(order(side="sell", qty=1_000), reg(), book(),
+                                   100.0, NOW)
+    assert not ok and "allow_short" in why
+
+
+def test_closing_is_never_refused_for_leverage():
+    """A short that has run against its owner is already outside the ceiling, so every
+    order fails the test — INCLUDING the buy that would close it. Bounding a position by
+    trapping somebody in it is the opposite of a risk control."""
+    # Short 100 at 100 (proceeds 10,000), and the name has since tripled.
+    b = {"cash": 20_000.0, "units": {"SPY": -100.0}}
+    assert desk_orders.headroom(b, {"SPY": 300.0}, 1.0) < 0
+    ok, why = desk_orders.validate(order(side="buy", qty=50), reg(allow_short=1), b,
+                                   300.0, NOW)
+    assert ok, why
+
+
+def test_a_book_at_zero_equity_may_only_close():
+    """The ceiling is `leverage x equity`, so at zero equity it is zero and every order
+    that would add exposure is refused by arithmetic rather than by a special case."""
+    b = {"cash": 0.0, "units": {"SPY": 0.0}}
+    ok, why = desk_orders.validate(order(qty=1), reg(leverage=2.0), b, 100.0, NOW)
+    assert not ok
+    assert "at or below zero" in why and "REDUCE" in why
+
+
+def test_the_whole_book_is_priced_not_only_the_traded_symbol():
+    """A leverage ceiling is a statement about the BOOK, so `partition` hands `validate`
+    every mark it has rather than one.
+
+    The case that proves it is a short in another name. Leaving SPY unpriced drops 10,000
+    of gross AND adds 10,000 to the apparent equity — the short's proceeds are already in
+    cash — so the same order goes from breaking a 10,000 ceiling to sitting inside a
+    20,000 one. That is the direction that matters: an unpriced holding does not make the
+    desk cautious, it makes it blind.
+    """
+    r = {"str_a7_meanrev": reg(allow_short=1, symbols=["SPY", "QQQ"])}
+    # Short 100 SPY at 100: proceeds are in the cash, and the book is exactly at 1x.
+    books = {"str_a7_meanrev": {"cash": 20_000.0, "units": {"SPY": -100.0}}}
+    o = order(symbol="QQQ", qty=50)
+
+    good, bad = desk_orders.partition([o], r, books, {"SPY": 100.0, "QQQ": 100.0}, NOW)
+    assert good == [] and "gross exposure" in bad[0][1]
+
+    blind, _ = desk_orders.validate(o, r["str_a7_meanrev"], books["str_a7_meanrev"],
+                                    100.0, NOW)
+    assert blind is True, "the short has to be priced or the ceiling is not enforced"
+
+
+def test_reservation_across_a_batch_respects_the_levered_ceiling():
+    """Same property `test_a_batch_cannot_collectively_overspend` protects, one setting
+    over: three individually fine orders must not collectively pass the ceiling."""
+    r = {"str_a7_meanrev": reg(leverage=2.0)}
+    books = {"str_a7_meanrev": book(cash=10_000.0)}
+    batch = [order(qty=90), order(qty=90), order(qty=90)]   # 27,000 against 20,000
+    good, bad = desk_orders.partition(batch, r, books, {"SPY": 100.0}, NOW)
+    assert len(good) == 2 and len(bad) == 1
+
+
+@pytest.mark.parametrize("value,expect", [
+    (None, 1.0), ("", 1.0), (0, 1.0), (0.5, 1.0), ("nonsense", 1.0),
+    (2, 2.0), (2.5, 2.5), (float("nan"), 1.0),
+])
+def test_a_missing_or_malformed_leverage_reads_as_none_at_all(value, expect):
+    """A row written before the column existed, and a row written since with the default,
+    have to mean the identical thing — the desk as it has always run."""
+    assert desk_orders.leverage_of(reg(leverage=value)) == expect
+
+
+def test_a_registration_with_no_leverage_key_at_all_is_unlevered():
+    r = reg()
+    r.pop("leverage", None)
+    assert desk_orders.leverage_of(r) == 1.0

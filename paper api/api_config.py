@@ -124,14 +124,43 @@ BOARD_WARM_SECONDS = float(env("API_BOARD_WARM_SECONDS", "30") or 0)
 # The desk enforces its own ceiling too (`desk_control.MAX_MEMBER_STRATEGIES`), and it is
 # the one that binds: this process cannot see the book and must not be the only thing
 # standing between a bug and the venue.
-MAX_STRATEGIES_PER_ACCOUNT = env_int("API_MAX_STRATEGIES", 6)
+#
+# **The mechanism is kept and the number is not a limit any more** (2026-08-29, the owner's
+# call). It was 6. What it guarded against has not gone away — a looping deploy script
+# registering until the board is unreadable and the ledger is full — so the check stays and
+# the number is one no real use reaches, because a bug that used to stop at 6 would
+# otherwise be stopped by nothing, and this refusal is the only evidence such a loop ever
+# produces.
+#
+# **What binds now are the per-minute rate limits and the desk's feed budgets, not this
+# count**: `MAX_ORDERS_PER_MINUTE` and `MAX_TRIALS_PER_MINUTE` here, and
+# `paper_config.MAX_1M_SYMBOLS` (120) and `MAX_OPEN_SYMBOLS` (200) on the desk. Those are
+# per MINUTE and per SYMBOL, which are the units that actually cost something; a hundred
+# books on twenty tickers cost twenty subscriptions between them.
+MAX_STRATEGIES_PER_ACCOUNT = env_int("API_MAX_STRATEGIES", 100_000)
 
-# The DEFAULT book, and the floor under any book a caller asks for. Equities round to
-# whole shares, so a book has to be large enough that the rounding is a rounding rather
-# than a decision — at $435 a slice a $570 share rounds 0.72 up to 1 and holds 131% of its
-# capital. See CAPITAL_PER_SYSTEM in `run_paper.py`, which this deliberately matches so a
-# member's book and a house leg's are directly comparable.
+# The DEFAULT book. Unchanged at $10,000, and it deliberately matches CAPITAL_PER_SYSTEM in
+# `run_paper.py` so a member's book and a house leg's are directly comparable.
+#
+# It used to be the floor as well, and those are two different facts about one number —
+# splitting them is what let the floor move without moving the default.
 CAPITAL_PER_STRATEGY = float(env("API_CAPITAL_PER_STRATEGY", "10000") or 10000)
+
+# ...and the FLOOR, which is $1,000 since 2026-08-29 (the owner's call).
+#
+# **The reason the floor existed is not withdrawn, only overruled.** Equities round to
+# whole shares, so a book has to be large enough that the rounding is a rounding rather
+# than a decision: at $435 a slice a $570 share rounds 0.72 up to 1 and holds 131% of its
+# capital. At $1,000 across several names that is worse, not better — a $1,000 book naming
+# five equities has $200 a slice and will hold one whole share of anything under $400 and
+# nothing at all above it.
+#
+# So it is not blocked, it is made VISIBLE: `desk_control._affordability_caveat` prices one
+# unit of every symbol against the book's actual buying power at attach and writes the
+# arithmetic onto the registration row — "one unit of X costs $N and this book is $M, so
+# the most it can hold is K". That check reads `capital x leverage`, so a $1,000 book at
+# 125x is correctly told it can carry things a $1,000 book cannot.
+MIN_CAPITAL_PER_STRATEGY = float(env("API_MIN_CAPITAL_PER_STRATEGY", "1000") or 1000)
 
 # ...and the ceiling, because a caller may now ask for more (2026-08-28).
 #
@@ -147,9 +176,68 @@ CAPITAL_PER_STRATEGY = float(env("API_CAPITAL_PER_STRATEGY", "10000") or 10000)
 #
 # A ceiling still has to exist: this is a shared sandbox venue and `run_paper` funds each
 # venue from the sum of what is registered on it, so an unbounded request is a way to make
-# every other book on that venue meaningless. $1M carries two units of the most expensive
-# contract on the desk with room to hold several names at once.
-MAX_CAPITAL_PER_STRATEGY = float(env("API_MAX_CAPITAL_PER_STRATEGY", "1000000") or 1_000_000)
+# every other book on that venue meaningless. $10,000,000 since 2026-08-29 (the owner's
+# call), from $1,000,000.
+#
+# **That argument is not withdrawn and now has a hard number behind it.** A Nautilus
+# account balance stops at `MONEY_MAX` (9,223,372,036) and `Money` RAISES above it rather
+# than clamping — so the total registered on one venue is bounded by something real, and
+# `run_paper.build_node` clamps with a printed line rather than failing to build. Two books
+# at this ceiling and 125x are $2.5bn on one venue after its doubling, which is inside it;
+# eight are not.
+MAX_CAPITAL_PER_STRATEGY = float(
+    env("API_MAX_CAPITAL_PER_STRATEGY", "10000000") or 10_000_000)
+
+# How far a book may be levered. ONE range for every class since 2026-08-29 — 1x to 125x,
+# the owner's number and what crypto perpetual venues offer — and 1.0 is still the default.
+#
+# The desk enforces `gross exposure <= leverage x equity` on every order and refuses a
+# registration above the ceiling at attach. This is the fast, kind copy of that ceiling: a
+# caller gets the number in their own request instead of a `rejected` row minutes later.
+#
+# **It is restated rather than imported, and it must stay at or below
+# `paper_config.MAX_LEVERAGE`** — same contract as `TIMEFRAMES`, same reason: this process
+# imports no trading code, so it cannot read the desk's file without dragging the backtest
+# engine into an HTTP server. `test_strategies.py` reads that file off disk and asserts it.
+# Widen the desk first.
+#
+# **It was per class and each ceiling was anchored to a real venue** — 2x on equities and
+# commodities (Reg T's 50% initial margin), 1x on crypto (spot crypto is not marginable and
+# the Alpaca mirror that is this desk's second record extends no crypto margin at all), 10x
+# on futures (CME initial margin is single-digit percentages of notional). Those numbers
+# are gone. What the crypto one recorded is still true and is worth knowing before levering
+# that class: above 1x the broker-side mirror can no longer copy the book, so the second
+# record quietly stops covering it. The full note is in `paper_config.MAX_LEVERAGE`, where
+# the ceiling is enforced.
+MAX_LEVERAGE_ALL = float(env("API_MAX_LEVERAGE", "125") or 125)
+
+# Still published as a MAP, one entry per class, even though every entry is now the same
+# number. Two reasons, and neither is inertia: a class absent from the map and a class that
+# may not be levered are different facts the console has to be able to tell apart, and a
+# ceiling that ever becomes per class again should not also be a change to the wire format.
+MAX_LEVERAGE = {c: MAX_LEVERAGE_ALL for c in
+                ("us_stocks", "us_etfs", "commodities", "crypto", "cme_futures")}
+
+# What a registration gets when it names no leverage at all. This is what `/v1/limits`
+# publishes as `default_leverage`, and it has always been 1.0 — no leverage.
+DEFAULT_LEVERAGE = 1.0
+
+
+def max_leverage(cls: str | None = None) -> float:
+    """The most a registration may name. The same for every class; see MAX_LEVERAGE."""
+    return float(MAX_LEVERAGE.get(cls, MAX_LEVERAGE_ALL))
+
+
+def wipeout_move_pct(leverage: float) -> float:
+    """The adverse move, in per cent, that takes a book at its ceiling to zero equity.
+
+    0.8% at 125x. Restated here rather than imported for the reason nothing in this folder
+    imports the desk, and asserted against `paper_config.wipeout_move_pct` by
+    `test_strategies.py` off disk — the console states no number it does not fetch, and
+    this is the number that says what a leverage setting actually costs.
+    """
+    lev = float(leverage or DEFAULT_LEVERAGE)
+    return 100.0 / lev if lev > 0 else 100.0
 
 # Orders per minute, per account. A trading API's cheapest protection: the inbox is a
 # database and a bot in a tight retry loop can fill it faster than the desk drains it.

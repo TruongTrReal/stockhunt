@@ -110,6 +110,22 @@
   tr.why td{padding:0 10px 11px 0;border-bottom:1px solid var(--hair)}
   tr.why + tr td, tr:has(+ tr.why) td{border-bottom:0}
   tr.why .note{margin:0;max-width:78ch}
+  /* THE ORDER LOG, and the same argument as `tr.why` one table down: a refusal is PROSE.
+     `desk_orders` writes a whole sentence with the arithmetic in it — "not enough cash:
+     BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds 10,000.00" — and in a
+     column it wraps to a sliver nobody reads. The log had 127 of these and the page said
+     "No fills yet". So a rejected order gets its state, its side and size on one line and
+     the desk's own sentence on a full-width line under it. */
+  .olog{margin:0 0 4px;border-top:1px solid var(--hair)}
+  .olog .o{display:flex;gap:10px;align-items:baseline;padding:7px 0 0;font-size:13px}
+  .olog .o .mono{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .olog .o .what{color:var(--ink-2)}
+  .olog .r{margin:2px 0 7px;max-width:78ch;font-size:13px;color:var(--ink);
+           border-left:2px solid var(--loss);padding:2px 0 2px 9px;white-space:pre-wrap}
+  /* Rare-signal shaping. A wall of `filled` buries the one `rejected` row that matters, so
+     everything that WORKED collapses to one muted counting line and only the refusals are
+     spelled out. It is not a filter — the counts say what was hidden and how much. */
+  .olog .quiet{font-size:12.5px;color:var(--muted);padding:7px 0}
   td.mono,th.mono{font-family:var(--mono);font-size:12.5px}
   .tag{font-family:var(--mono);font-size:11px;padding:1px 6px;border-radius:3px;
        border:1px solid var(--hair-2);color:var(--muted);white-space:nowrap}
@@ -266,6 +282,23 @@
     letter-spacing:.07em;width:104px;flex:0 0 auto;padding-top:3px}
   .terms .v{font-size:14px;color:var(--ink)}
   .terms .v em{font-style:normal;color:var(--muted);display:block;font-size:12.5px;margin-top:3px}
+
+  /* The three rows on the terms screen that a member DECIDES, rather than reads.
+     Same grid as the rows above them on purpose: capital, leverage and long/short are
+     terms of the book exactly as the order cap is, and pulling them into a separate form
+     further down would have re-created the shape this wizard replaced — a page where the
+     thing you agree to and the thing you set are in different places. The green edge is
+     the only difference, and it is there so "you chose this" is visible at a glance. */
+  .terms.mine{border-color:var(--hair-2)}
+  .terms.mine .row{box-shadow:inset 2px 0 0 var(--live)}
+  .terms .v .num{width:132px;font-size:14px;padding:7px 9px;border-radius:5px;
+    font-family:var(--mono)}
+  .terms .v .num:disabled{opacity:.5}
+  .terms .v .unit{font-family:var(--mono);font-size:12.5px;color:var(--muted);
+    margin-left:8px}
+  .terms .v .seg{margin-top:1px}
+  .terms .v .seg button{font-size:12.5px;padding:6px 12px}
+  .terms .v em.bad{color:var(--loss)}
 
   .recap{background:var(--sunk);border:1px solid var(--hair);border-radius:6px;
     padding:14px 17px;font-family:var(--mono);font-size:13px;margin-bottom:24px;
@@ -503,7 +536,15 @@
       <div class="field">
         <label>Asset class</label>
         <div class="seg" id="f-cls"></div>
-        <div class="hint">Decides the venue, and therefore when the desk is open.</div>
+        <!-- It stopped deciding the venue for every symbol on 2026-08-29. The desk works
+             each symbol's class out from the symbol, so this is the book's home class:
+             what the board files it under, and the fallback for a name the desk cannot
+             place on its own. The picker below still offers this class's names, and
+             anything from another class can be typed. -->
+        <div class="hint">Your book's home class — what the board files it under, and the
+          class the desk assumes for a name it cannot place itself. The picker offers this
+          class's symbols; you may type one from another class and the desk will put it on
+          its own venue.</div>
       </div>
 
       <div class="field">
@@ -536,19 +577,29 @@
               baseline, and choosing one for you would put this desk's opinion inside your
               track record.</div>
           </div>
-          <label class="check"><input type="checkbox" id="f-short">
-            <span>Allow shorts. Off means a sell is only ever a close.</span></label>
         </div>
       </details>
     </div>
 
     <!-- ------------------------------------------------------------------- 2 · terms -->
+    <!--
+      Two blocks, and the split is the point of the screen. The first is what this member
+      CHOOSES — the size of the book, how far it may lever, and whether it may go short.
+      The second is what the desk does regardless, and is the same for everybody.
+
+      They are one screen rather than two because a term you agree to and a term you set
+      are the same kind of fact at the moment of deciding, and the only place either is
+      still changeable is before Register is pressed. `allow_short` in particular used to
+      be a checkbox at the bottom of an "Optional" fold on step 1, which is where a
+      permission to take unlimited directional risk should never have been.
+    -->
     <div class="col" data-step="2" hidden>
       <div class="eyebrow">Step 2 of 5</div>
       <h3>What the desk will do</h3>
-      <p class="lede">Read this once. It is the same for every member and is not negotiable
-        per strategy.</p>
+      <p class="lede">Three of these are yours to set. The rest are the same for every
+        member and are not negotiable per strategy.</p>
       <div class="recap" id="recap-2"></div>
+      <div class="terms mine" id="settings"></div>
       <div class="terms" id="terms"></div>
       <p class="lede" style="margin:0">Registering writes a request. The desk picks it up on
         its next pass, which is why the next screen says <b>pending</b> rather than live.</p>
@@ -700,8 +751,13 @@ function say(text, bad) {
   if (text) window.scrollTo({top: 0, behavior: "smooth"});
 }
 
+// Shared by registration states and ORDER states, which is safe because the two
+// vocabularies do not overlap: a registration is live/paused/pending/retired/rejected and
+// an order is accepted/working/filled/partially_filled/canceled/expired/rejected. The one
+// word they share is `rejected` and it means the same thing on both.
 const stateTag = s => {
-  const cls = s === "live" ? "live" : (s === "rejected" ? "bad" : "");
+  const cls = (s === "live" || s === "filled") ? "live"
+            : (s === "rejected" ? "bad" : "");
   return `<span class="tag ${cls}">${esc(s)}</span>`;
 };
 
@@ -731,8 +787,127 @@ let STRATEGIES = [];
 // ------------------------------------------------------------------ page: strategies
 const DONE = ["retired", "rejected"];         // the desk will not touch the row again
 
+// ------------------------------------------------------------------ the order log
+//
+// **The desk explains every refusal and there was nowhere to read it.** `desk_orders`
+// writes a precise sentence into `orders.reason` and the only way to see it was to open
+// `state/desk.db` over SSH; meanwhile the page said "No fills yet — this system has not
+// opened a position", which is true and useless. A book that has had 127 orders refused
+// and a book nobody has ever sent an order to are completely different situations that
+// printed the same sentence — the same mistake `Refused` and `Retired` sharing a heading
+// was, one table down.
+//
+// Two halves, and only the second costs a request:
+//
+//   * The COUNTS and the newest refusal ride along on `GET /v1/strategies`, which this
+//     page already polls. Two grouped queries for the whole account, so the row can say
+//     "127 orders, all refused" and name the reason without anybody clicking anything.
+//   * The LOG itself is fetched only for a strategy somebody has opened. `Orders` is a
+//     toggle, and the open set survives the poll because it lives here rather than in the
+//     DOM — the 2s refresh rewrites `innerHTML` when it changed, so a panel held only in
+//     the markup would close itself twice a second.
+const OPEN_ORDERS = new Set();   // strategy_ids whose log is expanded
+let ORDERS = {};                 // strategy_id -> the rows behind those panels
+const ORDER_LOG_LIMIT = 40;
+
+// How many of THIS strategy's orders ended in each state, from the summary the API
+// attaches to every registration. `null` means the caller did not price the ledger, which
+// is not the same claim as zero — see `OrderStats` in `api_strategies.py`.
+const orderCount = (s, state) => Number(((s.orders || {}).by_state || {})[state] || 0);
+
+// The one sentence that replaces "No fills yet" on a book whose orders were all refused.
+//
+// Three states share a row today and only one of them is "warming up": nothing has been
+// sent, something was sent and refused, something was sent and worked. Saying the first
+// when the second is true is what sent the owner to SSH three times.
+function orderVerdict(s) {
+  const o = s.orders;
+  if (!o || !o.total) return "";
+  const bad = orderCount(s, "rejected");
+  const worked = o.total - bad;
+  if (!bad) return "";
+  const all = worked === 0;
+  const head = all
+    ? `<b>${o.total} order${o.total > 1 ? "s" : ""} arrived and every one was refused.</b> `
+      + `This book has not traded because the desk would not let it, not because it is `
+      + `waiting for a signal.`
+    : `<b>${bad} of ${o.total} orders were refused.</b> ${worked} reached the venue.`;
+  // The desk's own words, verbatim. This layer never re-derives or re-words a refusal:
+  // `desk_orders` is the only process that can see the book, and its checks are the ones
+  // that bind.
+  const last = o.last_rejected;
+  const why = last ? `<div class="r">${esc(last.reason || "no reason recorded")}</div>`
+                   : "";
+  return `<div class="note">${head}</div>${why}`;
+}
+
+function fmtOrder(o) {
+  const size = [o.side, o.qty, o.symbol].filter(x => x !== null && x !== undefined)
+                                        .join(" ");
+  return `
+    <div class="o">
+      <span class="mono">${esc((o.submitted_at || "").slice(5, 16).replace("T", " "))}</span>
+      ${stateTag(o.state)}
+      <span class="what">${esc(o.action === "cancel" ? `cancel ${o.target_coid || ""}`
+                                                     : size)}</span>
+      <span class="mono">${esc(o.client_order_id)}</span>
+    </div>` +
+    (o.state === "rejected"
+      ? `<div class="r">${esc(o.reason || "no reason recorded")}</div>` : "");
+}
+
+// Newest first, refusals spelled out, everything else counted.
+//
+// Ordering and emphasis rather than a dump: a strategy that works produces hundreds of
+// `filled` rows and one `rejected` row is the only one anybody opens this panel to find.
+// The working orders are still COUNTED, in a line that says how many were collapsed, so
+// this is emphasis and not a filter.
+function renderOrderLog(id) {
+  const rows = ORDERS[id];
+  if (rows === undefined) return `<div class="olog"><div class="quiet">Reading the ledger…</div></div>`;
+  if (!rows.length) {
+    return `<div class="olog"><div class="quiet">No orders have reached the desk for `
+         + `this strategy. Nothing has been refused and nothing has filled — it is `
+         + `waiting to be sent something.</div></div>`;
+  }
+  const newest = rows.slice().sort((a, b) => b.seq - a.seq).slice(0, ORDER_LOG_LIMIT);
+  const bad = newest.filter(o => o.state === "rejected");
+  const rest = newest.filter(o => o.state !== "rejected");
+  const counts = {};
+  rest.forEach(o => { counts[o.state] = (counts[o.state] || 0) + 1; });
+  const summary = Object.keys(counts).sort()
+    .map(k => `${counts[k]} ${k}`).join(" · ");
+  // "Newest N of M" only when there IS a cap in play. Printed unconditionally it reads
+  // "newest 3 of 3", which invites the reader to wonder what is missing when nothing is.
+  const capped = rows.length > newest.length
+    ? ` Newest ${newest.length} of ${rows.length} orders.` : "";
+  return `<div class="olog">`
+    + bad.map(fmtOrder).join("")
+    + (rest.length
+        ? `<div class="quiet">${esc(summary)} — not shown, because a wall of them buries `
+          + `the refusals above.${capped}</div>`
+        : (capped ? `<div class="quiet">${capped.trim()}</div>`
+                  : (bad.length ? "" : `<div class="quiet">Nothing to show.</div>`)))
+    + `</div>`;
+}
+
+async function fetchOrderLogs() {
+  await Promise.all([...OPEN_ORDERS].map(async id => {
+    try {
+      ORDERS[id] = await j("GET",
+        `/v1/orders?strategy_id=${encodeURIComponent(id)}&limit=200`);
+    } catch (e) {
+      // A failed fetch must not empty a panel that had rows in it a second ago: the poll
+      // is two seconds away and a log that blinks to "no orders" on one bad request is a
+      // log that lies about the very thing it exists to show.
+      if (ORDERS[id] === undefined) ORDERS[id] = [];
+    }
+  }));
+}
+
 async function loadStrategies() {
   STRATEGIES = await j("GET", "/v1/strategies");
+  await fetchOrderLogs();
   const live = STRATEGIES.filter(s => !DONE.includes(s.state));
   // `DONE` still decides the CONTROLS — the desk will not look at either kind again — but
   // it no longer decides the SECTION. A refused strategy never ran, so a heading saying
@@ -763,10 +938,26 @@ async function loadStrategies() {
     <tr>
       <td>${esc(s.name)}</td>
       <td class="mono">${esc(s.strategy_id)}</td>
-      <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}</td>
+      <!-- Leverage and the short permission ride along here, and only when they are not
+           the default. They change what a row's numbers MEAN — a 4x book's equity curve
+           is not the same measurement as a 1x one's — so the row that carries the numbers
+           has to carry them too. Printed on every row they would be noise; printed on
+           none, a levered book on this desk would be indistinguishable from an ordinary
+           one until somebody opened the wizard again, which nobody does. -->
+      <td class="mono">${esc(s.symbols.join(", "))} · ${esc(s.tf)}${
+        Number(s.leverage) > 1 ? ` · ${Number(s.leverage)}x` : ""}${
+        s.allow_short ? " · long+short" : ""}</td>
       <td>${stateTag(s.want)}</td>
       <td>${stateTag(s.state)}</td>
-      <td>${over || s.kind !== "member" ? "" : `
+      <td>${s.kind !== "member" ? "" : `
+        <!-- Offered on a REFUSED and a RETIRED row too, unlike the controls beside it.
+             Those act on the desk and there is nothing left to act on; this only reads,
+             and a strategy that was refused or retired is exactly when somebody wants to
+             know what happened to the orders it did send. -->
+        <button class="ghost small" data-act="orders" data-id="${esc(s.strategy_id)}">${
+          OPEN_ORDERS.has(s.strategy_id) ? "Hide orders" : "Orders"}${
+          orderCount(s, "rejected") ? ` (${orderCount(s, "rejected")} refused)` : ""}</button>`}
+        ${over || s.kind !== "member" ? "" : `
         <button class="ghost small" data-act="webhook"
                 data-id="${esc(s.strategy_id)}">TradingView</button>`}
         ${over ? "" : `
@@ -778,7 +969,14 @@ async function loadStrategies() {
         <button class="ghost small" data-act="purge" data-id="${esc(s.strategy_id)}">Remove</button>` : ""}
       </td>
     </tr>` + (s.reason ? `
-    <tr class="why"><td colspan="6"><div class="note">${esc(s.reason)}</div></td></tr>` : "");
+    <tr class="why"><td colspan="6"><div class="note">${esc(s.reason)}</div></td></tr>` : "")
+    // The verdict rides UNDER the row whether or not the log is open, because it is the
+    // one fact that changes what "no fills" means and nobody should have to click to
+    // learn it. The log itself is only drawn when asked for.
+    + (orderVerdict(s) ? `
+    <tr class="why"><td colspan="6">${orderVerdict(s)}</td></tr>` : "")
+    + (OPEN_ORDERS.has(s.strategy_id) ? `
+    <tr class="why"><td colspan="6">${renderOrderLog(s.strategy_id)}</td></tr>` : "");
   }).join("");
 
   // Written only when it CHANGED. This runs every couple of seconds now, and an
@@ -882,6 +1080,13 @@ async function onStrategyClick(ev) {
   // Opening a panel is not a request to the desk, so it takes none of the machinery
   // below: no confirmation, no disabled button, and nothing to settle.
   if (act === "webhook") return openWebhook(id);
+  // Same, and it is a pure read. The open set lives outside the DOM so the 2s poll
+  // redraws the panel instead of closing it; `refresh` re-fetches the rows it needs.
+  if (act === "orders") {
+    if (OPEN_ORDERS.has(id)) { OPEN_ORDERS.delete(id); delete ORDERS[id]; }
+    else OPEN_ORDERS.add(id);
+    return refresh();
+  }
   // Retiring keeps the record — always. It is worth saying out loud, because "delete"
   // is what the button looks like it does.
   if (act === "retire" && !confirm(
@@ -1116,6 +1321,11 @@ const HINTS = ["", "Nothing is written until you press Register.",
 const W = {                       // everything one run through the wizard collects
   step: 1, open: false,
   draft: null,                    // what step 1 gathered
+  // What step 2 gathered. Held here rather than read off the DOM at Register time,
+  // because that block is re-rendered whenever the screen is entered — a member who goes
+  // back to fix a symbol and comes forward again must find their own numbers, not the
+  // defaults. `null` until the class is known, since the leverage ceiling depends on it.
+  settings: null,
   strategy: null,                 // what POST /v1/strategies gave back
   key: null,                      // the API key, only if minted in this run
   tv: null,                       // the webhook secret, only if minted in this run
@@ -1172,12 +1382,13 @@ function openWizard() {
         true);
     return;
   }
-  W.open = true; W.draft = null; W.strategy = null; W.key = null; W.tv = null;
+  W.open = true; W.draft = null; W.settings = null; W.strategy = null;
+  W.key = null; W.tv = null;
   W.mint = true; W.tab = 0;
   W.hits = {key: false, order: false, applied: false};
   el("key-out").hidden = true; el("key-pick").hidden = false;
   el("f-name").value = ""; el("f-sym").value = ""; el("f-bench").value = "";
-  el("f-short").checked = false; el("f-klabel").value = "";
+  el("f-klabel").value = "";
   PICKED = []; CURSOR = 0;
   // Remember what each hint says before anything overwrites it with an error, so a field
   // that has been mistyped once goes back to explaining itself afterwards.
@@ -1469,49 +1680,217 @@ function readStepOne() {
   return {
     name, cls: segValue("f-cls"), tf: segValue("f-tf"), symbols: syms,
     benchmark: el("f-bench").value.trim().toUpperCase() || null,
-    allow_short: el("f-short").checked,
   };
 }
 
 // ------------------------------------------------------------------ wizard: step two
 const money = n => "$" + Number(n).toLocaleString(undefined, {maximumFractionDigits: 0});
 
+// The ceiling for THIS class, from `/v1/limits`. Never a literal, and it is still read
+// PER CLASS although every class now returns the same number (125x, the owner's, since
+// 2026-08-29): it was 2x on equities, 1x on crypto and 10x on futures, each anchored to
+// what a real venue permits, and a page that hardcoded any of those went on offering the
+// old number the day it moved. Reading the map keeps that true in both directions.
+const leverageCap = cls => Number((LIMITS.max_leverage || {})[cls] ?? 1);
+
+// The adverse move that takes a book at its ceiling to zero equity — 100/leverage, so
+// 0.8% at 125x. FETCHED, not derived here, for the same reason as everything else on this
+// screen: it is the number that says what a leverage setting costs, and a second copy of
+// the arithmetic on the page is a second thing to get wrong. `/v1/limits` publishes it at
+// the ceiling; this scales it to whatever is actually typed in.
+const wipeoutPct = lev => Number(lev) > 0 ? 100 / Number(lev) : 100;
+const pct = n => n >= 10 ? n.toFixed(0) : n >= 1 ? n.toFixed(1) : n.toFixed(2);
+
+// The desk's own defaults, never this page's: the standard book, no leverage, long/flat.
+// Every one of the three is the conservative reading, which is what a default has to be
+// when the thing being defaulted decides how much of somebody's book can move.
+function defaultSettings() {
+  return {capital: LIMITS.capital_per_strategy, leverage: 1, allow_short: false};
+}
+
 function drawTerms() {
   const d = W.draft;
+  // Kept across a trip back to step 1, but re-defaulted when the CLASS changes.
+  //
+  // That mattered while the ceiling was per class -- a leverage legal on futures was not
+  // legal on crypto, and carrying it forward showed a number the server was about to
+  // refuse. The range is uniform now, so this is conservatism rather than correctness:
+  // changing the class changes what the book IS, and re-reading the terms is the point of
+  // the screen. It stays because `leverageCap` is still read per class and a ceiling that
+  // becomes per class again must not need this rediscovering.
+  if (!W.settings || W.settings.cls !== d.cls) {
+    W.settings = Object.assign({cls: d.cls}, defaultSettings());
+  }
+  const s = W.settings;
+  const cap = leverageCap(d.cls);
+
   el("recap-2").innerHTML =
     `<b>${esc(d.name)}</b><span class="sep">/</span>${esc(d.cls)}<span class="sep">/</span>` +
-    `${esc(d.symbols.join(", "))}<span class="sep">/</span>${esc(d.tf)}` +
-    (d.allow_short ? `<span class="sep">/</span>shorts on` : "");
+    `${esc(d.symbols.join(", "))}<span class="sep">/</span>${esc(d.tf)}`;
+
+  el("settings").innerHTML = `
+    <div class="row"><div class="k">Capital</div><div class="v">
+      <input type="number" class="num" id="s-capital" step="1000"
+             min="${LIMITS.min_capital_per_strategy}"
+             max="${LIMITS.max_capital_per_strategy}"
+             value="${s.capital}"><span class="unit">USD, paper</span>
+      <!-- The FLOOR and the DEFAULT are two numbers now: $1,000 and $10,000. The rounding
+           argument that set the floor has not gone away, it has been overruled — so it is
+           still stated here, and the desk prices it per symbol at attach and writes the
+           arithmetic onto the row. -->
+      <em id="e-capital">Between ${money(LIMITS.min_capital_per_strategy)} and
+        ${money(LIMITS.max_capital_per_strategy)}; ${money(LIMITS.capital_per_strategy)}
+        is the desk's standard book. Near the floor a whole share stops being a rounding
+        and becomes the whole position — the desk checks what one unit of each of your
+        symbols costs when it attaches, and says so on the row if the book cannot carry
+        one. The ceiling is there because this is a shared sandbox venue and every book on
+        it is funded from one total.</em></div></div>
+    <div class="row"><div class="k">Leverage</div><div class="v">
+      <input type="number" class="num" id="s-leverage" step="0.5" min="1" max="${cap}"
+             value="${s.leverage}" ${cap <= 1 ? "disabled" : ""}><span class="unit">x equity</span>
+      <!-- The unlevered arm below is kept although no class returns a ceiling of 1 any
+           more. It is what fires if a ceiling is ever set back to "unlevered" for a
+           class, and a disabled input with no sentence beside it reads as a bug.
+           (No backticks in this comment: it sits inside a template literal.) -->
+      <em id="e-leverage">${cap <= 1
+        ? `Not available on <b>${esc(d.cls)}</b>: this class is unlevered on the venues ` +
+          `behind it, so the desk offers no margin on it either.`
+        : `1 is no leverage and is the default. Up to <b>${cap}x</b> — longs plus shorts, ` +
+          `counted at their absolute size, may reach that multiple of the book's ` +
+          `<b>equity</b>. The ceiling therefore shrinks as the book loses, and at zero ` +
+          `equity only closing orders are accepted. ` +
+          `<b>At ${cap}x an adverse move of ${pct(wipeoutPct(cap))}% takes a fully ` +
+          `deployed book to zero</b> — that is 100/${cap}, not an estimate. A levered ` +
+          `record is not comparable to the research, which scores unlevered books.`}
+      </em></div>
+      <!-- Live, because the ceiling's wipe-out distance is not the one the member is
+           taking — theirs is whatever they typed, and the gap between 2x and 125x is the
+           whole decision being made on this screen. -->
+      <div class="v" id="lev-live"></div></div>
+    <div class="row"><div class="k">Direction</div><div class="v">
+      <div class="seg" id="s-short">
+        <button type="button" data-v="0" class="${s.allow_short ? "" : "on"}">Long / flat</button>
+        <button type="button" data-v="1" class="${s.allow_short ? "on" : ""}">Long / short</button>
+      </div>
+      <em>Long / flat means a sell may only close a long — it can never open a short, and
+        the desk refuses one by name rather than filling it. Long / short lets the book
+        hold either side; a short counts towards the leverage ceiling above at its full
+        size, because a short position is exposure, not negative exposure.</em></div></div>`;
+
+  el("s-capital").addEventListener("input", ev => {
+    s.capital = Number(ev.target.value);
+  });
+  const drawLevLive = () => {
+    const lev = Number(s.leverage);
+    el("lev-live").innerHTML = !Number.isFinite(lev) || lev <= 1 ? ""
+      : `<em>At <b>${lev}x</b> this book may hold ${money(s.capital * lev)} of gross ` +
+        `exposure while it is worth the ${money(s.capital)} you put up, and an adverse ` +
+        `move of <b>${pct(wipeoutPct(lev))}%</b> on that would take it to zero equity.</em>`;
+  };
+  drawLevLive();
+  el("s-capital").addEventListener("input", drawLevLive);
+  el("s-leverage").addEventListener("input", ev => {
+    s.leverage = Number(ev.target.value);
+    drawLevLive();
+  });
+  el("s-short").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    s.allow_short = b.dataset.v === "1";
+    el("s-short").querySelectorAll("button")
+      .forEach(x => x.classList.toggle("on", x === b));
+  });
+
   el("terms").innerHTML = `
-    <div class="row"><div class="k">Capital</div><div class="v">${money(LIMITS.capital_per_strategy)}, paper.
-      <em>Allocated by the desk. There is no real money anywhere in this system.</em></div></div>
+    <div class="row"><div class="k">The money</div><div class="v">Paper, all of it.
+      <em>The capital above is allocated by the desk against a simulated venue. There is no
+      real money anywhere in this system, and nothing here can reach an account that holds
+      any.</em></div></div>
     <div class="row"><div class="k">Who decides</div><div class="v">You do. The desk executes.
       <em>Your code runs on your machine and sends orders here. Nothing of yours runs on ours.</em></div></div>
     <div class="row"><div class="k">An order</div><div class="v"><b>202</b> means written down — never filled.
       <em>The desk drains the queue on its next pass, re-checks it against the real book, and
       may still refuse. Read the state back.</em></div></div>
-    <div class="row"><div class="k">Limits</div><div class="v">${LIMITS.max_strategies} strategies ·
-      ${LIMITS.max_orders_per_minute} orders a minute.
+    <!-- The strategy COUNT stopped being a limit on 2026-08-29 and printing "100,000
+         strategies" as a term reads as a joke rather than as a term. The mechanism is
+         still there and still refuses — see MAX_STRATEGIES_PER_ACCOUNT — but what a
+         member should be told they are bounded by is the thing that actually binds, which
+         is per minute and per symbol. -->
+    <div class="row"><div class="k">Limits</div><div class="v">${LIMITS.max_orders_per_minute}
+      orders a minute. No practical limit on how many strategies you run.
       <em>You are trading ${esc(d.symbols.length)} symbol${d.symbols.length > 1 ? "s" : ""}
       at ${esc(d.tf)}; needing more than that many orders means something is looping rather
-      than trading.</em></div></div>
+      than trading. The desk has its own ceilings on how many distinct symbols it will feed
+      at once, and it refuses a registration with the number in it rather than degrading
+      the feed for every book on the desk.</em></div></div>
     <div class="row"><div class="k">Stopping</div><div class="v">Pause keeps positions. Retire flattens.
       <em>Either way the fills and the equity curve are kept forever. A forward record you can
       erase is not a record.</em></div></div>`;
 }
 
+// How a book's own terms read on a recap line, and on the last screen. Leverage and the
+// short permission are shown only when they are not the default: a row saying "1x" and
+// "long/flat" on every strategy anybody ever registers is noise that hides the one that
+// says 4x.
+function termsRecap(s) {
+  return `<span class="sep">/</span>${money(s.capital)}` +
+         (Number(s.leverage) > 1 ? `<span class="sep">/</span>${Number(s.leverage)}x` : "") +
+         (s.allow_short ? `<span class="sep">/</span>long+short` : "");
+}
+
+// The same bounds the server enforces, checked here only so the answer is instant — the
+// same division `readStepOne` keeps. A number input's `min`/`max` are advisory outside a
+// form submit, so without this a typo goes to the server and comes back as a 422 whose
+// wording is about a field the reader has to go and find again.
+function readStepTwo() {
+  const s = W.settings;
+  const cap = leverageCap(W.draft.cls);
+  const fail = (id, msg) => {
+    const e = el(id);
+    e.classList.add("bad");
+    e.textContent = msg;
+    return null;
+  };
+  el("e-capital").classList.remove("bad");
+  el("e-leverage").classList.remove("bad");
+
+  if (!Number.isFinite(s.capital)
+      || s.capital < LIMITS.min_capital_per_strategy
+      || s.capital > LIMITS.max_capital_per_strategy) {
+    return fail("e-capital", `Between ${money(LIMITS.min_capital_per_strategy)} and ` +
+                             `${money(LIMITS.max_capital_per_strategy)}.`);
+  }
+  if (!Number.isFinite(s.leverage) || s.leverage < 1 || s.leverage > cap) {
+    return fail("e-leverage", cap <= 1
+      ? `${esc(W.draft.cls)} is unlevered on this desk; leave it at 1.`
+      : `Between 1 (no leverage) and ${cap}x on ${esc(W.draft.cls)}.`);
+  }
+  return s;
+}
+
 async function doRegister() {
   const known = new Set(STRATEGIES.map(s => s.strategy_id));
-  const s = await j("POST", "/v1/strategies", W.draft);
+  // Step 1's shape plus step 2's terms. The server bounds all three again — it is the
+  // copy that binds, and the desk bounds leverage a third time against the class ceiling
+  // it alone can read.
+  const body = Object.assign({}, W.draft, {
+    capital: W.settings.capital,
+    leverage: W.settings.leverage,
+    allow_short: W.settings.allow_short,
+  });
+  const s = await j("POST", "/v1/strategies", body);
   W.strategy = s;
   // Registration is idempotent on the name, so this may be a strategy they already had.
   // Saying so beats letting them believe they just created a second one.
   el("h3-key").textContent = known.has(s.strategy_id)
     ? "You already had this one. Now it needs a key."
     : "Registered. Now it needs a key.";
+  // Read back off the SERVER's row, not off what was sent: registration is idempotent on
+  // the name, so a member re-registering an existing strategy gets the terms it already
+  // had rather than the ones they just typed, and the recap has to show the book that
+  // actually exists.
   el("recap-3").innerHTML =
     `<b>${esc(s.strategy_id)}</b><span class="sep">/</span>${esc(s.name)}` +
-    `<span class="sep">/</span>${stateTag(s.state)}`;
+    termsRecap(s) + `<span class="sep">/</span>${stateTag(s.state)}`;
   el("f-klabel").value = `${s.name} bot`;
 }
 
@@ -1574,6 +1953,11 @@ AUTH      Authorization: Bearer $STOCKHUNT_API_KEY
 STRATEGY  ${s.strategy_id}     ${s.name} / ${s.cls} / ${s.symbols.join(",")} / ${s.tf}
 SYMBOLS   you may trade ${s.symbols.join(", ")} and nothing else
 SHORTS    ${s.allow_short ? "allowed" : "not allowed — a sell may only close a long"}
+CAPITAL   ${money(s.capital)}, paper
+LEVERAGE  ${Number(s.leverage) > 1
+  ? `${Number(s.leverage)}x — longs plus shorts may reach ${Number(s.leverage)}x the
+            book's EQUITY, which shrinks as it loses. An order past that is refused`
+  : "1x — gross exposure may not exceed the book's equity. There is no margin"}
 
 To trade, POST /v1/orders with:
   {"strategy_id":"${s.strategy_id}","client_order_id":"<yours, unique>",
@@ -1837,8 +2221,10 @@ el("w-next").onclick = async () => {
       const draft = readStepOne();
       if (draft) { W.draft = draft; drawTerms(); showStep(2); }
     } else if (W.step === 2) {
-      await doRegister();
-      showStep(3);
+      if (readStepTwo()) {
+        await doRegister();
+        showStep(3);
+      }
     } else if (W.step === 3) {
       // Minting is a state change inside this step, not a step of its own: the key appears
       // in place and the button becomes Continue. Six screens for five decisions is one
@@ -1850,7 +2236,7 @@ el("w-next").onclick = async () => {
       el("recap-5").innerHTML =
         `<b>${esc(W.strategy.strategy_id)}</b><span class="sep">/</span>` +
         `${esc(W.strategy.symbols.join(", "))}<span class="sep">/</span>${esc(W.strategy.tf)}` +
-        `<span class="sep">/</span>${money(W.strategy.capital)}` +
+        termsRecap(W.strategy) +
         `<span class="sep">/</span>${stateTag(W.strategy.state)}`;
       showStep(5);
     } else {

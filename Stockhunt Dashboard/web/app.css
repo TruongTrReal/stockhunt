@@ -571,6 +571,39 @@ code{font-family:var(--mono);font-size:.9em;color:var(--ink-2);}
 .sys-facts dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;
   font-size:15px;color:var(--ink);}
 .sys-facts .of{font-family:var(--sans);font-size:12px;color:var(--muted);}
+
+/* ---------- a system's six numbers, at a reading width ----------
+   `--rail` is `none` so DATA can use the screen, and that argument is about the
+   nine-column holdings table and the 200-row fills list. Six key/value tiles are not data
+   in that sense: `.strip`'s `auto-fit` stretched them across a 1900px window, so
+   collecting six figures — four of which were `0` — was a movement of the head rather
+   than a glance, and the eye had to travel the whole rail to do it. Capped to roughly
+   three columns of two rows, which is one fixation. Nothing below it is narrowed. */
+.sys-vitals{max-width:680px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+  gap:24px 30px;}
+
+/* ---------- the system that has not traded ----------
+   Prose and five short facts, so it sets its own measure in `ch` and ignores the rail
+   entirely — a sentence run across a full-bleed window is unreadable at any weight.
+
+   No box, no fill and no accent. On this site colour means gained or lost, and "nothing
+   has happened yet" is neither; the hairline on the last paragraph is the only marking,
+   and it is there because that paragraph carries the one fact a reader cannot get
+   anywhere else on the page — that a REFUSED order looks identical to no order. */
+.sys-wait{gap:14px;}
+.sys-wait .sys-facts{padding:4px 0 15px;border-bottom:1px solid var(--hair);}
+.wait-why{margin:0;max-width:66ch;font-size:14.5px;line-height:1.6;color:var(--ink-2);}
+.wait-why b{color:var(--ink);font-weight:600;}
+.wait-blind{margin:0;max-width:70ch;font-size:13.5px;line-height:1.6;color:var(--muted);
+  border-left:2px solid var(--hair-2);padding-left:16px;}
+.wait-blind b{color:var(--ink);font-weight:600;}
+
+/* The metrics a young record cannot compute yet, named once each under the table instead
+   of printed as eleven rows of em-dash inside it. Muted and narrow: it is a footnote about
+   the table, not a second table. See `liveMetricRows`. */
+.held-back{margin:0;max-width:88ch;font-size:12.5px;line-height:1.6;color:var(--muted);}
+.held-back b{color:var(--ink-2);font-weight:500;}
+
 .sim-wins{display:grid;grid-template-columns:1fr 1fr;gap:32px;padding-bottom:4px;}
 .sim-wins .pnl-chart{height:150px;}
 @media (max-width:700px){.sim-wins{grid-template-columns:1fr;}}

@@ -51,6 +51,7 @@ look identical in the registrations table and had been reported as the same sent
 
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 
 import desk_orders
@@ -86,10 +87,43 @@ UNIVERSE_SECONDS = 60
 # deploy N times the money that exists.
 DEFAULT_CAPITAL = 10_000.0
 
-# A ceiling on what members can collectively ask the sandbox venue to fund. It is not a
-# risk limit — nothing here is real money — it is a guard against one runaway script
-# registering strategies until the venue account is meaningless.
-MAX_MEMBER_STRATEGIES = 60
+# A ceiling on how many member strategies the desk will hold at once.
+#
+# **The mechanism is kept and the number is not a limit any more.** It was 60, and what it
+# guarded against is real and still is: a runaway script registering until the venue
+# account is meaningless, the board is unreadable and the ledger is full. The owner has
+# asked for no practical ceiling, so it is a number no real use reaches rather than a
+# check that was deleted — a bug that used to stop at 60 would otherwise fill the ledger
+# with nothing anywhere to stop it, and the refusal it raises is the only evidence such a
+# loop would ever produce.
+#
+# **What actually protects the desk now is the FEED budget and the rate limits, not this
+# count**, and they are the numbers to reason about before widening anything else:
+#
+#   `paper_config.MAX_1M_SYMBOLS`   120 distinct symbols at 1m — one vendor request per
+#                                   symbol per minute against a 610/minute budget
+#   `paper_config.MAX_OPEN_SYMBOLS` 200 names from outside the pinned legs
+#   `api_config.MAX_ORDERS_PER_MINUTE`  60 orders a minute, per account, counted from the
+#                                   store so restarting the API hands nobody a fresh
+#                                   allowance
+#
+# Each of those is per SYMBOL or per MINUTE, which is the unit that costs something. A
+# strategy count never was: a hundred books on twenty tickers cost twenty subscriptions.
+MAX_MEMBER_STRATEGIES = int(os.environ.get("STOCKHUNT_MAX_MEMBER_STRATEGIES") or 100_000)
+
+# How many not-yet-registered member books `run_paper` pre-funds each venue account for.
+#
+# It was `MAX_MEMBER_STRATEGIES`, and that stopped being a usable number the moment the
+# ceiling above became 100,000: a venue account has to be funded before its client
+# connects, so the headroom is multiplied by the per-system capital, and a Nautilus `Money`
+# refuses anything above 9,223,372,036 — the node would fail to BUILD, on every start, for
+# a limit nobody set deliberately.
+#
+# Separated rather than shrunk, because the two were never the same quantity. This is a
+# GUESS at how many books might attach between now and the next restart; that is a REFUSAL
+# ceiling. Books already in the ledger are funded exactly, on top of this, so the guess
+# only has to cover what arrives while the desk is up.
+FUNDING_HEADROOM_STRATEGIES = 60
 
 # How many of its own bars a member strategy may go without a single price before the desk
 # says so in the ledger. Three, because one missed poll is normal — `td_nautilus` retries,
@@ -172,6 +206,7 @@ class DeskController(Controller):
         self._running: dict[str, object] = {}       # registration_id -> strategy instance
         self._attached_at: dict[str, object] = {}   # registration_id -> when it went live
         self._quiet: set[str] = set()               # already reported as receiving nothing
+        self._underwater: set[str] = set()          # ...and as having no equity left
         self._universe_at = None                    # when the slow lane last ran
         self.ticks = 0
         self.applied = 0
@@ -223,6 +258,14 @@ class DeskController(Controller):
         except Exception as exc:
             self.log.error(f"feed watch failed: {exc}")
             failed = failed or f"feed watch failed: {exc}"
+        # Guarded on its own, like every other lane: a book whose marks are momentarily
+        # unreadable must not stop the drain, which is where the orders somebody is waiting
+        # on actually move.
+        try:
+            self._watch_equity()
+        except Exception as exc:
+            self.log.error(f"equity watch failed: {exc}")
+            failed = failed or f"equity watch failed: {exc}"
         try:
             self._drain()
         except Exception as exc:
@@ -352,9 +395,25 @@ class DeskController(Controller):
         if cls not in paper_config.VENUES:
             raise RuntimeError(f"unknown asset class {cls!r}")
 
+        # THE CEILING BINDS HERE, not in `desk_orders`.
+        #
+        # The API bounds `leverage` on the way in, and that check is the fast, kind one:
+        # it answers a caller in their own request. This is the one that binds, for the
+        # reason the whole module docstring gives — a row in the ledger is untrusted input
+        # whatever the API said about it, and this process is the only one that knows
+        # `paper_config.MAX_LEVERAGE` first-hand.
+        #
+        # It REFUSES rather than clamping. Clamping would run somebody's book on terms
+        # their own registration does not record, so the ledger and the desk would disagree
+        # about what was permitted and every refusal afterwards would read as a bug.
+        refusal = _leverage_refusal(reg)
+        if refusal:
+            raise RuntimeError(refusal)
+
         # Bound here rather than only inside the `else` below, so the admit near the end
         # of this method cannot depend on two guards agreeing about what a book is.
-        opened: list[str] = []
+        # `opened` is symbol -> the class the desk decided it is, not symbol -> `cls`.
+        opened: dict[str, str] = {}
 
         if reg["kind"] == "book":
             # A book names no symbols: it holds whoever is in the class right now, and
@@ -387,14 +446,31 @@ class DeskController(Controller):
                 if over:
                     raise RuntimeError(over)
 
+        # WHICH CLASS IS EACH SYMBOL ON? Every symbol already on the desk answers for
+        # itself; anything `_resolve_open` just decided answers with what it decided; and
+        # a `book`, which names no symbols at all, produces an empty map that means "the
+        # registration's own class, as it always did".
+        held = symbol_classes(reg, opened)
+
         # Both kinds, and after both of the lists above, because a timeframe can be on the
-        # desk's offer and still be one this CLASS's vendor cannot serve. `cme_futures` at
-        # 4h is exactly that, permanently. Refused here so the owner reads a sentence,
-        # rather than in `_subscribe_bars` where it is logged into a Nautilus task and goes
+        # desk's offer and still be one a CLASS's vendor cannot serve. `cme_futures` at 4h
+        # is exactly that, permanently. Refused here so the owner reads a sentence, rather
+        # than in `_subscribe_bars` where it is logged into a Nautilus task and goes
         # nowhere.
-        can, why = _feedable(cls, reg["tf"])
-        if not can:
-            raise RuntimeError(why)
+        #
+        # **Asked PER CLASS, and the refusal names the symbol.** A mixed book is refused
+        # WHOLE rather than having the unfeedable leg dropped, and that is the deliberate
+        # half: silently trading four of somebody's five symbols is a book that is not the
+        # book they registered, and nothing downstream — the curve, the P&L, the record —
+        # would say which one it is. So the answer is no, and it names the symbol and its
+        # class so the fix is obvious, rather than naming a class the registration may not
+        # even mention.
+        for sym_cls in sorted(set(held.values()) | {cls}):
+            can, why = _feedable(sym_cls, reg["tf"])
+            if not can:
+                named = sorted(s for s, c in held.items() if c == sym_cls)
+                where = f" ({', '.join(named)})" if named else ""
+                raise RuntimeError(f"{why}{where}")
 
         # LAST, and only once every refusal above has passed. Admitting is a side effect
         # on process-wide state — `paper_config.CLASS_OF` grows, an instrument reaches the
@@ -403,9 +479,9 @@ class DeskController(Controller):
         # registration, and sixty rejected 4h futures books would exhaust a ceiling that
         # exists to bound the FEED. `opened` is empty for a book and for a registration
         # that named nothing new, so this needs no second guard on the kind.
-        self._admit_open(cls, opened)
+        self._admit_open(opened)
 
-        strategy = self._build(reg, paper_config.VENUES[cls])
+        strategy = self._build(reg, held)
         # Start it ourselves ONLY if the trader is already running. The controller's first
         # tick happens inside `on_start`, i.e. during the trader's own start sequence — so
         # a strategy added there is started again a moment later by `Trader._start`, and
@@ -415,6 +491,7 @@ class DeskController(Controller):
         self._running[rid] = strategy
         self._attached_at[rid] = self.clock.utc_now()
         self._quiet.discard(rid)
+        self._underwater.discard(rid)
         # A caveat, not a refusal — `reason` beside `live`. See `_caveat`.
         #
         # Caught here rather than inside the caveat builders: a caveat is a courtesy and
@@ -430,8 +507,8 @@ class DeskController(Controller):
         self.log.info(f"started {rid} ({reg['kind']}) on {', '.join(reg['symbols'])}")
 
     # --------------------------------------------------------------- open symbols
-    def _resolve_open(self, reg: dict) -> list[str]:
-        """Which of this registration's symbols are new, having checked they are real.
+    def _resolve_open(self, reg: dict) -> dict[str, str]:
+        """Which of this registration's symbols are new, and what class each of them is.
 
         **The desk used to refuse anything outside `paper_config.CLASS_OF` and the reason
         it gave was wrong.** It said a new symbol "costs an instrument, a subscription and
@@ -453,9 +530,18 @@ class DeskController(Controller):
         rule on an unknown symbol is still refused — with the reason, not with the old
         sentence about instruments.
 
-        Resolution itself is `symbol_resolve.resolve`, which is where the identity guard
+        Resolution itself is `symbol_resolve.classify`, which is where the identity guard
         lives; this only decides who to ask about and turns a refusal into an exception
         `_reconcile` will write onto the registration.
+
+        **`classify`, not `resolve`, and that is the mixed-class change.** `resolve` asks
+        "is this symbol the instrument THIS class means", which needs a declared class and
+        a book holding `AAPL` and `BTC/USD` has no single one to offer. `classify` decides
+        the class from the symbol and returns it on the verdict, falling back to the
+        registration's declared class only where the symbol itself cannot say — a bare
+        ticker, which is an equity or an ETF and shares a venue, an instrument shape and a
+        vendor either way. Every existing single-class registration therefore resolves
+        exactly as it did.
 
         **Nothing is admitted here.** The caller admits after every other refusal has
         passed, so a registration rejected for its timeframe does not leave a symbol on
@@ -463,7 +549,7 @@ class DeskController(Controller):
         """
         unknown = [s for s in reg["symbols"] if s not in paper_config.CLASS_OF]
         if not unknown:
-            return []
+            return {}
         if reg["kind"] != "member":
             raise RuntimeError(
                 f"{', '.join(unknown)} is not in the desk's {reg['cls']} universe, and a "
@@ -472,15 +558,19 @@ class DeskController(Controller):
                 f"nothing else, so a ranking on another instrument does not exist. A "
                 f"member strategy can trade it — it decides for itself and needs the desk "
                 f"only to fill and mark.")
+        out: dict[str, str] = {}
         for symbol in unknown:
-            verdict = symbol_resolve.resolve(symbol, reg["cls"])
+            verdict = symbol_resolve.classify(symbol, reg["cls"])
             if not verdict.ok:
                 raise RuntimeError(verdict.reason)
+            out[symbol] = verdict.asset_class
             self.log.info(f"{reg['strategy_id']}: {verdict.reason}"
+                          + (f" — trading it as {verdict.asset_class}"
+                             if verdict.asset_class != reg["cls"] else "")
                           + ("  [cached verdict]" if verdict.cached else ""))
-        return unknown
+        return out
 
-    def _admit_open(self, cls: str, symbols: list[str]) -> None:
+    def _admit_open(self, symbols: dict[str, str]) -> None:
         """Put a resolved symbol on the desk: the registry, the cache, and the venue.
 
         All three, in that order, and each one prevents a different silent failure:
@@ -498,11 +588,18 @@ class DeskController(Controller):
           inside `run_paper.route_bars_to_sandbox`'s handler, which catches everything so
           that one bad bar cannot kill the feed — so a miss there is not an error, it is a
           book that receives bars and fills nothing while every log line reads healthy.
+
+        **The class comes in with each symbol, not once for the batch.** It used to be one
+        argument for the whole registration, which put every admitted name on the
+        registration's venue — so a `BTC/USD` registered alongside equities would have been
+        admitted as `us_stocks`, built as a whole-share `Equity` on `SANDBOX`, and — the
+        part that matters most — filed in `CLASS_OF` as an equity, which is what
+        `run_paper._split_by_feed` and `live_ws.streamable` read to keep `cme_futures` away
+        from Twelve Data. Getting that map wrong for a futures name is the one thing this
+        desk may never do.
         """
-        if not symbols:
-            return
-        venue = paper_config.VENUES[cls]
-        for symbol in symbols:
+        for symbol, cls in sorted(symbols.items()):
+            venue = paper_config.VENUES[cls]
             paper_config.admit(symbol, cls)
             inst = instrument_for(symbol, cls, venue)
             if self.cache.instrument(inst.id) is None:
@@ -590,14 +687,22 @@ class DeskController(Controller):
                 f"few dozen tickers spend the whole feed's budget — {len(live)} are "
                 f"already subscribed. Trade fewer names, or use 5m.")
 
-    def _build(self, reg: dict, venue: str):
+    def _build(self, reg: dict, held: dict[str, str] | None = None):
         """A member's registration and a rule promoted off a backtest differ only here.
 
         Both are rows in the same table with the same lifecycle, and everything downstream
         — the record, the curve, the dashboard — cannot tell them apart. Only the thing
         that decides what to trade changes.
+
+        `held` is symbol -> class, and it is the whole of the mixed-class change at this
+        level. A `book` and a `house_rule` ignore it: both trade off a walk-forward sheet
+        that is scored on ONE class, so their venue is still the registration's own. A
+        `MemberStrategy` carries it, because that is the only kind whose symbols may come
+        from several legs at once.
         """
         tag = _order_id_tag(reg["strategy_id"])
+        held = dict(held or {})
+        venue = paper_config.VENUES[reg["cls"]]
 
         if reg["kind"] == "book":
             from book_strategy import BookStrategy, BookStrategyConfig
@@ -662,15 +767,43 @@ class DeskController(Controller):
                 note=f"{reg['rule']} on {symbol} {reg['tf']}, promoted from the "
                      f"walk-forward sheet."))
 
+        lev = desk_orders.leverage_of(reg)
+        # The benchmark is subscribed and marked but never traded, so it needs a class of
+        # its own for exactly the same reason every held symbol does — it is an instrument
+        # on a venue, and `MemberStrategy.on_start` builds it the same way.
+        watch = dict(held)
+        if reg.get("benchmark"):
+            watch.setdefault(reg["benchmark"],
+                             paper_config.class_of_symbol(reg["benchmark"], reg["cls"]))
+        classes = sorted({c for s, c in watch.items() if s in reg["symbols"]}
+                         or {reg["cls"]})
         return MemberStrategy(config=MemberStrategyConfig(
             order_id_tag=tag,
             registration_id=reg["strategy_id"], account=reg["account"],
             name=reg["name"], cls=reg["cls"], tf=reg["tf"],
             symbols=tuple(reg["symbols"]), venue=venue,
+            # Symbol -> class, as PAIRS rather than as a dict: a `StrategyConfig` is a
+            # frozen msgspec Struct and frozen structs are hashable, so a dict field makes
+            # the config itself unhashable — which fails wherever Nautilus hashes a config,
+            # not here where it would be found. Empty means "every symbol is `cls`", which
+            # is what every registration written before this existed means.
+            symbol_classes=tuple(sorted(watch.items())),
             capital=float(reg["capital"]), allow_short=bool(reg["allow_short"]),
+            leverage=lev,
             benchmark=reg["benchmark"], export_state=self.config.export_state,
             note=f"{reg['name']}: orders arrive over the API. The desk executes and "
-                 f"accounts; the strategy itself runs on the manager's own machine."))
+                 f"accounts; the strategy itself runs on the manager's own machine."
+                 # Named, because a mixed book's `cls` column is its HOME leg and no longer
+                 # a description of what it holds. See `symbol_classes` below for why that
+                 # column is not rewritten to `mixed`.
+                 + ("" if len(classes) < 2 else
+                    f" Holds {', '.join(_CLASS_WORDS.get(c, c) for c in classes)} "
+                    f"instruments in one book, each on its own venue and vendor, filed on "
+                    f"the board under {reg['cls']}.")
+                 + ("" if lev == desk_orders.NO_LEVERAGE else
+                    f" Levered {lev:g}x — gross exposure up to {lev:g} times equity, so "
+                    f"this curve is not comparable to an unlevered one or to the "
+                    f"research, which scores unlevered books.")))
 
     # ------------------------------------------------------------------ is it fed?
     def _watch_feeds(self, now) -> None:
@@ -703,7 +836,7 @@ class DeskController(Controller):
             if fed:
                 if rid in self._quiet:
                     self._quiet.discard(rid)
-                    deskdb.mark_registration(rid, "live", reason=None)
+                    self._say(rid)
                     self.log.info(f"{rid}: prices are arriving again")
                 continue
             if rid in self._quiet:
@@ -711,16 +844,85 @@ class DeskController(Controller):
             if now - since < _bar_interval(strat.config.tf) * FEED_SILENCE_BARS:
                 continue
             self._quiet.add(rid)
-            reason = (f"attached, but no {strat.config.tf} bar has arrived for "
-                      f"{', '.join(strat.config.symbols)} since it started. Orders will "
-                      f"be refused for want of a price until one does. Check the desk log "
-                      f"for a failed subscription.")
-            deskdb.mark_registration(rid, "live", reason=reason)
-            self.log.error(f"{rid}: {reason}")
+            self._say(rid)
+            self.log.error(f"{rid}: {self._watch_reasons(rid)[0]}")
+
+    # ----------------------------------------------------------------- is it solvent?
+    def _watch_equity(self) -> None:
+        """Say so when a book's equity reaches zero, instead of leaving it to be inferred.
+
+        **This is what a levered book blowing up looks like, and until it is written down
+        it looks like nothing.** `desk_orders` bounds gross exposure at `leverage x equity`,
+        so equity falling to zero collapses the ceiling to zero and every order that would
+        add exposure is refused. That is the correct behaviour and it is completely silent:
+        the registration still reads `live`, the strategy is still attached, bars still
+        arrive, and the only symptom the owner gets is that their orders stop working — one
+        refusal at a time, in a column they have to go looking for.
+
+        An unlevered book reaches the same state and it matters less there, because it
+        cannot be short more than its equity by construction and gets there only by losing
+        everything. It is watched all the same: "you have no money left" is not a fact that
+        should depend on a setting.
+
+        `state` is deliberately untouched. The book IS live — it can still close what it
+        holds, and closing is the one thing somebody at zero equity needs to be able to do.
+        Demoting it would also race `_reconcile`, which owns that column.
+        """
+        for rid, strat in self._running.items():
+            if not isinstance(strat, MemberStrategy):
+                continue
+            # Before the first bar a book is worth its cash and nothing is measurable —
+            # `_watch_feeds` owns that state and reporting both would put two sentences on
+            # one row for one problem.
+            if not any(p for p in strat.prices().values()):
+                continue
+            equity = strat.equity()
+            if equity > 0:
+                if rid in self._underwater:
+                    self._underwater.discard(rid)
+                    self._say(rid)
+                    self.log.info(f"{rid}: equity is positive again ({equity:,.2f})")
+                continue
+            if rid in self._underwater:
+                continue
+            self._underwater.add(rid)
+            self._say(rid)
+            self.log.error(f"{rid}: {self._watch_reasons(rid)[-1]}")
+
+    # ------------------------------------------------------- one writer, one column
+    #
+    # `reason` is a single column and both watches above have something to put in it. Two
+    # writers meant the second condition to fire overwrote the first, and — worse — either
+    # one CLEARING itself wrote `None` over the other's live warning: a book that was both
+    # unfed and broke stopped reporting either the moment one of them recovered. So the
+    # watches keep flags and this composes the column from all of them.
+    def _watch_reasons(self, rid: str) -> list[str]:
+        strat = self._running.get(rid)
+        out = []
+        if rid in self._quiet and strat is not None:
+            out.append(f"attached, but no {strat.config.tf} bar has arrived for "
+                       f"{', '.join(strat.config.symbols)} since it started. Orders will "
+                       f"be refused for want of a price until one does. Check the desk "
+                       f"log for a failed subscription.")
+        if rid in self._underwater and strat is not None:
+            lev = getattr(strat.config, "leverage", 1.0)
+            out.append(f"this book's equity has reached {strat.equity():,.2f}. Its gross "
+                       f"exposure may not exceed {lev:g}x equity, so at zero the "
+                       f"desk will accept only orders that REDUCE what it holds — every "
+                       f"order that would open or add is refused until the book is worth "
+                       f"something again. Close the positions, or retire it: retiring "
+                       f"flattens, and keeps the record.")
+        return out
+
+    def _say(self, rid: str) -> None:
+        """Publish whatever the watches currently hold. Empty clears the column."""
+        reasons = self._watch_reasons(rid)
+        deskdb.mark_registration(rid, "live", "\n\n".join(reasons) or None)
 
     def _retire(self, rid: str) -> None:
         self._attached_at.pop(rid, None)
         self._quiet.discard(rid)
+        self._underwater.discard(rid)
         strategy = self._running.pop(rid, None)
         if strategy is None:
             return
@@ -785,9 +987,53 @@ class DeskController(Controller):
                 deskdb.mark_order(row["seq"], "rejected", reason=why)
                 self.rejected += 1
 
+        # Say on the BOARD that orders arrived and were refused.
+        #
+        # The desk writes a complete, well-worded reason onto every refused order and for a
+        # long time nothing rendered any of it. The manager console reads the ledger and now
+        # shows them; the paper BOARD reads `live.json`, which carries fills and not orders
+        # — so a system with 127 refusals printed *"No fills yet — this system has not
+        # opened a position"*, which is true and useless. That sentence and "nothing has
+        # ever been sent to this book" are completely different situations.
+        #
+        # Only the COUNT crosses over, not the reasons: the board is a public-shaped
+        # document and a refusal names sizes and cash balances. It points at the console.
+        #
+        # Read from the LEDGER rather than from a counter kept here, because a counter
+        # resets on restart and would publish a lifetime figure that is not one — the same
+        # class of quietly-wrong number this folder keeps paying for. It costs two grouped
+        # queries and runs only on a pass that actually rejected something, which on a
+        # healthy desk is never.
+        if reject:
+            self._publish_refusals({row["account"] for row, _ in reject})
+
         # Last, and only last. A watermark advanced before the batch was handled would
         # lose every order in it if the process died here.
         deskdb.commit_drain(batch[-1]["seq"])
+
+    def _publish_refusals(self, accounts: set[str]) -> None:
+        """Put each affected book's order counts on the published record. Never fatal."""
+        for account in accounts:
+            try:
+                summary = deskdb.order_summary(account)
+            except Exception as exc:                   # noqa: BLE001 - never fatal
+                self.log.error(f"could not read the order summary for {account}: {exc}")
+                continue
+            for rid, stats in summary.items():
+                strat = self._running.get(rid)
+                sid = getattr(strat, "_sid", None)
+                if not sid or not getattr(strat, "config", None) \
+                        or not strat.config.export_state:
+                    continue
+                paper_state.update(
+                    sid,
+                    orders_total=int(stats.get("total") or 0),
+                    orders_refused=int((stats.get("by_state") or {}).get("rejected") or 0))
+        # Debounced, NOT forced. A bot in a rejection loop is exactly the case that reaches
+        # this line, and it reaches it on every one-second tick — forcing the write would
+        # serialise the whole published document once a second for a display counter. A
+        # fill forces its own flush because a trade is a record; this is not one.
+        paper_state.flush()
 
 
 # Imported lazily by name so this module can be read without pulling the instrument
@@ -802,6 +1048,41 @@ def instrument_for(symbol: str, cls: str, venue: str):
     """
     import td_nautilus
     return td_nautilus.instrument_for(symbol, cls, venue)
+
+
+def symbol_classes(reg: dict, opened: dict[str, str] | None = None) -> dict[str, str]:
+    """Which leg each of this registration's symbols trades on.
+
+    **This is where "class is a property of the symbol, not of the registration" is
+    actually written down.** `cls` on the row used to decide the venue, the instrument
+    shape and the vendor for everything the registration named. Those three are per symbol
+    now and come from here; `cls` keeps a narrower job (see below).
+
+    Three sources, in order, and each is the cheapest one that can answer:
+
+      `opened`             what `_resolve_open` just decided about a symbol the desk had
+                           never seen. Passed in rather than re-read, because it is the
+                           only source that costs a vendor round trip
+      `paper_config.CLASS_OF`   every pinned leg, plus everything `admit` has ever let in
+      `reg["cls"]`         the fallback, which is the old behaviour exactly — so a
+                           single-class registration comes out of here mapping every one
+                           of its symbols to the class it declared, as before
+
+    **`cls` on the row is not dropped and does not become `mixed`.** It is the book's HOME
+    LEG: the class the board files it under, the default above, and the venue a `book` or a
+    `house_rule` still runs on whole. A literal `mixed` was the obvious alternative and is
+    worse — the dashboard's class filter is built from the five research classes, so a
+    sixth value puts the book in no pill at all and it disappears from the board rather
+    than being grouped imperfectly. The majority class is worse still: it would move the
+    book between legs as its holdings change, and a grouping that is not stable is not a
+    grouping. So the row stays honest by DISCLOSURE — `_build`'s note names every class the
+    book holds, and `MemberStrategy` publishes them.
+    """
+    out = {}
+    for symbol in reg.get("symbols") or ():
+        out[symbol] = ((opened or {}).get(symbol)
+                       or paper_config.class_of_symbol(symbol, reg["cls"]))
+    return out
 
 
 def _feedable(cls: str, tf: str) -> tuple[bool, str]:
@@ -857,16 +1138,102 @@ def _why_not_feedable(tf: str) -> str:
             f"live poll cannot ask for.")
 
 
+def _leverage_refusal(reg: dict) -> str:
+    """Why this registration may not lever as far as it asked. Empty when it may.
+
+    Two separate refusals, and they are not the same mistake:
+
+    * **Above the desk's ceiling.** `paper_config.MAX_LEVERAGE` is now ONE range for every
+      class, 1x to 125x, so this no longer names a class or a venue — it was per class and
+      each number was anchored to what a real venue permits, and `paper_config` keeps that
+      history and the two facts from it still worth knowing.
+    * **Levered, and not a member strategy.** A `house_rule` and a `book` trade a rule off
+      a walk-forward sheet, and every one of those sheets scores an UNLEVERED book. Running
+      one at 2x would put a number on the board under a rule's name that the rule's own
+      research does not describe, and nothing downstream would say so. `desk_orders`
+      enforces its ceiling on the order path, **which those two kinds do not use at all**,
+      so a levered promotion would not even be bounded — it would simply be unenforced.
+      That is unchanged by the ceiling being uniform: it was never about the number.
+    """
+    lev = desk_orders.leverage_of(reg)
+    if lev == desk_orders.NO_LEVERAGE:
+        return ""
+    if reg.get("kind") != "member":
+        return (f"a {reg.get('kind')} cannot be levered. It trades a rule selected off "
+                f"wf_summary_{reg['cls']}_{reg['tf']}.csv, and every sheet in this repo "
+                f"scores an UNLEVERED book — a levered one would publish a curve under "
+                f"that rule's name that the rule's own research does not describe. It also "
+                f"never touches the order path where the ceiling is enforced, so it would "
+                f"be unenforced rather than merely incomparable. "
+                f"Register it at 1x, or run it as a member strategy you send orders to.")
+    ceiling = paper_config.max_leverage(reg["cls"])
+    if lev > ceiling:
+        return (f"{lev:g}x is beyond what this desk will run: the ceiling is {ceiling:g}x "
+                f"on every class. At {ceiling:g}x an adverse move of "
+                f"{paper_config.wipeout_move_pct(ceiling):.2g}% takes a book sitting on "
+                f"its ceiling to zero equity, which is where this number stops.")
+    return ""
+
+
 def _caveat(reg: dict) -> str:
     """Everything TRUE but surprising about a registration the desk is about to ACCEPT.
 
     Composed from the individual caveats rather than written as one, because they are
     independent: a futures book can be on the slow feed, or unable to afford a unit, or
     both, or neither. Joined with a blank line so a row carrying two still reads.
+
+    **The feed caveat is asked of every class the book HOLDS, not of the class it declared.**
+    A mixed book filed under `us_stocks` that also carries `ES.v.0` at 1m runs half of
+    itself off Databento's archive, and a caveat keyed on the row's `cls` would have said
+    nothing about it — which is this column's whole failure mode, one class over.
     """
-    parts = [c for c in (_feed_caveat(reg["cls"], reg["tf"]),
+    held = symbol_classes(reg)
+    feeds = [_feed_caveat(c, reg["tf"]) for c in sorted(set(held.values()) | {reg["cls"]})]
+    parts = [c for c in (*feeds,
+                         _leverage_caveat(reg),
                          _affordability_caveat(reg)) if c]
     return "\n\n".join(parts)
+
+
+def _leverage_caveat(reg: dict) -> str:
+    """What a member has actually agreed to by asking for leverage.
+
+    Not a refusal — `_leverage_refusal` already ran and let this through — and not a
+    warning about risk, which is the member's business. Two things the member cannot see
+    from their own side, and both are arithmetic rather than opinion:
+
+    * **This book's forward record stops being comparable to anything else on the board.**
+      `portfolio_wf` and `riskmatch_wf` score UNLEVERED books, so a levered curve beside a
+      research number is two different measurements printed in one column.
+    * **How far the market has to move to end the book.** The ceiling is
+      `leverage x equity`, so a book sitting on it loses everything to a move of
+      `100 / leverage` per cent — **0.8% at 125x**. That is the honest number for what a
+      leverage setting costs, it is one division, and it is the thing a member is least
+      likely to have worked out. It replaces the old per-class sentence, which could lean
+      on "the venue behind this class allows this much" and no longer can: since
+      2026-08-29 the ceiling is 125x on every class and is the OWNER's number, not a
+      venue's, so the row has to carry the consequence instead of the provenance.
+
+    Said on every levered row rather than only above some threshold: this column is kept
+    rare by only appearing on a book that ASKED for leverage, and at 2x the same sentence
+    reads "a 50% adverse move", which is true, unalarming, and tells the reader exactly
+    what the scale is before they ever type a larger number into it.
+    """
+    lev = desk_orders.leverage_of(reg)
+    if lev == desk_orders.NO_LEVERAGE:
+        return ""
+    capital = float(reg.get("capital") or 0.0)
+    move = paper_config.wipeout_move_pct(lev)
+    return (f"Running at {lev:g}x. Gross exposure — longs plus shorts, counted at their "
+            f"absolute size — may reach {lev:g} times this book's equity, so about "
+            f"${capital * lev:,.0f} while it is still worth the ${capital:,.0f} it "
+            f"started with, and less as it loses. An order past that is refused with the "
+            f"numbers in it. The ceiling moves with equity rather than with capital, so a "
+            f"book at zero equity may only close positions, never open one. "
+            f"AT {lev:g}x A {move:.2g}% ADVERSE MOVE ON A FULLY DEPLOYED BOOK TAKES IT TO "
+            f"ZERO — that is 100/{lev:g}, not an estimate. Its published return is still "
+            f"measured on the capital you put up, so it is comparable to nothing else on "
+            f"the board: the research sheets score unlevered books.")
 
 
 def _affordability_caveat(reg: dict) -> str:
@@ -888,10 +1255,22 @@ def _affordability_caveat(reg: dict) -> str:
     Priced off the CACHED daily close, not off the vendor. It runs inside `tick()`, so a
     network call here would let a slow vendor stall the controller — and a price a day old
     is ample for "can $10,000 buy something that costs $29,600".
+
+    **It is measured against `capital x leverage`, not against capital**, since 2026-08-29.
+    Buying power is what decides whether a whole unit fits, and for a levered book that is
+    no longer the capital: a $10,000 book at 4x carries one `NQ.v.0` comfortably, and
+    warning that it cannot would be actively wrong — it would tell a member to send
+    fractional sizes on the one leg where they had just paid for the ability not to. The
+    mechanism is kept; only the number it compares against changed.
     """
     symbols = list(reg.get("symbols") or [])
     capital = float(reg.get("capital") or 0.0)
-    if not symbols or capital <= 0:
+    leverage = desk_orders.leverage_of(reg)
+    # What one order can actually reach on an untouched book. `desk_orders.headroom` on a
+    # flat book is exactly `leverage * cash`, and cash on a flat book is the capital, so
+    # this is that same number rather than a second opinion about it.
+    buying_power = capital * leverage
+    if not symbols or buying_power <= 0:
         return ""
     # NOT wrapped in a broad `except` any more, and the reason is that the broad one bit
     # me while writing this: a `NameError` in the test's own stub was swallowed and the
@@ -901,22 +1280,38 @@ def _affordability_caveat(reg: dict) -> str:
     # about. `_attach` catches and LOGS instead — expected absence returns "" below, and
     # anything unexpected is somebody's bug and should be visible.
     import td_loader
-    bars = td_loader.load(reg["cls"], "1d", symbols)
+    # Loaded PER CLASS, because `td_loader.load` reads `data/<class>/1d/` and a mixed book
+    # has symbols in more than one of those directories. Asking for all of them under the
+    # registration's own class returns empty frames for the ones that live elsewhere,
+    # which reads as "nothing to say" — and this function's whole job is to say something.
     unit = {}
+    by_class: dict[str, list[str]] = {}
     for sym in symbols:
-        frame = bars.get(sym)
-        # An absent symbol or an empty frame is expected — the cache need not hold a name
-        # the desk trades live — and is the one case that is genuinely nothing to say.
-        if frame is not None and len(frame):
-            unit[sym] = float(frame["Close"].iloc[-1])
-    dear = {s: p for s, p in unit.items() if p > capital}
+        by_class.setdefault(
+            paper_config.class_of_symbol(sym, reg["cls"]), []).append(sym)
+    for cls, names in by_class.items():
+        bars = td_loader.load(cls, "1d", names)
+        for sym in names:
+            frame = bars.get(sym)
+            # An absent symbol or an empty frame is expected — the cache need not hold a
+            # name the desk trades live — and is the one case that is genuinely nothing to
+            # say.
+            if frame is not None and len(frame):
+                unit[sym] = float(frame["Close"].iloc[-1])
+    dear = {s: p for s, p in unit.items() if p > buying_power}
     if not dear:
         return ""
     worst, price = max(dear.items(), key=lambda kv: kv[1])
-    affordable = capital / price
+    affordable = buying_power / price
     names = ", ".join(sorted(dear))
+    # The book is described by what it can SPEND, and by the two numbers that produced it
+    # when they differ. Saying "this book is $10,000" on a 4x registration would understate
+    # its reach by four, and a member reading a caveat that contradicts their own leverage
+    # setting learns to ignore the caveat.
+    size = (f"${capital:,.0f}" if leverage == desk_orders.NO_LEVERAGE else
+            f"${capital:,.0f} at {leverage:g}x, so ${buying_power:,.0f} of buying power")
     return (f"Running, but note the size this book can carry: one unit of {worst} costs "
-            f"about ${price:,.0f} and this book is ${capital:,.0f}, so the most it can "
+            f"about ${price:,.0f} and this book is {size}, so the most it can "
             f"hold is {affordable:.2f}. On {'these' if len(dear) > 1 else 'this'} symbol"
             f"{'s' if len(dear) > 1 else ''} — {names} — a whole-number size will be "
             f"refused for want of cash. A unit here is a fractional notional unit, not a "
