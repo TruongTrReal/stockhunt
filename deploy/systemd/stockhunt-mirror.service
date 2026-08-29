@@ -1,6 +1,6 @@
 [Unit]
 Description=Alpaca mirror: drive paper accounts to a scaled copy of the desk's book
-Documentation=https://github.com/stockhunt1111/quant-research-sh-vn
+Documentation=https://github.com/TruongTrReal/stockhunt
 After=network-online.target stockhunt-desk.service
 Wants=network-online.target
 # Deliberately NOT Requires=stockhunt-desk. The mirror reads a file, not a process: if the
