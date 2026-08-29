@@ -1,0 +1,4 @@
+symbol,entry,reason
+XAU/USD,2006-02-03,"Open is exactly High or Low on >=50% of every 21-bar window before this date -- the field is synthetic, and check_data's repair widens High/Low onto it"
+XAG/USD,2006-02-06,"Open is exactly High or Low on >=50% of every 21-bar window before this date -- the field is synthetic, and check_data's repair widens High/Low onto it"
+WTI/USD,1984-02-07,"Open is exactly High or Low on >=50% of every 21-bar window before this date -- the field is synthetic, and check_data's repair widens High/Low onto it"

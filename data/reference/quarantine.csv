@@ -1,0 +1,20 @@
+class,timeframe,symbol,reason
+crypto,1m,DOGE/USD,surviving +982% bar (2898 robust sigma)
+crypto,1m,TRX/USD,surviving +9257% bar (9666 robust sigma)
+us_stocks,15m,APC,"peak 1y volume $2,269,171/day at $18.41 -- never an index-sized listing, so not the member this ticker names"
+us_stocks,15m,BNY,surviving +1276% bar (1880 robust sigma)
+us_stocks,15m,GEN,surviving +11372% bar (1856 robust sigma)
+us_stocks,1d,APC,"daily series is two companies with a six-year hole: 2012-2019 at $41-79 (Anadarko, acquired Aug 2019), NO bars 2020-2025, then 2026 at $18.84 -- the ticker was recycled, and only the second half matches the intraday cache"
+us_stocks,1d,BNY,"daily and intraday disagree by a DRIFTING ratio, 3.47x in 2019 rising to 9.57x in 2025 and snapping to 1.0000 in 2026 -- a drifting ratio is two instruments, not two adjustment bases, so at least one series is somebody else before 2026"
+us_stocks,1h,APC,"peak 1y volume $2,264,158/day at $18.41 -- never an index-sized listing, so not the member this ticker names"
+us_stocks,1h,BNY,surviving +1277% bar (1275 robust sigma)
+us_stocks,1h,GEN,surviving +11342% bar (794 robust sigma)
+us_stocks,1m,APC,"peak 1y volume $2,266,613/day at $18.37 -- never an index-sized listing, so not the member this ticker names"
+us_stocks,1m,BNY,surviving +1282% bar (4125 robust sigma)
+us_stocks,1m,GEN,surviving +11482% bar (8702 robust sigma)
+us_stocks,4h,APC,"peak 1y volume $2,274,954/day at $18.41 -- never an index-sized listing, so not the member this ticker names"
+us_stocks,4h,BNY,surviving +1284% bar (672 robust sigma)
+us_stocks,4h,GEN,surviving +11337% bar (410 robust sigma)
+us_stocks,5m,APC,"peak 1y volume $2,268,068/day at $18.40 -- never an index-sized listing, so not the member this ticker names"
+us_stocks,5m,BNY,surviving +1278% bar (2558 robust sigma)
+us_stocks,5m,GEN,surviving +11425% bar (3429 robust sigma)

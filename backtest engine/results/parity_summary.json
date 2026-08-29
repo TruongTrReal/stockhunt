@@ -1,16 +1,16 @@
 {
   "vector-nautilus": {
-    "cells": 54,
-    "failures": 13,
-    "max_rel_diff": 0.5726594553364577,
-    "median_rel_diff": 3.265646041366973e-05,
-    "windowed": 24
+    "cells": 120,
+    "failures": 16,
+    "max_rel_diff": 0.724032603044636,
+    "median_rel_diff": 2.4464185722477604e-05,
+    "windowed": 80
   },
   "vector-reference": {
-    "cells": 216,
-    "failures": 0,
-    "max_rel_diff": 8.294627594765967e-12,
-    "median_rel_diff": 6.515135169363024e-15,
+    "cells": 480,
+    "failures": 1,
+    "max_rel_diff": 1.0000010026225898,
+    "median_rel_diff": 1.3060928932014489e-14,
     "windowed": 0
   }
 }
