@@ -1333,6 +1333,29 @@ function downloadFills(rows, cls, tf, rule) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/* "No fills yet" is TRUE of two completely different books and used to be all either got.
+ *
+ * A book nobody has ever sent an order to is warming up. A book that has had every one of
+ * its orders refused has been stopped by the desk, which wrote a precise reason on each —
+ * and those reasons live in the order ledger, which this page does not read. So the COUNT
+ * is published into `live.json` by `desk_control._publish_refusals` and the sentence points
+ * at the console, where the reasons already are.
+ *
+ * Only the count crosses over. A refusal names sizes and cash balances, and this document
+ * is the shared one. */
+function refusalNote(rows) {
+  const refused = rows.reduce((a, s) => a + (Number(s.orders_refused) || 0), 0);
+  const total = rows.reduce((a, s) => a + (Number(s.orders_total) || 0), 0);
+  if (!refused) return "";
+  const all = refused >= total;
+  return `<p class="sec-note"><b>${refused.toLocaleString()} order${
+    refused === 1 ? " was" : "s were"} refused by the desk${
+    all ? " and none reached the venue" : ` of ${total.toLocaleString()} sent`}.</b>
+    This book has not traded because the desk would not let it, not because it is waiting
+    for a signal. Each refusal carries the desk's own reason — open the strategy on the
+    manager console to read them.</p>`;
+}
+
 function fillsSection(rows) {
   const fills = systemFills(rows);
   const lifetime = rows.reduce((a, s) => a + fillsOf(s), 0);
@@ -1371,7 +1394,9 @@ function fillsSection(rows) {
       the same second carries the same value. The trade statistics above count only the
       first column.</caption>
     </table></div>`
-    : `<p class="sec-note">No fills yet — this system has not opened a position.</p>`}
+    : (refusalNote(rows)
+       || `<p class="sec-note">No fills yet — this system has not opened a position.
+           Nothing has been refused either: no order has reached the desk for it.</p>`)}
   </section>`;
 }
 

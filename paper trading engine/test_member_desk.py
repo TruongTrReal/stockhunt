@@ -18,9 +18,17 @@ It also proves the refusals, which matter more than the fills: an order beyond t
 an order for a symbol the strategy did not register, and a stale order left over from
 downtime must all be rejected with a reason a human can act on.
 
+**`--leverage` runs the whole thing again on a levered book**, and the order that separates
+them is `over-cash`: sized deliberately between the book's capital and its levered ceiling,
+so an unlevered run must refuse it and a levered run must FILL it. That is the property
+worth proving end to end rather than in a unit test — the ceiling is enforced in
+`desk_orders`, but the money it lets through has to reach a real exchange, move real cash
+into a negative balance, and land in the record.
+
 Run from this directory::
 
     ..\\.venv\\Scripts\\python test_member_desk.py
+    ..\\.venv\\Scripts\\python test_member_desk.py --leverage 2
 
 Nonzero exit means the order path is broken. It writes only to temporary files — the real
 `paper.db` and `desk.db` are never touched.
@@ -109,13 +117,20 @@ class ScriptedController(DeskController):
         self.bars_seen += 1
         if self.bars_seen == self.config.place_at_bar and not self.scripted:
             self.scripted = True
-            _write_orders()
+            _write_orders(float(bar.close))
         if self.bars_seen >= self.config.place_at_bar:
             self.tick()
 
 
-def _write_orders() -> None:
-    """Six orders: three that must work, three that must be refused."""
+def _write_orders(price: float) -> None:
+    """Seven orders: three that must work, three that must be refused, and one that
+    depends on how far the book is levered.
+
+    `price` is the bar the orders are written on, so `over-cash` can be SIZED against the
+    real close rather than against a guess. A hardcoded quantity would separate the two
+    runs only until SPY moved, and it would fail as "the ceiling is broken" rather than as
+    "the test is stale" — which is the worse of the two ways to be wrong.
+    """
     ok = dict(symbol=SYMBOL, side="buy", qty=5, order_type="market")
     deskdb.submit_order(ACCOUNT, REG_ID, "buy-5", **ok)
     deskdb.submit_order(ACCOUNT, REG_ID, "buy-5-again", **ok)         # a second real buy
@@ -134,14 +149,19 @@ def _write_orders() -> None:
     deskdb.connect().execute("UPDATE orders SET submitted_at = ? WHERE seq = ?",
                              (old, stale["seq"]))
 
+    # LAST, so it is priced against the book the six above leave behind (7 shares held).
+    # 1.2x the capital in notional: past an unlevered ceiling, inside a 2x one.
+    deskdb.submit_order(ACCOUNT, REG_ID, "over-cash", symbol=SYMBOL, side="buy",
+                        qty=max(int(CAPITAL * 1.2 / price), 1), order_type="market")
 
-def run(bars_limit: int, place_at: int, log_level: str) -> dict:
+
+def run(bars_limit: int, place_at: int, log_level: str, leverage: float = 1.0) -> dict:
     df = load_bars(SYMBOL, "1d").tail(bars_limit)
     inst = td_nautilus.equity_instrument(SYMBOL, VENUE)
     bar_type = BarType.from_str(f"{inst.id}-{paper_config.BAR_SPEC['1d']}")
 
     deskdb.register(ACCOUNT, NAME, "us_stocks", [SYMBOL], "1d", CAPITAL,
-                    kind="member", benchmark=SYMBOL)
+                    kind="member", benchmark=SYMBOL, leverage=leverage)
 
     engine = BacktestEngine(config=BacktestEngineConfig(
         trader_id=TraderId("MEMBER-001"),
@@ -185,12 +205,16 @@ def main() -> None:
     ap.add_argument("--bars", type=int, default=400)
     ap.add_argument("--place-at", type=int, default=300)
     ap.add_argument("--log-level", default="OFF")
+    ap.add_argument("--leverage", type=float, default=1.0,
+                    help="how far the book may lever. 1 is the desk's original behaviour")
     args = ap.parse_args()
 
-    r = run(args.bars, args.place_at, args.log_level)
+    levered = args.leverage > 1.0
+    r = run(args.bars, args.place_at, args.log_level, args.leverage)
     orders = r["orders"]
 
-    print(f"\n  {SYMBOL} 1d, {r['bars']} bars, orders written at bar {args.place_at}")
+    print(f"\n  {SYMBOL} 1d, {r['bars']} bars, orders written at bar {args.place_at}, "
+          f"leverage {args.leverage:g}x")
     print(f"  registration: {r['registration']['state']}  "
           f"strategy attached: {r['attached']}")
     print(f"  applied {r['applied']}, rejected {r['rejected']}, "
@@ -212,7 +236,11 @@ def main() -> None:
             problems.append(f"{coid} should have filled, is "
                             f"{orders.get(coid, {}).get('state')}")
 
-    for coid, expect in (("too-dear", "not enough cash"),
+    # An order past the ceiling is refused either way; only the WORDING moves. An unlevered
+    # book gets the desk's original sentence — that is the promise `leverage = 1` makes and
+    # a member who never asked for leverage must not start reading about gross exposure.
+    over = "not enough cash" if not levered else "leverage ceiling"
+    for coid, expect in (("too-dear", over),
                          ("wrong-symbol", "not one of this strategy's symbols"),
                          ("stale", "stale")):
         o = orders.get(coid, {})
@@ -221,9 +249,27 @@ def main() -> None:
         elif expect not in (o.get("reason") or ""):
             problems.append(f"{coid} rejected for the wrong reason: {o.get('reason')}")
 
-    # 5 + 5 - 3 = 7 shares, and the cash must have moved by the same trades.
-    if r["units"].get(SYMBOL) != 7:
-        problems.append(f"expected 7 {SYMBOL}, holding {r['units'].get(SYMBOL)}")
+    # THE ONE ORDER THE TWO RUNS DISAGREE ABOUT. Sized at 1.2x the capital in notional:
+    # past an unlevered ceiling, comfortably inside a 2x one.
+    oc = orders.get("over-cash", {})
+    if levered:
+        if oc.get("state") != "filled":
+            problems.append(f"a {args.leverage:g}x book should have filled over-cash, "
+                            f"it is {oc.get('state')} — {oc.get('reason')}")
+        # ...and the money is really borrowed: cash goes NEGATIVE, bounded by the ceiling.
+        if r["cash"] is not None and r["cash"] >= 0:
+            problems.append("a levered fill left the cash positive; nothing was borrowed")
+    else:
+        if oc.get("state") != "rejected" or over not in (oc.get("reason") or ""):
+            problems.append(f"an unlevered book must refuse over-cash, it is "
+                            f"{oc.get('state')}")
+
+    # 5 + 5 - 3 = 7 shares before over-cash, and the cash must have moved by those trades.
+    held = r["units"].get(SYMBOL)
+    if not levered and held != 7:
+        problems.append(f"expected 7 {SYMBOL}, holding {held}")
+    if levered and (held or 0) <= 7:
+        problems.append(f"the levered fill never reached the book: holding {held}")
     if r["cash"] is not None and r["cash"] >= CAPITAL:
         problems.append("cash did not fall when shares were bought")
 

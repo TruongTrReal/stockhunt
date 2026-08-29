@@ -652,16 +652,19 @@ def test_an_unlevered_caveat_reads_exactly_as_it_always_did(monkeypatch):
 # --------------------------------------------------- and what the desk will not run
 #
 # `desk_orders` bounds an ORDER; this bounds a REGISTRATION, and it is the only place the
-# per-class ceiling is read. The API bounds it too, earlier and more kindly, but a ledger
-# row is untrusted input whatever the API said about it.
+# ceiling is read. The API bounds it too, earlier and more kindly, but a ledger row is
+# untrusted input whatever the API said about it.
 
-def test_a_registration_above_the_class_ceiling_is_refused():
+def test_a_registration_above_the_ceiling_is_refused():
     import desk_control
     import paper_config
     over = paper_config.max_leverage("us_stocks") + 1
     why = desk_control._leverage_refusal(
         dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=over))
-    assert "ceiling" in why and "us_stocks" in why
+    # The number, and what it costs. A refusal that only says "too much" teaches nothing
+    # about the scale of what was asked for, and 125x is the owner's number rather than a
+    # venue's — so the row cannot lean on "your broker would not allow this" any more.
+    assert "ceiling" in why and "125x" in why and "0.8%" in why
 
 
 def test_a_registration_at_the_ceiling_is_run():
@@ -672,15 +675,48 @@ def test_a_registration_at_the_ceiling_is_run():
         dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=at)) == ""
 
 
-def test_crypto_is_offered_no_leverage_at_all():
-    """Spot crypto is not marginable for US retail, and `alpaca_mirror` — this desk's
-    second record — extends no crypto margin, so a levered crypto book is one the broker
-    side structurally cannot copy."""
+def test_one_range_for_every_class(monkeypatch):
+    """**The inversion of what this file used to assert**, and it is the owner's call.
+
+    Crypto was capped at 1.0 — spot crypto is not marginable for US retail and
+    `alpaca_mirror`, this desk's second record, extends no crypto margin — and futures at
+    10. The range is 1x to 125x on every class now, and the crypto fact is not lost: it is
+    written down in `paper_config.MAX_LEVERAGE` as what a levered crypto book costs, which
+    is that the broker-side mirror stops being able to copy it.
+    """
     import desk_control
     import paper_config
-    assert paper_config.max_leverage("crypto") == 1.0
-    assert desk_control._leverage_refusal(
-        dict(_reg_for("crypto", ["BTC/USD"], 10_000.0), kind="member", leverage=2.0))
+    seen = {paper_config.max_leverage(c) for c in paper_config.UNIVERSE}
+    assert seen == {125.0}
+    for cls, sym in (("crypto", "BTC/USD"), ("cme_futures", "ES.v.0"),
+                     ("commodities", "XAU/USD"), ("us_etfs", "SPY")):
+        assert desk_control._leverage_refusal(
+            dict(_reg_for(cls, [sym], 10_000.0), kind="member", leverage=125.0)) == ""
+
+
+def test_the_caveat_carries_the_wipeout_distance():
+    """`0.8%` at 125x is the honest number for what the setting costs, and it is
+    arithmetic — 100/leverage — rather than an opinion. It replaces the old per-class
+    sentence, which could lean on a venue's margin rules and no longer can."""
+    import desk_control
+    why = desk_control._leverage_caveat(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=125.0))
+    assert "125x" in why and "0.8%" in why and "ZERO" in why
+    # ...and at a modest setting the same sentence is unalarming and still true, which is
+    # what makes it safe to print on every levered row.
+    mild = desk_control._leverage_caveat(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=2.0))
+    assert "50%" in mild
+    # Never on an unlevered book: this column is only useful while it stays rare.
+    assert desk_control._leverage_caveat(
+        dict(_reg_for("us_stocks", ["SPY"], 10_000.0), kind="member", leverage=1.0)) == ""
+
+
+def test_the_wipeout_arithmetic_is_one_definition():
+    import paper_config
+    assert paper_config.wipeout_move_pct(125) == pytest.approx(0.8)
+    assert paper_config.wipeout_move_pct(2) == pytest.approx(50.0)
+    assert paper_config.wipeout_move_pct(1) == pytest.approx(100.0)
 
 
 def test_a_promoted_rule_may_not_be_levered_at_all():
@@ -798,3 +834,248 @@ def test_neither_watch_erases_the_other(monkeypatch):
     ctl._watch_equity()
     assert "no 1d bar has arrived" in written[-1]
     assert "REDUCE" in written[-1]
+
+
+# ============================================================ symbols from any class
+#
+# **A registration is already a portfolio and was confined to one asset class**, not
+# because of anything about the book but because `cls` on the row decided the venue, the
+# instrument shape and therefore the vendor for every symbol it named. Since 2026-08-29
+# class is a property of the SYMBOL and `cls` is the book's HOME leg: what the board files
+# it under, and the fallback for a name the desk cannot place on its own.
+#
+# The failure this replaces is not loud. A `BTC/USD` registered alongside equities would
+# have been built as a whole-share `Equity` on `SANDBOX`, admitted to `CLASS_OF` as
+# `us_stocks`, and -- worst -- a futures name would have gone to the Twelve Data side of
+# `run_paper._split_by_feed`, where `ES` is Eversource Energy and comes back as a clean,
+# plausible, entirely wrong series.
+
+def test_symbol_classes_maps_each_name_to_its_own_leg():
+    import desk_control
+    held = desk_control.symbol_classes(
+        _reg_for("us_stocks", ["SPY", "BTC/USD", "XAU/USD", "ES.v.0"], 10_000.0))
+    # Every one of these is on a PINNED leg, so `CLASS_OF` answers without a vendor.
+    assert held == {"SPY": "us_etfs", "BTC/USD": "crypto",
+                    "XAU/USD": "commodities", "ES.v.0": "cme_futures"}
+
+
+def test_a_single_class_registration_is_unchanged():
+    """The backwards-compatibility property, and it is the one worth stating first: every
+    registration written before this existed must resolve exactly as it did."""
+    import desk_control
+    assert desk_control.symbol_classes(
+        _reg_for("us_stocks", ["AAPL", "MSFT"], 10_000.0)) == {
+            "AAPL": "us_stocks", "MSFT": "us_stocks"}
+
+
+def test_an_unknown_symbol_falls_back_to_the_declared_class():
+    """Which is exactly the old behaviour. The desk resolves it for real at attach; until
+    then the registration's own class is the only thing anybody has said about it."""
+    import desk_control
+    assert desk_control.symbol_classes(
+        _reg_for("crypto", ["ZZ-NOT-A-SYMBOL"], 10_000.0)) == {
+            "ZZ-NOT-A-SYMBOL": "crypto"}
+
+
+class _Member:
+    """A stand-in `self` for `MemberStrategy`'s per-symbol lookups.
+
+    The METHODS under test are the real ones — they are bound to this object below — and
+    only the two attributes they read are supplied. `Strategy.__init__` wants a Nautilus
+    kernel and `self.config` is not a plain instance attribute on it, so a real instance
+    cannot be assembled without a trading node; a test that had to build one to check a
+    dictionary lookup is a test nobody runs.
+    """
+
+    def __init__(self, config, pairs):
+        self.config = config
+        self._classes = dict(pairs)
+
+    def __getattr__(self, name):
+        from member_strategy import MemberStrategy
+        return getattr(MemberStrategy, name).__get__(self, type(self))
+
+
+def _member(cls, symbols, pairs, venue="SANDBOX"):
+    from member_strategy import MemberStrategyConfig
+    cfg = MemberStrategyConfig(
+        registration_id="str_a7_x", account="a7", name="x", cls=cls, tf="1d",
+        venue=venue, symbols=tuple(symbols), symbol_classes=tuple(pairs))
+    return _Member(cfg, pairs)
+
+
+def test_each_symbol_gets_its_own_venue_and_instrument_shape():
+    """The whole reason class had to move off the registration. One book, three venues,
+    three instrument shapes -- and the venue is what routes the DATA, so getting it wrong
+    for a futures name asks Twelve Data for a CME contract."""
+    strat = _member("us_stocks", ["SPY", "BTC/USD", "ES.v.0"],
+                    [("SPY", "us_etfs"), ("BTC/USD", "crypto"),
+                     ("ES.v.0", "cme_futures")])
+    assert strat._venue_of("SPY") == "SANDBOX"
+    assert strat._venue_of("BTC/USD") == "BINANCE"
+    assert strat._venue_of("ES.v.0") == "GLBX"
+    assert strat.classes() == ["cme_futures", "crypto", "us_etfs"]
+    assert strat.venues() == ["BINANCE", "GLBX", "SANDBOX"]
+    # The instrument shape follows the class, not the spelling. `XAU/USD` and `BTC/USD`
+    # carry the same separator and settle on different venues; `ES.v.0` is not a share.
+    assert str(strat._instrument_id("SPY")) == "SPY.SANDBOX"
+    assert str(strat._instrument_id("BTC/USD")) == "BTCUSD.BINANCE"
+    assert str(strat._instrument_id("ES.v.0")) == "ES.v.0.GLBX"
+
+
+def test_an_empty_symbol_class_map_means_the_registrations_own_class():
+    """What every row written before this field existed carries. It must not need a
+    migration: an absent map and a map naming `cls` for everything are one behaviour."""
+    strat = _member("crypto", ["BTC/USD"], [], venue="BINANCE")
+    assert strat._class_of("BTC/USD") == "crypto"
+    assert strat._venue_of("BTC/USD") == "BINANCE"
+    assert str(strat._instrument_id("BTC/USD")) == "BTCUSD.BINANCE"
+
+
+def test_the_config_stays_hashable_with_a_class_map():
+    """`StrategyConfig` is a FROZEN msgspec Struct, so it has a generated `__hash__` over
+    its fields. A dict field would make the whole config unhashable at whatever point
+    Nautilus first hashes it -- nowhere near this line, and not obviously about it. Pairs."""
+    strat = _member("us_stocks", ["SPY"], [("SPY", "us_etfs")])
+    assert isinstance(hash(strat.config), int)
+    assert strat.config.id                     # ...and it still encodes to JSON
+
+
+def test_a_mixed_book_is_refused_whole_and_the_symbol_is_named(monkeypatch):
+    """**The deliberate half of the feedability decision.** `cme_futures` cannot be fed at
+    4h -- the GLBX ohlcv archive has no such schema -- and a mixed book holding one such
+    symbol could either be refused whole or have that leg dropped.
+
+    Dropping is refused: silently trading four of somebody's five symbols is a book that
+    is not the book they registered, and nothing downstream -- the curve, the P&L, the
+    record -- would say which one it is. So the answer is no, and it NAMES the symbol,
+    because a refusal that only names a class the registration may not even mention sends
+    the owner looking in the wrong place.
+    """
+    import desk_control
+    import db_live
+    monkeypatch.setattr(db_live, "have_key", lambda: True)
+    reg = _reg_for("us_stocks", ["SPY", "ES.v.0"], 10_000.0, tf="4h")
+    held = desk_control.symbol_classes(reg)
+    problems = []
+    for cls in sorted(set(held.values()) | {reg["cls"]}):
+        can, why = desk_control._feedable(cls, reg["tf"])
+        if not can:
+            named = sorted(s for s, c in held.items() if c == cls)
+            problems.append(f"{why} ({', '.join(named)})")
+    assert len(problems) == 1
+    assert "ES.v.0" in problems[0] and "4h" in problems[0]
+
+
+def test_the_feed_caveat_reaches_a_mixed_book(monkeypatch):
+    """A book filed under `us_stocks` that also holds `ES.v.0` at 1m runs half of itself
+    off Databento's archive. A caveat keyed on the row's `cls` would have said nothing
+    about it, which is this column's whole failure mode one class over."""
+    import desk_control
+    import db_live
+    monkeypatch.setattr(db_live, "feed_mode", lambda: "poll")
+    monkeypatch.setattr(db_live, "FEED_MODE", {"why": "no SDK on this box"})
+    reg = dict(_reg_for("us_stocks", ["SPY", "ES.v.0"], 10_000.0, tf="1m"),
+               kind="member", leverage=1.0)
+    why = desk_control._caveat(reg)
+    assert "HISTORICAL archive" in why
+
+
+def test_the_affordability_caveat_prices_each_class_from_its_own_cache(monkeypatch):
+    """`td_loader.load` reads `data/<class>/1d/`, so a mixed book has to be loaded per
+    class. Asking for every symbol under the registration's own class returns empty frames
+    for the ones that live elsewhere, which reads as "nothing to say" -- and saying
+    something is this function's whole job."""
+    import desk_control
+    import td_loader
+    asked = []
+
+    def fake_load(cls, tf, syms):
+        asked.append((cls, tuple(syms)))
+        if cls == "cme_futures":
+            return {"ES.v.0": pd.DataFrame({"Close": [29_600.0]})}
+        return {"SPY": pd.DataFrame({"Close": [500.0]})}
+
+    monkeypatch.setattr(td_loader, "load", fake_load)
+    why = desk_control._affordability_caveat(
+        dict(_reg_for("us_stocks", ["SPY", "ES.v.0"], 10_000.0), leverage=1.0))
+    assert ("cme_futures", ("ES.v.0",)) in asked
+    assert "ES.v.0" in why and "29,600" in why
+
+
+def test_the_affordability_caveat_still_fires_at_the_new_floor(monkeypatch):
+    """The floor is $1,000 and the rounding argument that set it at $10,000 is WORSE
+    there, not better. It is not blocked; it is made visible, here, at attach."""
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "SPY": pd.DataFrame({"Close": [5_000.0]}),
+    })
+    why = desk_control._affordability_caveat(
+        dict(_reg_for("us_etfs", ["SPY"], 1_000.0), leverage=1.0))
+    assert "5,000" in why and "this book is $1,000" in why
+    assert "0.20" in why
+
+
+def test_leverage_lets_a_small_book_afford_what_it_otherwise_could_not(monkeypatch):
+    """A $1,000 book at 125x can carry things a $1,000 book cannot, and a caveat that
+    contradicted the member's own leverage setting would teach them to ignore caveats."""
+    import desk_control
+    import td_loader
+    monkeypatch.setattr(td_loader, "load", lambda cls, tf, syms: {
+        "SPY": pd.DataFrame({"Close": [5_000.0]}),
+    })
+    assert desk_control._affordability_caveat(
+        dict(_reg_for("us_etfs", ["SPY"], 1_000.0), leverage=125.0)) == "", \
+        "$125,000 of buying power carries a $5,000 unit; there is nothing to warn about"
+
+
+# ------------------------------------------------------- funding a mixed book's venues
+
+def test_a_mixed_book_funds_every_venue_it_touches_at_full_size():
+    """**The decision, written down.** A registration's cash is ONE pot, so the whole book
+    can legitimately be deployed into any single one of its venues at any moment -- a
+    split would under-fund exactly the case somebody registered a mixed book to run.
+    Over-funding a sandbox account costs nothing and is invisible: every system sizes
+    against its own book, never the venue balance."""
+    import run_paper
+    known = {"SANDBOX": 0.0, "BINANCE": 0.0, "SPOT": 0.0, "GLBX": 0.0}
+    reg = dict(_reg_for("us_stocks", ["SPY", "BTC/USD"], 10_000.0), kind="member")
+    assert run_paper._venues_of(reg, known) == ["BINANCE", "SANDBOX"]
+
+
+def test_an_unresolved_symbol_is_credited_to_every_venue():
+    """`symbol_resolve` runs at attach, minutes or days after the node is built, so an
+    unadmitted name has no venue here. Guessing one and being wrong is a book that stops
+    filling partway through with nothing raised anywhere."""
+    import run_paper
+    known = {"SANDBOX": 0.0, "BINANCE": 0.0, "SPOT": 0.0, "GLBX": 0.0}
+    reg = dict(_reg_for("us_etfs", ["ZZ-NOT-ADMITTED"], 10_000.0), kind="member")
+    assert run_paper._venues_of(reg, known) == ["BINANCE", "GLBX", "SANDBOX", "SPOT"]
+
+
+def test_a_book_with_no_symbols_funds_its_own_class():
+    """A `book` names nothing -- it holds whoever is in its class right now -- so its
+    class really is the answer there."""
+    import run_paper
+    known = {"SANDBOX": 0.0, "BINANCE": 0.0}
+    assert run_paper._venues_of({"cls": "crypto", "symbols": []}, known) == ["BINANCE"]
+
+
+def test_the_funding_headroom_is_not_the_strategy_ceiling():
+    """They were one constant and had to be split. A headroom of 100,000 books at $10,000
+    is $1bn before the doubling, and a Nautilus `Money` refuses anything above
+    9,223,372,036 -- so the node would have failed to BUILD, on every start."""
+    import desk_control
+    assert desk_control.FUNDING_HEADROOM_STRATEGIES == 60
+    assert desk_control.MAX_MEMBER_STRATEGIES >= 100_000
+
+
+def test_the_member_ceiling_is_still_a_check_that_can_refuse():
+    """The mechanism is kept and the number is not a limit. A bug that used to stop at 60
+    would otherwise fill the ledger with nothing anywhere to stop it, and this refusal is
+    the only evidence such a loop ever produces."""
+    import inspect
+    import desk_control
+    src = inspect.getsource(desk_control.DeskController._launch)
+    assert "max_member_strategies" in src and "ceiling" in src

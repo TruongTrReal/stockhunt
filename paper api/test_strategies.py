@@ -215,7 +215,13 @@ def test_registering_the_same_name_twice_is_one_strategy(client):
     assert len(client.get("/v1/strategies", headers=auth(raw)).json()) == 1
 
 
-def test_the_per_account_ceiling_holds(client):
+def test_the_per_account_ceiling_holds(client, monkeypatch):
+    """**The mechanism, not the number.** The ceiling was 6 and is now 100,000 — the
+    owner's call — but the CHECK is what stops a looping deploy script from filling the
+    ledger, and a check that is only exercised at 100,000 is a check nobody runs. So the
+    limit is lowered for this test and the refusal is asserted exactly as before.
+    """
+    monkeypatch.setattr(api_config, "MAX_STRATEGIES_PER_ACCOUNT", 6)
     raw = key_for("m@example.com")
     for i in range(6):
         assert register(client, raw, name=f"s{i}").status_code == 201
@@ -223,7 +229,26 @@ def test_the_per_account_ceiling_holds(client):
     assert over.status_code == 409 and "limit" in over.json()["detail"]
 
 
-def test_retiring_frees_a_slot(client):
+def test_a_seventh_strategy_is_now_ordinary(client):
+    """What the raised ceiling is FOR. Six was the old limit; seven must be unremarkable,
+    or the number was raised somewhere and not somewhere else."""
+    raw = key_for("many@example.test")
+    for i in range(7):
+        r = register(client, raw, name=f"s{i}")
+        assert r.status_code == 201, f"strategy {i}: {r.text}"
+    assert len(client.get("/v1/strategies", headers=auth(raw)).json()) == 7
+
+
+def test_the_binding_protections_are_the_rate_limits_not_the_count(client):
+    """The count stopped binding, so what a member is actually bounded by has to still be
+    published — and `/v1/limits` is the one place the console reads its terms from."""
+    body = client.get("/v1/limits", headers=auth(key_for("many2@example.test"))).json()
+    assert body["max_orders_per_minute"] == api_config.MAX_ORDERS_PER_MINUTE
+    assert body["max_strategies"] >= 100_000
+
+
+def test_retiring_frees_a_slot(client, monkeypatch):
+    monkeypatch.setattr(api_config, "MAX_STRATEGIES_PER_ACCOUNT", 6)
     raw = key_for("m@example.com")
     for i in range(6):
         register(client, raw, name=f"s{i}")
@@ -730,11 +755,30 @@ def test_a_bigger_book_can_be_asked_for(client):
     assert r.json()["capital"] == 500_000
 
 
-def test_a_book_below_the_standard_one_is_refused(client):
-    """The floor is the rounding argument that made this fixed in the first place."""
-    r = register(client, key_for("cap3@example.test"), name="tiny", capital=100)
+def test_a_book_below_the_floor_is_refused(client):
+    """The floor is $1,000 since 2026-08-29 and it is still a floor. The rounding argument
+    behind it did not go away — it is worse at $1,000, not better — which is why the desk
+    prices one unit of every symbol at attach and says so on the row."""
+    r = register(client, key_for("cap3@example.test"), name="tiny", capital=999)
     assert r.status_code == 422
     assert "smallest book" in r.text
+
+
+def test_a_thousand_dollar_book_is_accepted(client):
+    """The owner's call, and the point of splitting the floor from the default."""
+    r = register(client, key_for("cap6@example.test"), name="small", capital=1_000)
+    assert r.status_code == 201, r.text
+    assert r.json()["capital"] == 1_000
+
+
+def test_the_default_book_did_not_move_with_the_floor(client):
+    """They were one constant and are two now. A console reading `capital_per_strategy` as
+    the floor would put $1,000 in the input; a desk reading it as the default would fund
+    every unspecified book at a tenth of what it used to."""
+    assert api_config.MIN_CAPITAL_PER_STRATEGY == 1_000
+    assert api_config.CAPITAL_PER_STRATEGY == 10_000
+    r = register(client, key_for("cap7@example.test"), name="unstated")
+    assert r.json()["capital"] == 10_000
 
 
 def test_a_book_above_the_ceiling_is_refused(client):
@@ -746,12 +790,45 @@ def test_a_book_above_the_ceiling_is_refused(client):
     assert "largest" in r.text
 
 
-def test_the_limits_endpoint_publishes_both_bounds(client):
-    """The console states the terms before anybody registers, and never hardcodes them."""
+def test_ten_million_is_the_new_ceiling(client):
+    r = register(client, key_for("cap8@example.test"), name="ten", capital=10_000_000)
+    assert r.status_code == 201, r.text
+
+
+def test_the_limits_endpoint_publishes_all_three_bounds(client):
+    """The console states the terms before anybody registers, and never hardcodes them.
+    All three, because the floor and the default are different numbers now."""
     r = client.get("/v1/limits", headers=auth(key_for("cap5@example.test")))
     body = r.json()
     assert body["capital_per_strategy"] == api_config.CAPITAL_PER_STRATEGY
+    assert body["min_capital_per_strategy"] == api_config.MIN_CAPITAL_PER_STRATEGY
     assert body["max_capital_per_strategy"] == api_config.MAX_CAPITAL_PER_STRATEGY
+    assert body["min_capital_per_strategy"] < body["capital_per_strategy"]
+
+
+# --------------------------------------------------------------- symbols from any class
+
+def test_a_registration_may_name_symbols_from_several_classes(client):
+    """The API stores what it is given and the desk places each symbol. `cls` is the
+    book's HOME class from 2026-08-29 — the board's grouping and the fallback for a name
+    the desk cannot place — and no longer a claim about every symbol on the row."""
+    r = register(client, key_for("mix1@example.test"), name="mixed", cls="us_stocks",
+                 symbols=["SPY", "BTC/USD", "ES.v.0"])
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["symbols"] == ["SPY", "BTC/USD", "ES.v.0"]
+    assert body["cls"] == "us_stocks"
+
+
+def test_a_futures_symbol_keeps_its_lower_case_roll_rule_in_a_mixed_book(client):
+    """`api_symbols.canonical` is class-independent and has to stay that way now that one
+    registration carries several classes: `.upper()` on the batch would rewrite `ES.v.0`
+    as `ES.V.0`, which is in no universe, while leaving `SPY` alone — a 201 here and a
+    refusal on the desk, for a symbol the console itself offered."""
+    r = register(client, key_for("mix2@example.test"), name="futmix", cls="crypto",
+                 symbols=["btc/usd", "es.v.0"])
+    assert r.status_code == 201, r.text
+    assert r.json()["symbols"] == ["BTC/USD", "ES.v.0"]
 
 
 # ---------------------------------------------------------- leverage, and long/flat
@@ -785,18 +862,30 @@ def test_a_book_can_ask_to_be_levered(client):
     assert r.json()["leverage"] == 2.0
 
 
-def test_leverage_is_bounded_per_class_not_by_one_number(client):
-    """2x is Reg T on a cash equity account and is refused on crypto, where spot is not
-    marginable and the desk's own Alpaca mirror extends no margin at all. One ceiling for
-    every class would have to be a lie about one of them."""
+def test_one_leverage_range_for_every_class(client):
+    """**This is the inversion of what this test used to assert**, and it is the owner's
+    call. 2x was Reg T and was refused on crypto, where spot is not marginable; the range
+    is now 1x to 125x on every class, and a class that used to be capped at 1 has to take
+    the same number as one that was capped at 10 or the change landed in only some of the
+    places it had to.
+    """
     raw = key_for("lev4@example.test")
-    ok = register(client, raw, name="equity", cls="us_stocks", symbols=["SPY"],
-                  leverage=2)
-    no = register(client, raw, name="coin", cls="crypto", symbols=["BTC/USD"],
-                  leverage=2)
-    assert ok.status_code == 201, ok.text
-    assert no.status_code == 422
-    assert "crypto" in no.text and "ceiling" in no.text
+    for cls, symbols in (("us_stocks", ["SPY"]), ("crypto", ["BTC/USD"]),
+                         ("us_etfs", ["QQQ"]), ("commodities", ["XAU/USD"]),
+                         ("cme_futures", ["ES.v.0"])):
+        r = register(client, raw, name=f"lev-{cls}", cls=cls, symbols=symbols,
+                     leverage=125)
+        assert r.status_code == 201, f"{cls}: {r.text}"
+        assert r.json()["leverage"] == 125.0
+
+
+def test_the_refusal_above_the_ceiling_names_the_wipeout_distance(client):
+    """125x is the owner's number and the honest thing to say about it is the arithmetic:
+    at the ceiling a 0.8% adverse move ends the book. A refusal that only says "too much"
+    teaches nothing about the scale of what was asked for."""
+    r = register(client, key_for("lev8@example.test"), name="toofar", leverage=126)
+    assert r.status_code == 422
+    assert "125" in r.text and "0.8" in r.text
 
 
 def test_leverage_beyond_the_class_ceiling_is_refused(client):
@@ -815,36 +904,59 @@ def test_leverage_below_one_is_refused_rather_than_clamped(client):
 
 
 def test_the_limits_endpoint_publishes_a_ceiling_for_every_class(client):
-    """Including the ones whose ceiling is 1. A class absent from the map and a class that
-    may not be levered are different facts, and the console has to be able to say which."""
+    """Still a MAP although every entry is the same number. A class absent from the map
+    and a class with a ceiling are different facts, and the console has to be able to tell
+    them apart rather than fall back to a default it invented."""
     import api_strategies
     body = client.get("/v1/limits",
                       headers=auth(key_for("lev7@example.test"))).json()
     assert set(body["max_leverage"]) == set(api_strategies.CLASSES)
+    assert len(set(body["max_leverage"].values())) == 1, "the range is uniform now"
     for cls in api_strategies.CLASSES:
-        assert body["max_leverage"][cls] == api_config.max_leverage(cls)
-    assert body["default_leverage"] == api_config.DEFAULT_MAX_LEVERAGE
+        assert body["max_leverage"][cls] == api_config.max_leverage(cls) == 125.0
+    # `default_leverage` is what a book gets when it names none — 1, no leverage. It is
+    # not the ceiling, and conflating the two would have the console default every new
+    # registration to 125x.
+    assert body["default_leverage"] == api_config.DEFAULT_LEVERAGE == 1.0
+    assert body["wipeout_move_pct"] == pytest.approx(0.8)
 
 
 def test_every_offered_leverage_is_one_the_desk_will_actually_run(client):
-    """The API's ceiling must be at or below the desk's, class by class — same contract as
-    `TIMEFRAMES`, and for the same reason: the desk is what enforces the ceiling on every
-    order, so offering one it refuses is a 201 here and a `rejected` row there.
+    """The API's ceiling must be at or below the desk's — same contract as `TIMEFRAMES`,
+    and for the same reason: the desk is what enforces the ceiling on every order, so
+    offering one it refuses is a 201 here and a `rejected` row there.
 
     Read off disk rather than imported: this process must not import the trading stack.
+    It was a literal dict there and is a scalar now; this reads whichever it finds so that
+    the contract is asserted rather than the spelling.
     """
     import re
     import api_paths
 
     src = (api_paths.REPO / "paper trading engine" / "paper_config.py").read_text(
         encoding="utf-8")
-    listed = re.search(r"MAX_LEVERAGE = \{([^}]*)\}", src).group(1)
-    desk = {m: float(v) for m, v in re.findall(r'"([^"]+)":\s*([\d.]+)', listed)}
-    assert desk, "MAX_LEVERAGE is not a literal dict any more; update this test"
+    m = re.search(r"^MAX_LEVERAGE = ([\d.]+)\s*$", src, re.M)
+    assert m, "paper_config.MAX_LEVERAGE is not a scalar literal any more; update this test"
+    desk = float(m.group(1))
     for cls, ceiling in api_config.MAX_LEVERAGE.items():
-        assert ceiling <= desk.get(cls, 1.0), (
-            f"the API offers {ceiling}x on {cls} and the desk runs at most "
-            f"{desk.get(cls, 1.0)}x")
+        assert ceiling <= desk, (
+            f"the API offers {ceiling}x on {cls} and the desk runs at most {desk}x")
+
+
+def test_the_wipeout_arithmetic_matches_the_desks(client):
+    """One definition of "how far can the market move before this book is gone", restated
+    here because this process imports no trading code — so it is checked off disk, exactly
+    as the ceiling above is. Two answers to that on one screen would be worse than none."""
+    import re
+    import api_paths
+
+    src = (api_paths.REPO / "paper trading engine" / "paper_config.py").read_text(
+        encoding="utf-8")
+    assert "def wipeout_move_pct" in src, "the desk lost its copy of this arithmetic"
+    assert "100.0 / lev" in src
+    assert api_config.wipeout_move_pct(125) == pytest.approx(0.8)
+    assert api_config.wipeout_move_pct(1) == pytest.approx(100.0)
+    assert api_config.wipeout_move_pct(2) == pytest.approx(50.0)
 
 
 def test_long_flat_is_the_default_and_long_short_is_asked_for(client):
@@ -855,3 +967,84 @@ def test_long_flat_is_the_default_and_long_short_is_asked_for(client):
     both = register(client, raw, name="both", allow_short=True)
     assert flat.json()["allow_short"] is False
     assert both.json()["allow_short"] is True
+
+
+# ------------------------------------------------------ the refusals reach a screen
+#
+# **The desk explained every refusal and nothing rendered it.** `desk_orders` writes a
+# precise sentence into `orders.reason` — *"not enough cash: BTC/USD 2 at 77,640.45 costs
+# 155,280.90 and this strategy holds 10,000.00"* — and the only way to read it was to open
+# `state/desk.db` over SSH. That happened three times. The page meanwhile said "No fills
+# yet", which is true of a book that has been refused 127 times and true of a book nobody
+# has ever sent an order to, and those are completely different situations.
+
+def _refuse(strategy_id: str, account: str, coid: str, reason: str, **kw) -> None:
+    """One order in the ledger, refused by the desk, the way `desk_control._drain` does."""
+    row, _ = deskdb.submit_order(account, strategy_id, coid,
+                                 symbol=kw.get("symbol", "SPY"),
+                                 side=kw.get("side", "buy"),
+                                 qty=kw.get("qty", 1), order_type="market")
+    deskdb.mark_order(row["seq"], "rejected", reason=reason)
+
+
+def test_a_strategys_refusals_ride_along_on_the_listing(client):
+    """The counts and the newest refusal are on `GET /v1/strategies`, so the console can
+    say what happened without a request per strategy on a two-second poll."""
+    raw = key_for("log1@example.test")
+    sid = register(client, raw, name="refused").json()["strategy_id"]
+    account = sid.split("_")[1]
+    _refuse(sid, account, "a", "not enough cash: SPY 1 at 500.00 costs 500.00")
+    _refuse(sid, account, "b", "cannot sell 2 SPY: this strategy holds 0")
+
+    body = client.get("/v1/strategies", headers=auth(raw)).json()[0]
+    assert body["orders"]["total"] == 2
+    assert body["orders"]["by_state"]["rejected"] == 2
+    # VERBATIM, and the newest one. The API never re-words a refusal: the desk is the only
+    # process that can see the book, and its sentence is the finding.
+    assert body["orders"]["last_rejected"]["reason"] == \
+        "cannot sell 2 SPY: this strategy holds 0"
+    assert body["orders"]["last_rejected"]["client_order_id"] == "b"
+
+
+def test_never_sent_and_all_refused_are_different_answers(client):
+    """The whole point. Both used to print "No fills yet"; `total` is what separates them,
+    and it is 0 against N rather than absent against present."""
+    raw = key_for("log2@example.test")
+    quiet = register(client, raw, name="quiet").json()["strategy_id"]
+    busy = register(client, raw, name="busy").json()["strategy_id"]
+    account = quiet.split("_")[1]
+    for i in range(5):
+        _refuse(busy, account, f"o{i}", "rejected as stale")
+
+    rows = {r["strategy_id"]: r for r in
+            client.get("/v1/strategies", headers=auth(raw)).json()}
+    assert rows[quiet]["orders"]["total"] == 0
+    assert rows[quiet]["orders"]["last_rejected"] is None
+    assert rows[busy]["orders"]["total"] == 5
+    assert rows[busy]["orders"]["last_rejected"]["reason"] == "rejected as stale"
+
+
+def test_the_summary_is_scoped_to_the_account(client):
+    """Order counts are somebody's trading activity. A summary computed for the whole
+    ledger and then filtered would leak how busy another member is through timing alone."""
+    mine_raw = key_for("log3@example.test")
+    theirs_raw = key_for("log4@example.test")
+    mine_sid = register(client, mine_raw, name="mine").json()["strategy_id"]
+    theirs_sid = register(client, theirs_raw, name="theirs").json()["strategy_id"]
+    _refuse(theirs_sid, theirs_sid.split("_")[1], "x", "not yours")
+
+    rows = client.get("/v1/strategies", headers=auth(mine_raw)).json()
+    assert [r["strategy_id"] for r in rows] == [mine_sid]
+    assert rows[0]["orders"]["total"] == 0
+
+
+def test_the_order_listing_carries_the_reason_for_the_panel(client):
+    """The expanded log reads `GET /v1/orders?strategy_id=`, which already existed. This
+    asserts the field the panel is built on rather than the panel."""
+    raw = key_for("log5@example.test")
+    sid = register(client, raw, name="panel").json()["strategy_id"]
+    _refuse(sid, sid.split("_")[1], "c", "over the leverage ceiling: buy 5 SPY")
+    rows = client.get(f"/v1/orders?strategy_id={sid}", headers=auth(raw)).json()
+    assert len(rows) == 1
+    assert rows[0]["state"] == "rejected"
+    assert rows[0]["reason"] == "over the leverage ceiling: buy 5 SPY"

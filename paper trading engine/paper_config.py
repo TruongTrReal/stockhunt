@@ -137,58 +137,67 @@ MEMBER_TIMEFRAMES = [tf for tf in ("1d", "4h", "1h", "15m", "5m", "1m")]
 # refuses a futures registration at 1m before this is ever consulted.
 MAX_1M_SYMBOLS = 120
 
-# How far a MEMBER book may be levered, PER CLASS.
+# How far a MEMBER book may be levered. ONE range, every class, 1x to 125x.
 #
 # `desk_orders` enforces `gross exposure <= leverage x equity` on every order; this is the
 # ceiling on the `leverage` a registration may name, and `desk_control._launch` is where it
-# binds. 1.0 — no leverage — is the default everywhere and is bit-for-bit the rule the desk
-# ran under before leverage existed, so nothing here changes what an existing book may do.
+# binds. 1.0 — no leverage — is still the default everywhere and is still bit-for-bit the
+# rule the desk ran under before leverage existed, so nothing here changes what an existing
+# book does. `desk_orders.headroom` is what makes that exactness true rather than
+# approximate; read its docstring before touching either.
 #
-# **It is per class because the real venues are, and one number would have to be either a
-# lie about futures or a lie about crypto.** `futures_screen.py` puts it plainly in its own
-# header: futures are margin instruments and leverage there "is free in a way it is not for
-# cash equities". Each ceiling below is taken from what the corresponding real venue
-# actually permits, and rounded DOWN, so this desk is never the more permissive of the two:
+# **It was PER CLASS and each ceiling was anchored to a real venue** — 2x on the equity
+# classes (Reg T's 50% initial margin), 2x on commodities (held here as cash assets, so the
+# equity number rather than an invented one), 1x on crypto (spot crypto is not marginable
+# for US retail and Alpaca, this desk's second record, extends no crypto margin at all),
+# 10x on `cme_futures` (CME initial margin runs single-digit percentages of notional, and
+# 10 was the bottom of the range that implies). Those numbers are gone; the FACTS behind
+# them have not changed, and two of them are still worth knowing:
 #
-#   us_stocks, us_etfs   2.0   Reg T initial margin is 50% of the purchase price, which is
-#                              gross leverage 2 on a cash equity account. It is the number
-#                              a member would meet at any US broker, and the universe holds
-#                              no leveraged or inverse funds (`universe_screen.py` cuts
-#                              TQQQ, SPXL, SOXL and eleven others), so 2x here is 2x of
-#                              exposure rather than 2x of an already-3x instrument.
-#   commodities          2.0   spot XAU/USD and friends are held as cash assets on this
-#                              desk, not as margined contracts. Retail spot metals brokers
-#                              offer far more; there is no venue rule this desk actually
-#                              settles against, so the equity number is used rather than an
-#                              invented one. Deliberately conservative.
-#   crypto               1.0   spot crypto is not marginable for US retail, and Alpaca —
-#                              which is this desk's SECOND RECORD (`alpaca_mirror.py`) —
-#                              extends no crypto margin at all. A levered crypto book here
-#                              would be one the broker-side mirror structurally cannot
-#                              copy, so the number it can copy is the number offered.
-#   cme_futures         10.0   CME initial margin on the screened roots runs single-digit
-#                              percentages of notional — an ES contract at ~$385,000 of
-#                              index exposure margins in the low tens of thousands — so the
-#                              real venue is somewhere between 10x and 30x. 10 is the
-#                              BOTTOM of that range on purpose: the ceiling should never be
-#                              looser than the exchange's, and the exact figure moves with
-#                              volatility while this constant does not.
+#   * **A levered crypto book has no broker-side second record.** `alpaca_mirror.py` drives
+#     an Alpaca paper account to a scaled copy of this desk's book so real fills can be
+#     compared against the sandbox's bar-close ones. Alpaca extends no crypto margin, so
+#     above 1x on that class the mirror can no longer copy the book and the comparison
+#     silently stops covering it. The book still trades; the second record does not.
+#   * **Above the venue's own margin, a fill here is not a fill anybody could get.** The
+#     sandbox prices from a bar and asks no clearing house for anything, so nothing in this
+#     process is capable of refusing what a real broker would.
 #
-# A class not named here gets `DEFAULT_MAX_LEVERAGE`, which is 1.0 — an unknown class is
-# not a licence, and a new leg should have to state its own number.
-MAX_LEVERAGE = {
-    "us_stocks": 2.0,
-    "us_etfs": 2.0,
-    "commodities": 2.0,
-    "crypto": 1.0,
-    "cme_futures": 10.0,
-}
-DEFAULT_MAX_LEVERAGE = 1.0
+# 125 is the owner's number and is what crypto perpetual venues offer. It is a single range
+# because the owner asked for one, and it removes a real awkwardness the per-class table
+# had: a registration holding symbols from several classes (see `admit` and
+# `desk_control._resolve_open`) would have had several ceilings to reconcile, and there is
+# no honest way to pick one of them for a book whose exposure is shared across all of them.
+# With one range the question does not arise.
+#
+# **What 125x means, in one number:** the ceiling is `leverage x equity`, so a book at the
+# ceiling is wiped out by an adverse move of `100 / leverage` per cent — **0.8% at 125x**.
+# That is arithmetic, not an opinion, and `desk_control._leverage_caveat` puts it on the
+# registration row rather than leaving it to be discovered.
+MIN_LEVERAGE = 1.0
+MAX_LEVERAGE = 125.0
 
 
-def max_leverage(cls: str) -> float:
-    """The most a registration on this class may name. Unknown classes get no leverage."""
-    return float(MAX_LEVERAGE.get(cls, DEFAULT_MAX_LEVERAGE))
+def max_leverage(cls: str | None = None) -> float:
+    """The most a registration may name. The same number for every class.
+
+    Still takes the class, and the argument is not vestigial: every caller has one to
+    hand, and a ceiling that ever becomes per class again belongs in this function rather
+    than back at the call sites, which is where it was before this file owned it.
+    """
+    return float(MAX_LEVERAGE)
+
+
+def wipeout_move_pct(leverage: float) -> float:
+    """The adverse move, in per cent, that takes a book at its ceiling to zero equity.
+
+    `gross <= leverage x equity`, so a book sitting on its ceiling loses its whole equity
+    to a move of `1 / leverage`. 0.8% at 125x. One definition, because the caveat on the
+    registration row and any future one on the board must not be able to disagree about
+    the only number that says what a leverage setting costs.
+    """
+    lev = float(leverage or MIN_LEVERAGE)
+    return 100.0 / lev if lev > 0 else 100.0
 
 
 # A timeframe on offer that the desk cannot subscribe to is a registration that is accepted
@@ -686,6 +695,29 @@ def research_class_of(symbol: str) -> str:
     alone".
     """
     return bt_config.class_of(symbol)
+
+
+def class_of_symbol(symbol: str, default: str | None = None) -> str | None:
+    """Which leg this ONE symbol trades on, falling back to the registration's own class.
+
+    **This is the lookup a mixed-class registration goes through, and the difference from
+    `class_of` below is that it does not raise.** A registration used to declare one `cls`
+    and every symbol on it inherited that — the venue, the instrument shape and the vendor
+    all came off the registration rather than off the name. A book naming `AAPL` and
+    `BTC/USD` therefore could not exist: whichever class it declared, one of the two would
+    have been built as the wrong instrument on the wrong venue and marked from a feed that
+    does not carry it.
+
+    So class is a property of the SYMBOL now. `CLASS_OF` answers for every pinned leg and
+    for everything `admit` has let in, which is by construction every symbol the desk is
+    able to trade — a symbol reaches `admit` only after `symbol_resolve` has decided what
+    it is. The `default` is what an as-yet-unadmitted name falls back to, which is the
+    registration's declared class, which is exactly the old behaviour.
+
+    Returns `None` only when there is no default either, which is a caller that has a
+    symbol and no context — `run_paper`'s venue funding is the one that does.
+    """
+    return CLASS_OF.get(symbol, default)
 
 
 def class_of(symbol: str) -> str:

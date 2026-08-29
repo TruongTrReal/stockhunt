@@ -19,6 +19,19 @@ registration and `_units` is per symbol, and both are this strategy's own — ne
 Nautilus venue account, which nets every strategy on an instrument together and would let
 one manager's position size another's.
 
+**...and since 2026-08-29 those instruments may come from several ASSET CLASSES.** A
+registration is already a portfolio, and confining it to one class was a restriction that
+came from the row's `cls` column deciding the venue rather than from anything about the
+book. `symbol_classes` is the fix: class is a property of each symbol now, so `_venue_of`
+and `_instrument_for` are asked per name and one book can hold `AAPL` on `SANDBOX`,
+`BTC/USD` on `BINANCE` and `ES.v.0` on `GLBX` — which also routes each of them to the
+right VENDOR, because Nautilus routes data clients by venue and that is the whole
+mechanism keeping Twelve Data from ever being asked for a CME contract.
+
+The cash is still ONE pot across all of them. The venue accounts are funded separately by
+`run_paper` and are not the book; `desk_orders` bounds the book, `_cash` is the book, and
+a venue balance is only the sandbox's own bookkeeping behind the fills.
+
 **Every fill is reported with its symbol.** The fill table's natural key includes it; two
 names bought at the same size and price on the same bar would otherwise deduplicate into
 one row and half the position would vanish from the record.
@@ -56,6 +69,22 @@ class MemberStrategyConfig(StrategyConfig, frozen=True):
     # a `TradingNodeConfig` without a custom encoder.
     symbols: tuple[str, ...] = ()
     venue: str = "SANDBOX"
+    # Symbol -> asset class, as a tuple of pairs. **This is what lets one registration hold
+    # instruments from several classes**, and it is the only thing that does: `cls` and
+    # `venue` above are the book's HOME leg, and they used to decide the instrument shape,
+    # the venue and therefore the vendor for every symbol the registration named — so a
+    # book holding `AAPL` and `BTC/USD` was not expressible. One of the two would have been
+    # built as the wrong instrument on the wrong venue and marked from a feed that does not
+    # carry it.
+    #
+    # Empty means "every symbol is `cls`", which is exactly what every registration written
+    # before this field existed means, so nothing already running changes shape.
+    #
+    # Pairs and not a dict, because `StrategyConfig` is a FROZEN msgspec Struct: frozen
+    # structs get a generated `__hash__` over their fields, and a dict field makes the
+    # whole config unhashable at whatever point Nautilus first hashes it — which is not
+    # here, and not obviously related to this line when it happens.
+    symbol_classes: tuple[tuple[str, str], ...] = ()
     capital: float = 10_000.0
     allow_short: bool = False
     # Carried for the RECORD, not for the arithmetic. `desk_orders.validate` is what
@@ -75,6 +104,9 @@ class MemberStrategy(Strategy):
     def __init__(self, config: MemberStrategyConfig) -> None:
         super().__init__(config)
         self._sid = store.sid_for(config.account, config.name)
+        # Unpacked once. The config carries pairs so it stays hashable; every lookup after
+        # this is a dict lookup on a bar, which is the hot path.
+        self._classes: dict[str, str] = dict(config.symbol_classes or ())
         self._cash = float(config.capital)
         self._units: dict[str, float] = {s: 0.0 for s in config.symbols}
         # Average cost per name, so a sell can be priced against what it actually closed.
@@ -93,8 +125,32 @@ class MemberStrategy(Strategy):
         self._nautilus_id_of: dict[str, str] = {}
 
     # ------------------------------------------------------------------ instruments
+    def _class_of(self, symbol: str) -> str:
+        """This SYMBOL's class, not the registration's.
+
+        The two are the same on every single-class book and on every registration written
+        before `symbol_classes` existed, which is what makes the change invisible there.
+        On a mixed book they differ, and everything that follows from the class — the
+        venue, the instrument shape, and therefore which vendor Nautilus routes the
+        subscription to — has to follow the symbol.
+        """
+        return self._classes.get(symbol) or self.config.cls
+
+    def _venue_of(self, symbol: str) -> str:
+        """Which sandbox venue this symbol settles on.
+
+        Read from `paper_config.VENUES` by the symbol's own class rather than from
+        `config.venue`, because the venue is what Nautilus routes DATA by: a `GLBX`
+        instrument id reaches `DatabentoLiveClient` and everything else reaches the Twelve
+        Data default client. Putting a futures symbol on `SANDBOX` would ask Twelve Data
+        for `ES.v.0`, which is the one thing this desk may never do — it answers with
+        Eversource Energy rather than with an error.
+        """
+        return paper_config.VENUES.get(self._class_of(symbol), self.config.venue)
+
     def _instrument_for(self, symbol: str):
-        return td_nautilus.instrument_for(symbol, self.config.cls, self.config.venue)
+        return td_nautilus.instrument_for(
+            symbol, self._class_of(symbol), self._venue_of(symbol))
 
     def _instrument_id(self, symbol: str) -> InstrumentId:
         return self._instrument_for(symbol).id
@@ -121,8 +177,8 @@ class MemberStrategy(Strategy):
                 BarType.from_str(f"{iid}-{paper_config.BAR_SPEC[self.config.tf]}"))
 
         self.log.info(f"member strategy {self.config.registration_id} live on "
-                      f"{', '.join(self.config.symbols)} at {self.config.tf}, "
-                      f"capital {self.config.capital:,.0f}, "
+                      f"{', '.join(f'{s} ({self._class_of(s)} on {self._venue_of(s)})' for s in self.config.symbols)} "
+                      f"at {self.config.tf}, capital {self.config.capital:,.0f}, "
                       f"leverage {self.config.leverage:g}x")
 
         if self.config.export_state:
@@ -130,6 +186,14 @@ class MemberStrategy(Strategy):
                 self._sid, account=self.config.account, kind="member",
                 symbol=", ".join(self.config.symbols), venue=self.config.venue,
                 cls=self.config.cls, tf=self.config.tf, rule=self.config.name,
+                # Every class this book actually holds, and `cls` above is its HOME leg.
+                # The board groups on `cls`, so a mixed book is filed under one of its legs
+                # rather than under a sixth pseudo-class called `mixed` — which would put
+                # it in no class pill at all and remove it from the board entirely. This is
+                # the disclosure that keeps that grouping honest, and it is published even
+                # when there is one class so "single-class" and "an older desk that never
+                # published this" cannot read alike.
+                classes=self.classes(),
                 benchmark=self.config.benchmark,
                 state="flat", status="running",
                 since=self.clock.utc_now().strftime("%Y-%m-%d"), days=0,
@@ -154,6 +218,14 @@ class MemberStrategy(Strategy):
 
     def prices(self) -> dict:
         return dict(self._last_price)
+
+    def classes(self) -> list[str]:
+        """Every asset class this book holds, sorted. One entry on a single-class book."""
+        return sorted({self._class_of(s) for s in self.config.symbols})
+
+    def venues(self) -> list[str]:
+        """Every venue this book settles on. `run_paper` funds each of them."""
+        return sorted({self._venue_of(s) for s in self.config.symbols})
 
     def equity(self) -> float:
         return self._cash + sum(self._units.get(s, 0.0) * self._last_price.get(s, 0.0)
@@ -185,7 +257,9 @@ class MemberStrategy(Strategy):
         symbol = row["symbol"]
         inst = self.cache.instrument(self._instrument_id(symbol))
         if inst is None:
-            return False, f"no instrument for {symbol} on {self.config.venue}"
+            # The symbol's OWN venue, not the book's. On a mixed book those differ, and a
+            # message naming the wrong one sends somebody looking at the wrong exchange.
+            return False, f"no instrument for {symbol} on {self._venue_of(symbol)}"
 
         try:
             qty = inst.make_qty(abs(float(row["qty"])))

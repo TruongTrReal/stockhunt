@@ -131,6 +131,16 @@ def unmirrorable(snapshot: dict, cls: str) -> list[tuple[str, str]]:
     Reported rather than silently dropped. The exposure is real -- a multi-name member on
     the live ETF desk is a whole $100,000 book -- so its absence from Alpaca has to be
     visible, or the second record looks complete while missing a leg.
+
+    **This is also what keeps a MIXED-CLASS book out of the mirror, and it is luck rather
+    than design, so it is written down.** Since 2026-08-29 one registration may hold
+    symbols from several asset classes, and its published `cls` is its HOME LEG -- so a
+    book filed under `us_stocks` that also holds `BTC/USD` would, if it were mirrored, send
+    a coin to the equities Alpaca account. It cannot: a book has to name at least two
+    symbols to be mixed at all, and every multi-symbol member row lands here instead of in
+    `desk_targets`. Should a per-name breakdown ever be published for a member (which would
+    make these mirrorable), the class must be read per SYMBOL before the target is routed
+    to an account -- `paper_state` publishes `classes` on the row for exactly that.
     """
     out: list[tuple[str, str]] = []
     for s in snapshot.get("strategies", []):

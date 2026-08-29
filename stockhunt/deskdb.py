@@ -684,6 +684,50 @@ def order(account: str, client_order_id: str) -> dict | None:
                 (account, client_order_id))
 
 
+def order_summary(account: str) -> dict[str, dict]:
+    """Per strategy: how many orders, in what states, and the newest refusal in full.
+
+    **This exists because the desk already explains every refusal and nothing rendered
+    it.** `desk_orders` writes a precise, well-worded sentence into `orders.reason` —
+    *"not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds
+    10,000.00"* — and the only way to read it was to open this file over SSH. Meanwhile
+    the strategy's page said "No fills yet", which is true and useless: a book that has had
+    127 orders refused and a book nobody has ever sent an order to are completely different
+    situations that printed the same sentence.
+
+    **Two queries for the whole account, not one per strategy.** The console polls every
+    two seconds and lists every registration, so a per-strategy call would be an N+1 on a
+    timer. The counts group in SQLite and the refusal is one indexed scan.
+
+    The reason is returned VERBATIM. It is the desk's sentence — the desk's checks are the
+    ones that bind, and it is the only process that can see the book — so nothing between
+    here and the screen re-derives or re-words it.
+    """
+    out: dict[str, dict] = {}
+    for row in _rows("""SELECT strategy_id, state, COUNT(*) AS n
+                        FROM orders WHERE account = ?
+                        GROUP BY strategy_id, state""", (account,)):
+        entry = out.setdefault(row["strategy_id"],
+                               {"total": 0, "by_state": {}, "last_rejected": None})
+        entry["by_state"][row["state"]] = int(row["n"])
+        entry["total"] += int(row["n"])
+    # The NEWEST refusal per strategy, which is the one worth showing: a bot in a loop
+    # produces the same reason a hundred times, and the most recent is the state of the
+    # world now rather than the first thing that ever went wrong.
+    for row in _rows("""SELECT o.strategy_id, o.client_order_id, o.symbol, o.side, o.qty,
+                               o.reason, o.submitted_at
+                        FROM orders o
+                        JOIN (SELECT strategy_id, MAX(seq) AS seq FROM orders
+                              WHERE account = ? AND state = 'rejected'
+                              GROUP BY strategy_id) newest
+                          ON newest.strategy_id = o.strategy_id AND newest.seq = o.seq""",
+                     (account,)):
+        entry = out.setdefault(row["strategy_id"],
+                               {"total": 0, "by_state": {}, "last_rejected": None})
+        entry["last_rejected"] = dict(row)
+    return out
+
+
 def pulse(now: datetime | None = None) -> dict:
     """When the desk last finished a pass, and how long ago that was.
 

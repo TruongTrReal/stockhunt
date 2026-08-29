@@ -488,3 +488,173 @@ def test_class_of_answers_for_a_symbol_the_research_does_not_know(clean_registry
     paper_config.admit("ARKK", "us_etfs")
     assert td_live.class_of("ARKK") == "us_etfs"
     assert td_live.class_of("ZZ-NOT-A-SYMBOL") is None
+
+
+# ------------------------------------------------- the vendor split, on a mixed book
+#
+# **The one thing this desk may never do is ask Twelve Data for a CME contract.** `ES`
+# there is Eversource Energy and `CL` is Colgate-Palmolive, returned as clean, plausible,
+# entirely wrong series -- so the split is not a tidiness rule, it is the guard.
+#
+# It reads `paper_config.CLASS_OF` per symbol and always did. What changed on 2026-08-29 is
+# who WRITES that map: `_admit_open` used to admit every symbol on a registration under the
+# registration's own class, so a futures name registered alongside equities would have been
+# filed as `us_stocks` -- and both `run_paper._split_by_feed` and `live_ws.streamable` would
+# then have put it on the Twelve Data side. The guard would have been intact and reading
+# the wrong answer.
+
+@pytest.fixture()
+def _clean_admits():
+    """Undo whatever a test admits. `paper_config.CLASS_OF` is process-global by design --
+    it is the desk's live registry -- so a test that grows it must shrink it again."""
+    import paper_config
+    before = dict(paper_config.CLASS_OF)
+    before_vendor = dict(paper_config.SAFE_TO_VENDOR)
+    yield
+    paper_config.CLASS_OF.clear()
+    paper_config.CLASS_OF.update(before)
+    paper_config.SAFE_TO_VENDOR.clear()
+    paper_config.SAFE_TO_VENDOR.update(before_vendor)
+
+
+def test_admitting_a_mixed_book_files_each_symbol_under_its_own_class(_clean_admits):
+    import paper_config
+    paper_config.admit("ZZZTEST", "us_etfs")
+    paper_config.admit("ZZZ/USD", "crypto")
+    paper_config.admit("MES.v.0", "cme_futures")
+    assert paper_config.CLASS_OF["ZZZTEST"] == "us_etfs"
+    assert paper_config.CLASS_OF["ZZZ/USD"] == "crypto"
+    assert paper_config.CLASS_OF["MES.v.0"] == "cme_futures"
+    # ...and the pair's stripped form is registered, without which the vendor is asked for
+    # `ZZZUSD`, which is not an instrument -- and Twelve Data answers an EMPTY FRAME rather
+    # than an error, so the book warms up forever while the log reads healthy.
+    assert paper_config.SAFE_TO_VENDOR["ZZZUSD"] == "ZZZ/USD"
+
+
+def test_a_mixed_books_futures_symbol_never_reaches_twelve_data(_clean_admits):
+    import paper_config
+    import run_paper
+    import live_ws
+    paper_config.admit("ZZZTEST", "us_etfs")
+    paper_config.admit("MES.v.0", "cme_futures")
+    td, futures = run_paper._split_by_feed(["ZZZTEST", "MES.v.0", "BTC/USD"])
+    assert futures == ["MES.v.0"]
+    assert set(td) == {"ZZZTEST", "BTC/USD"}
+    # The tick socket is the second door and the guard lives at the capability there too:
+    # `subscribe-status.fails` is not an error, so a futures name sent to it is one more
+    # line of noise per reconnect about a symbol that was never going to print.
+    assert "MES.v.0" not in live_ws.streamable(["ZZZTEST", "MES.v.0"])
+
+
+def test_admit_still_refuses_one_instrument_on_two_legs(_clean_admits):
+    """Mixed classes widened what a REGISTRATION may hold; they did not widen what a
+    SYMBOL may be. One instrument under two rule lists reads on the board as two systems
+    agreeing when it is one asset counted twice."""
+    import paper_config
+    paper_config.admit("ZZZTEST", "us_etfs")
+    paper_config.admit("ZZZTEST", "us_etfs")          # re-admitting is an ordinary no-op
+    with pytest.raises(RuntimeError, match="already trades on this desk"):
+        paper_config.admit("ZZZTEST", "crypto")
+
+
+def test_class_of_symbol_does_not_raise_where_class_of_does():
+    """`class_of` raises `SystemExit` for an unknown symbol, which is right where a desk
+    symbol must resolve to a venue and a sheet, and fatal in a per-symbol lookup that runs
+    on a book the desk has not admitted yet."""
+    import paper_config
+    assert paper_config.class_of_symbol("ZZ-UNKNOWN", "crypto") == "crypto"
+    assert paper_config.class_of_symbol("ZZ-UNKNOWN") is None
+    with pytest.raises(SystemExit):
+        paper_config.class_of("ZZ-UNKNOWN")
+
+
+# ------------------------------------------------------------- classifying a symbol
+
+def test_classify_answers_from_the_desk_before_asking_a_vendor():
+    """A name the desk is configured with was decided by a human editing `UNIVERSE`, and
+    re-litigating that against a vendor at registration time would let one bad `/quote`
+    refuse a symbol the desk is holding a position in."""
+    import symbol_resolve
+    calls = []
+    original = symbol_resolve._vendor_quote
+    symbol_resolve._vendor_quote = lambda *a, **k: calls.append(a) or {}
+    try:
+        for symbol, cls in (("SPY", "us_etfs"), ("BTC/USD", "crypto"),
+                            ("XAU/USD", "commodities"), ("AAPL", "us_stocks")):
+            v = symbol_resolve.classify(symbol, "us_stocks")
+            assert v.ok and v.asset_class == cls, symbol
+        assert calls == [], "a pinned symbol must cost no vendor round trip"
+    finally:
+        symbol_resolve._vendor_quote = original
+
+
+def test_classify_reads_a_futures_shape_offline():
+    """`ROOT.v.RANK` is Databento's symbology and nothing else on this desk is spelled that
+    way, so the shape IS the classification -- and it must resolve without a vendor,
+    because Twelve Data has no CME contract and would answer with a namesake equity."""
+    import symbol_resolve
+    calls = []
+    original = symbol_resolve._vendor_quote
+    symbol_resolve._vendor_quote = lambda *a, **k: calls.append(a) or {}
+    try:
+        v = symbol_resolve.classify("MES.v.0", "us_stocks")
+        assert v.ok and v.asset_class == "cme_futures"
+        assert calls == []
+    finally:
+        symbol_resolve._vendor_quote = original
+
+
+def test_classify_tells_the_two_pair_classes_apart_by_the_vendors_exchange(monkeypatch):
+    """`XAU/USD` and `BTC/USD` are spelled alike and settle on different venues. Routing on
+    the separator is what once priced a metal against the Binance book, so the vendor's own
+    `exchange` field decides: `Forex` is a spot/FX pair, anything else is a coin."""
+    import symbol_resolve
+    monkeypatch.setattr(symbol_resolve, "_load", lambda: {})    # no cached verdicts
+    monkeypatch.setattr(symbol_resolve, "_save", lambda: None)
+    monkeypatch.setattr(symbol_resolve, "_vendor_quote", lambda sym, country=None: {
+        "symbol": sym, "name": "Zed Coin", "exchange": "Binance", "currency": "USD"})
+    v = symbol_resolve.classify("ZZZ/USD", "us_stocks")
+    assert v.ok and v.asset_class == "crypto"
+
+    monkeypatch.setattr(symbol_resolve, "_vendor_quote", lambda sym, country=None: {
+        "symbol": sym, "name": "Zed Metal", "exchange": "Forex", "currency": "USD"})
+    v = symbol_resolve.classify("ZZM/USD", "us_stocks")
+    assert v.ok and v.asset_class == "commodities"
+
+
+def test_classify_keeps_the_declared_equity_class_for_a_bare_ticker(monkeypatch):
+    """An equity and an ETF are not tellable apart cheaply -- `/quote` carries a name and a
+    venue, not an instrument type -- and they do not have to be: both are whole shares on
+    SANDBOX, fed by the same vendor on the same clock. For a MEMBER book the difference is
+    a dashboard label. (It matters for a `house_rule`, which selects off a sheet -- and a
+    house rule can never reach `classify`: `_resolve_open` refuses an unknown symbol there.)
+    """
+    import symbol_resolve
+    monkeypatch.setattr(symbol_resolve, "_load", lambda: {})
+    monkeypatch.setattr(symbol_resolve, "_save", lambda: None)
+    monkeypatch.setattr(symbol_resolve, "_vendor_quote", lambda sym, country=None: {
+        "symbol": sym, "name": "Zed Fund", "exchange": "CBOE", "currency": "USD"})
+    assert symbol_resolve.classify("ZZFUND", "us_etfs").asset_class == "us_etfs"
+    assert symbol_resolve.classify("ZZFUND", "us_stocks").asset_class == "us_stocks"
+    # A non-equity home class cannot be inherited by a bare ticker: `crypto` would put a
+    # share on the BINANCE venue.
+    assert symbol_resolve.classify("ZZFUND", "crypto").asset_class == "us_stocks"
+
+
+def test_classify_keeps_the_country_pin_on_an_equity(monkeypatch):
+    """The identity guard is not weakened by the class being inferred rather than declared.
+    `CTRA` unpinned is an Indonesian developer quoted in rupiah, and no check on the bars
+    can tell the difference."""
+    import symbol_resolve
+    seen = []
+    monkeypatch.setattr(symbol_resolve, "_load", lambda: {})
+    monkeypatch.setattr(symbol_resolve, "_save", lambda: None)
+
+    def quote(sym, country=None):
+        seen.append((sym, country))
+        return {"status": "error", "message": "no such US listing"}
+
+    monkeypatch.setattr(symbol_resolve, "_vendor_quote", quote)
+    v = symbol_resolve.classify("ZZCTRA", "us_stocks")
+    assert not v.ok and "no US listing" in v.reason
+    assert seen == [("ZZCTRA", "United States")]

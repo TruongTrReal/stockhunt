@@ -100,6 +100,9 @@ test_open_symbol_desk.py
                         ledger -> resolve -> admit -> running trader -> fill -> record,
                         for ARKK, which is in no universe; and CTRA, which is a
                         different company wearing the ticker, refused
+test_mixed_class_desk.py
+                        ONE registration holding TWO classes fills on TWO venues out of
+                        one pot of cash, with the coin's fractional size surviving
 ```
 
 ## The four Twelve Data classes stream, and the stream deliberately makes no bars
@@ -275,6 +278,53 @@ rule off a walk-forward sheet is `kind='house_rule'` on account `00`; a manager'
 registration and `_units` is per symbol, and both are its own — never the Nautilus venue
 account, which nets every strategy on an instrument together.
 
+### ...and since 2026-08-29 those instruments may come from ANY asset class
+
+A registration is already a portfolio, and confining it to one class came from `cls` on the
+row deciding the venue rather than from anything about the book. **Class is a property of
+each SYMBOL now**, and `cls` keeps a narrower job.
+
+```
+desk_control.symbol_classes(reg)   symbol -> class. Three sources, cheapest first:
+    _resolve_open's verdict           what symbol_resolve.classify just decided
+    paper_config.CLASS_OF             every pinned leg + everything `admit` let in
+    reg["cls"]                        the fallback -- which is the OLD behaviour exactly
+```
+
+`symbol_resolve.classify` is the new door beside `resolve`: `resolve` asks "is this symbol
+the instrument THIS class means", which needs a declared class and a book holding `AAPL`
+and `BTC/USD` has no single one to offer. `classify` decides the class from the symbol —
+`ROOT.v.RANK` is futures and resolves offline, one `/` is a pair whose class the vendor's
+own `exchange` field decides, a bare ticker is an equity — and returns it on the verdict.
+
+Everything that follows from the class then follows the symbol:
+`MemberStrategyConfig.symbol_classes` carries the map (as **pairs**, not a dict: a frozen
+msgspec Struct is hashable and a dict field makes the whole config unhashable somewhere far
+from this line), `MemberStrategy._venue_of` and `_instrument_for` are asked per name, and
+because Nautilus routes DATA CLIENTS BY VENUE, that is also what keeps Twelve Data from ever
+being asked for a CME contract.
+
+Six things that were decided rather than discovered:
+
+| | |
+|---|---|
+| **venue funding** | a mixed book is funded at its FULL size on EVERY venue it touches, never split. Its cash is one pot, so the whole book can be deployed into any one venue at any moment; a split under-funds exactly the case somebody registered a mixed book for. Over-funding a sandbox account is free and invisible. An unresolved symbol has no venue yet — `symbol_resolve` runs at attach — so it is credited to all four |
+| **feedability** | asked PER CLASS, and a book with one unfeedable symbol is refused **whole, with the symbol named**. Dropping the leg would trade four of somebody's five symbols under the name of a book that holds five, and nothing downstream would say which |
+| **the vendor split** | unchanged, and it was already per symbol: `run_paper._split_by_feed` and `live_ws.streamable` both read `CLASS_OF`. What changed is who WRITES it — `_admit_open` takes symbol -> class rather than one class for the batch, so a futures name registered beside equities is no longer filed as an equity and handed to Twelve Data |
+| **`cls` on the row** | kept, and it is the book's **HOME LEG**: what the board files it under, and the fallback above. Not `mixed` — the dashboard's class filter is built from the five research classes, so a sixth value puts the book in no pill at all and it leaves the board entirely. Not the majority class either, which would move the book between legs as its holdings change |
+| **the board's honesty** | by DISCLOSURE. `MemberStrategy` publishes `classes` (always, so "single-class" and "an older desk" cannot read alike) and `_build`'s note names them, so a book filed under `us_stocks` says on its own row that it also holds crypto |
+| **leverage** | no longer a conflict, because the ceiling is uniform. It was the awkward part of a per-class table: one book, one shared exposure, several ceilings and no honest way to choose |
+| **backwards compatibility** | an empty `symbol_classes` means "every symbol is `cls`", which is what every registration written before this field means. No migration, and `test_feed_timeframes.py` holds it |
+
+`test_mixed_class_desk.py` is the gate: one registration holding `SPY` and `BTC/USD`,
+filling on `SANDBOX` and `BINANCE` out of one pot of cash, with the coin's fractional size
+surviving — which a whole-share instrument destroys by rounding to zero rather than by
+raising.
+
+**What is NOT done.** The console's wizard still picks one class and offers that class's
+universe; a symbol from another class has to be typed. Multi-class picking is a UI change,
+not a desk one, and the desk accepts either.
+
 ## The controller is not optional
 
 `Trader.add_strategy` contains:
@@ -361,8 +411,8 @@ rejection can be retried, a fill cannot be undone. The window is one bar of the 
 own timeframe (`STALE_BARS`), so a two-minute restart rejects nothing and only a real outage
 does.
 
-**Leverage is a registered setting, and the ceiling is per class.** One inequality decides
-it, on every order and on both sides:
+**Leverage is a registered setting, and the ceiling is ONE range for every class.** One
+inequality decides it, on every order and on both sides:
 
     gross exposure after the order   <=   leverage x equity after the order
 
@@ -386,15 +436,35 @@ Three things follow, and each is deliberate:
   VISIBLE — it writes the fact on the registration row instead of leaving the owner to
   infer it one refusal at a time.
 
-`paper_config.MAX_LEVERAGE` is the ceiling, per class, taken from what the real venue
-behind each class permits and rounded down: 2x on the equity classes (Reg T's 50% initial
-margin), 1x on crypto (spot crypto is not marginable, and `alpaca_mirror` — the desk's
-second record — extends no crypto margin at all), 10x on `cme_futures` (CME initial margin
-is single-digit percentages of notional, so 10 is the bottom of the range the exchange
-implies). `desk_control._launch` refuses a registration above it, and refuses a levered
-`house_rule` or `book` outright — those are selected off walk-forward sheets that score
-UNLEVERED books, and they do not use this order path at all, so a levered one would not
-even be bounded.
+`paper_config.MAX_LEVERAGE` is the ceiling and it is **125.0 for every class** since
+2026-08-29 — the owner's number, and what crypto perpetual venues offer.
+`desk_control._launch` refuses a registration above it, and refuses a levered `house_rule`
+or `book` outright: those are selected off walk-forward sheets that score UNLEVERED books,
+and they do not use this order path at all, so a levered one would not even be bounded.
+
+**It was per class, each ceiling anchored to a real venue**, and the numbers are gone while
+two of the facts behind them are not:
+
+| was | why | still true |
+|---|---|---|
+| `us_stocks`, `us_etfs`, `commodities` 2x | Reg T's 50% initial margin | — |
+| `crypto` 1x | spot crypto is not marginable for US retail, and Alpaca extends none | **above 1x the broker-side mirror cannot copy the book**, so the second record quietly stops covering it |
+| `cme_futures` 10x | CME initial margin is single-digit percentages of notional | — |
+
+**Say what the number costs, on the row.** At 125x a **0.8%** adverse move takes a fully
+deployed book to zero equity — `100 / leverage`, arithmetic rather than an opinion.
+`paper_config.wipeout_move_pct` is the one definition, `desk_control._leverage_caveat`
+writes it into `reason` beside `live`, and `api_config` restates it for the console
+(asserted against this file off disk by `test_strategies.py`, exactly as the ceiling is).
+It goes on every levered row rather than above some threshold: the column is kept rare by
+only appearing on a book that asked for leverage, and at 2x the same sentence reads "a 50%
+adverse move", which is unalarming and tells the reader the scale before they type a bigger
+number in.
+
+The uniform range also removed a real awkwardness. A registration may now hold symbols from
+several classes (below), and a per-class ceiling would have had several ceilings to
+reconcile for one book whose exposure is shared across all of them — there is no honest way
+to pick one of them.
 
 **Shorting is bounded by that ceiling and by nothing else.** `allow_short` decides the
 DIRECTION and leverage decides the SIZE, which is why the two are checked separately and
@@ -482,6 +552,8 @@ python symbol_resolve.py us_etfs ARKK                # is this string the instru
                                                      #   looks like? Ask before registering
 python test_open_symbol_desk.py                      # the open-symbol gate, live vendor
 python test_open_symbol_desk.py --offline            # ...the same, on recorded answers
+python test_mixed_class_desk.py                      # one book, two classes, two venues
+python test_member_desk.py --leverage 125            # ...and the ceiling, end to end
 ```
 
 **One symbol per `backtest_paper.py` process.** Nautilus initialises its Rust logger once
@@ -757,11 +829,31 @@ classes are told apart by the vendor's own `exchange` field — `Forex` is a spo
 anything else is a coin — rather than by the separator, which is the inference that once
 priced a metal against the Binance book.
 
-**`MAX_OPEN_SYMBOLS` (200) is a FEED budget, not bookkeeping.** `MAX_MEMBER_STRATEGIES` is
-60 and each may name `SYMBOLS_MAX` (20), so 1,200 distinct names is reachable with nobody
-deciding it — 240 requests a minute at 5m against the 610/minute `td_live` is quoted for.
-200 names at 5m is ~40/min, beside the ~20/min the class-wide 5m books already cost.
-`MAX_1M_SYMBOLS` (120) is finer and still binds first at that size.
+**`MAX_OPEN_SYMBOLS` (200) is a FEED budget, not bookkeeping**, and since 2026-08-29 it is
+one of the two numbers that actually bind. A registration count never was: books share a
+subscription per (symbol, timeframe), so a hundred books on twenty tickers cost twenty
+polls between them. `MAX_MEMBER_STRATEGIES` is therefore 100,000 — a kept mechanism rather
+than a limit, see below — and the arithmetic that sized this is unchanged: 200 names at 5m
+is ~40 requests a minute against the 610/minute `td_live` is quoted for, beside the
+~20/min the class-wide 5m books already cost. `MAX_1M_SYMBOLS` (120) is finer and still
+binds first at that size.
+
+**`MAX_MEMBER_STRATEGIES` is 100,000 and the CHECK is still there.** It was 60, and what it
+guarded against is real: a runaway script registering until the venue account is meaningless
+and the board unreadable. The owner asked for no practical ceiling, so the number is one no
+real use reaches rather than a check that was deleted — a bug that used to stop at 60 would
+otherwise fill the ledger with nothing anywhere to stop it, and this refusal is the only
+evidence such a loop produces. Override with `STOCKHUNT_MAX_MEMBER_STRATEGIES`.
+
+**`FUNDING_HEADROOM_STRATEGIES` (60) had to be split out of it.** `run_paper.build_node`
+pre-funds each venue account for books that have not registered yet, and a venue account
+cannot be topped up after its client connects — so the headroom is multiplied by the
+per-system capital. At 100,000 that is $10^9 before the doubling, and a Nautilus `Money`
+refuses anything above **9,223,372,036**: the node would have failed to BUILD, on every
+start, for a limit nobody set deliberately. A guess at how many books might attach is not
+the same quantity as a refusal ceiling. `build_node` also clamps the final figure at
+`MONEY_MAX` with a printed line, which is reachable now that a book may be $10,000,000 at
+125x — two such registrations on one venue are $2.5bn after the doubling.
 
 ### Admitting is three writes, and each one prevents a different silence
 
@@ -1052,12 +1144,14 @@ governs member registrations, which name at most 20 symbols each, and subscripti
 shared by (symbol, timeframe) — so the bill is the count of **distinct symbols at 1m**,
 not the count of strategies. A handful of member books is tens of requests a minute.
 
-The worst case is still real, so it is enforced rather than assumed:
-`MAX_MEMBER_STRATEGIES` is 60 and sixty books naming twenty distinct symbols each would be
-1,200 requests a minute — which would not degrade the offending book, it would take the
-feed down for every book on the desk. `paper_config.MAX_1M_SYMBOLS` (120, ~20% of the
-budget) is checked in `DeskController._minute_budget_exceeded` before a 1m registration
-attaches. Three properties of that check are load-bearing:
+The worst case is still real, so it is enforced rather than assumed — and it got worse
+rather than better on 2026-08-29, because `MAX_MEMBER_STRATEGIES` went to 100,000 and stopped
+bounding anything. Sixty books naming twenty distinct symbols each was already 1,200
+requests a minute, which would not degrade the offending book but take the feed down for
+every book on the desk; there is no longer a strategy count in front of that at all.
+`paper_config.MAX_1M_SYMBOLS` (120, ~20% of the budget) is checked in
+`DeskController._minute_budget_exceeded` before a 1m registration attaches, and it is now
+one of the two numbers doing that job. Three properties of that check are load-bearing:
 
 * **It counts SYMBOLS, not registrations.** Three members on the same twenty tickers cost
   twenty polls between them. Counting registrations would refuse the cheap case and admit
