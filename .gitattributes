@@ -5,3 +5,10 @@
 deploy/nginx/*.conf   text eol=lf
 deploy/*.sh           text eol=lf
 deploy/systemd/*      text eol=lf
+
+# Same reason, one folder over: `cloud/grid.sh` and `cloud/fleet.sh` scp these onto a
+# rented Linux box and pipe them to `bash -s` straight from the WORKING COPY, so a CRLF
+# that autocrlf wrote on checkout arrives as `bash: bad interpreter` on a box that is
+# already billing.
+cloud/*.sh            text eol=lf
+cloud/remote/*.sh     text eol=lf
