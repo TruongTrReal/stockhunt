@@ -13,6 +13,13 @@ written for a system that holds one instrument.** A book registers with `symbol`
 label ("5 names"), keeps its quantities in `holdings`, and resumes an inception date from
 the store — so a price lookup by `symbol`, a fill counter scoped to the process and an age
 measured from the first bar of this session all silently produced nothing.
+
+The last section is the same thread one kind of strategy over: a MEMBER also holds several
+instruments under one `symbol` — the names they registered, joined with commas — and
+published no breakdown at all, so the board drew three names as one row. Those cases build
+a real `MemberStrategy`, which needs `nautilus_trader` on the path but no node, no venue
+and no bar: the strategy object is constructed and handed a fill, which is all the
+published shape is made of.
 """
 
 from __future__ import annotations
@@ -439,3 +446,169 @@ def test_a_single_symbol_still_reads_the_bare_object(monkeypatch):
                         lambda url, timeout=None, params=None: Resp())
     monkeypatch.setattr(td_live, "api_key", lambda: "k")
     assert td_live.fetch_prices(["SOXL"]) == {"SOXL": 42.5}
+
+
+# ------------------------------------------------------- what a MEMBER publishes per name
+#
+# The bug: a member strategy holding `BTC/USD`, `ETH/USD` and `BNB/USD` published its
+# `symbol` as those three joined with commas and nothing else per name, so the board had
+# no key to build a row on. It drew ONE row headed with all three tickers, one Units figure
+# that was their sum, and an em-dash wherever a per-name cost, mark or value belonged —
+# then counted the rows it had and printed "1 assets" over a book holding three.
+#
+# The state was never missing: `_units`, `_cost` and `_last_price` have always been keyed
+# on the symbol. Only the publishing was.
+
+
+def member(symbols, *, cls="crypto", symbol_classes=(), allow_short=False,
+           capital=10_000.0):
+    """A `MemberStrategy` with no node behind it.
+
+    Constructing one takes a config and nothing else — no trader, no venue, no clock that
+    has moved — which is what lets the published shape be asserted in milliseconds.
+    `export_state=False` keeps the registry and the ledger out of it; those paths have
+    their own tests above and are not what these cases are about.
+    """
+    from member_strategy import MemberStrategy, MemberStrategyConfig
+    return MemberStrategy(MemberStrategyConfig(
+        registration_id="str_01_test", account="01", name="test", cls=cls, tf="1h",
+        symbols=tuple(symbols), symbol_classes=tuple(symbol_classes),
+        capital=capital, allow_short=allow_short, export_state=False))
+
+
+class _Fill:
+    """The three things `on_order_filled` reads off a Nautilus event.
+
+    Hand-built rather than minted by an engine, because an engine needs a venue, an
+    instrument, a bar and a matching pass to produce one — all of which
+    `test_member_desk.py` already drives end to end. What is under test here is the
+    arithmetic and the shape it publishes.
+    """
+
+    def __init__(self, instrument_id, price, qty, side):
+        self.instrument_id = instrument_id
+        self.order_side = type("Side", (), {"name": side})()
+        self.last_px = type("Px", (), {"as_double": lambda _s: price})()
+        self.last_qty = type("Qty", (), {"as_double": lambda _s: qty})()
+        self.client_order_id = "unmapped"      # no ledger seq, so `deskdb` is never called
+        self.ts_event = 0
+        self.trade_id = "t1"
+
+
+def fill(strategy, symbol, price, qty, side="BUY"):
+    strategy.on_order_filled(
+        _Fill(strategy._instrument_id(symbol), price, qty, side))
+
+
+def rows_by_symbol(strategy):
+    return {h["symbol"]: h for h in strategy.holdings()}
+
+
+def test_a_member_publishes_one_row_per_registered_symbol():
+    """Three names is three rows, and the untraded one is a ROW and not an absence.
+
+    "BNB/USD, flat" is a fact — the member registered it and the desk is watching it.
+    Publishing only the names with a position would say this strategy holds one
+    instrument when it holds three, which is the same silent narrowing that made the
+    board print "1 assets" in the first place.
+    """
+    s = member(["BTC/USD", "ETH/USD", "BNB/USD"])
+    fill(s, "ETH/USD", 2_000.0, 2.0)
+
+    holdings = s.holdings()
+    assert [h["symbol"] for h in holdings] == ["BTC/USD", "ETH/USD", "BNB/USD"]
+
+    never = rows_by_symbol(s)["BNB/USD"]
+    assert never["state"] == "flat" and never["units"] == 0.0
+    assert never["entry"] is None and never["mark"] is None
+    assert never["trades"] == 0
+    assert never["pnl_pct"] is None, "a flat name has no return; 0.00% reads as 'tried'"
+    assert never["warming"] is True, "the desk has seen no price for it"
+
+
+def test_the_fill_lands_on_the_name_that_traded():
+    """One fill on ETH is one trade on the ETH row and none on the other two.
+
+    The old row carried the strategy's whole fill count against the joined symbol string,
+    so the same `1` was reported for a book of three names whichever one had traded.
+    """
+    s = member(["BTC/USD", "ETH/USD", "BNB/USD"])
+    fill(s, "ETH/USD", 2_000.0, 2.0)
+
+    got = rows_by_symbol(s)
+    assert [got[k]["trades"] for k in ("BTC/USD", "ETH/USD", "BNB/USD")] == [0, 1, 0]
+    assert got["ETH/USD"]["units"] == 2.0
+    assert got["ETH/USD"]["value"] == pytest.approx(4_000.0)
+    assert s.held_count() == 1, "one name has a position, whatever the units sum to"
+
+
+def test_avg_cost_is_the_average_and_not_the_opening_fill():
+    """Scaled into over two fills, the row prices what is HELD.
+
+    Same definition as `fill_pnl` and as `BookStrategy._entry`; an opening-price basis
+    misreports every name the strategy added to.
+    """
+    s = member(["ETH/USD"])
+    fill(s, "ETH/USD", 2_000.0, 1.0)
+    fill(s, "ETH/USD", 3_000.0, 1.0)
+    # The mark is set here rather than left to the fills. `on_order_filled` SEEDS
+    # `_last_price` and does not overwrite it — marking is `on_bar`'s job — so a strategy
+    # driven by fills alone is still marked at the first one.
+    s._last_price["ETH/USD"] = 3_000.0
+
+    row = rows_by_symbol(s)["ETH/USD"]
+    assert row["entry"] == pytest.approx(2_500.0)
+    assert row["trades"] == 2
+    assert row["pnl_pct"] == pytest.approx(20.0), "+20% on a $2,500 basis, not on $2,000"
+
+
+def test_a_short_that_fell_reads_as_a_gain():
+    """Colour on this page means gained or lost and nothing else.
+
+    A book is long/flat by construction, so `price / entry - 1` is unconditionally right
+    for it. A member with `allow_short` can be the other way round, and the unsigned form
+    would paint a profitable short red.
+    """
+    s = member(["ETH/USD"], allow_short=True)
+    fill(s, "ETH/USD", 2_000.0, 1.0, side="SELL")
+    s._last_price["ETH/USD"] = 1_800.0
+
+    row = rows_by_symbol(s)["ETH/USD"]
+    assert row["state"] == "short"
+    assert row["pnl_pct"] == pytest.approx(10.0), "down 10% on a short is up 10%"
+
+
+def test_a_member_holding_two_classes_still_publishes_one_row_per_name():
+    """A registration may hold instruments from several asset classes since 2026-08-29.
+
+    The two names settle on two venues and are fed by the same vendor split, and the row
+    carries no class of its own on purpose — that disclosure travels once, on `classes`,
+    rather than being copied onto every row where it can go stale separately.
+    """
+    s = member(["SPY", "BTC/USD"], cls="us_etfs",
+               symbol_classes=(("SPY", "us_etfs"), ("BTC/USD", "crypto")))
+    fill(s, "BTC/USD", 60_000.0, 0.1)
+
+    got = rows_by_symbol(s)
+    assert sorted(got) == ["BTC/USD", "SPY"]
+    assert got["BTC/USD"]["units"] == pytest.approx(0.1)
+    assert got["SPY"]["state"] == "flat" and got["SPY"]["trades"] == 0
+    assert s.classes() == ["crypto", "us_etfs"], "both classes are disclosed on the row"
+    assert not any("cls" in h for h in s.holdings())
+
+
+def test_a_member_row_has_the_same_fields_a_book_row_has():
+    """One shape, so the board needs ONE renderer.
+
+    Both kinds are rows on one table with one header, and a field that exists on only one
+    of them is a column that silently blanks for the other. Asserted against
+    `BookStrategy.holdings()` itself rather than against a copied list, so the two cannot
+    drift apart without this failing.
+    """
+    from book_strategy import BookStrategy, BookStrategyConfig
+
+    b = BookStrategy(BookStrategyConfig(
+        rule="ibs", symbols=("AAPL", "MSFT"), export_state=False))
+    m = member(["BTC/USD", "ETH/USD"])
+
+    assert set(m.holdings()[0]) == set(b.holdings()[0])

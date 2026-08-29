@@ -753,6 +753,25 @@ is the argument: what is this, is it working, what has it done, what does it hol
 then the what-if. The simulated windows are the one section that is not the record, so they
 sit after it rather than in the middle of it.
 
+**A MEMBER's holdings are not one of those universes** (2026-08-29). `memberHoldings` is a
+section of its own, headed *What it holds*, and its heading and its note come from the
+STRATEGY. `D.paper_groups[].note` says what a universe is worth as **evidence** — "ranked
+on the crypto sheet, which has its own rules and its own cost grid" — which is a true
+sentence about a promoted house rule and a false one about somebody's own webhook: nobody
+ranked those names, the member picked them, and the desk trades them on instruction. So is
+the bottom-of-page pointer: "no row on the leaderboard, which ships only its top rows"
+implies a verdict is pending, and for a member there will never be one.
+
+Three things to preserve. **The count is asked of the breakdown, never of the row** —
+`nameCount`, `withPosition` and `assetCount` all count instruments, because a member and a
+book are each ONE row over many names and counting rows printed "1 assets" over a book
+holding three. **`holdingRows` is one renderer for both kinds**, which is what
+`MemberStrategy.holdings()` matching `BookStrategy.holdings()` field for field buys. And
+**a payload with no `holdings` still renders**: `hasHoldings` is false, the section falls
+back to `assetRow` — today's single row — and its note SAYS the record predates the
+breakdown rather than implying a breakdown exists. `dist/dashboard.html` freezes a snapshot,
+so that path is permanent.
+
 ### There are TWO of this page, and a system with no fills gets the other one (2026-08-29)
 
 Every component used to render at full size around absent data. A system with five bars and

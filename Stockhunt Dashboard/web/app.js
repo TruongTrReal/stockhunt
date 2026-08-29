@@ -1450,12 +1450,38 @@ function pnlPanel(entry, label) {
 }
 
 
+/* Does this row publish a per-name breakdown? A book always does; a member does since
+ * 2026-08-29, and a payload written before that does not — `dist/dashboard.html` is a
+ * frozen snapshot and there are recorded systems that predate the field, so every reader
+ * of `holdings` has to survive its absence rather than assume it. */
+const hasHoldings = s => Array.isArray(s.holdings) && s.holdings.length > 0;
+
+/* How many INSTRUMENTS these rows carry, which is not how many rows they are. A book is
+ * one row holding a whole class; a member is one row holding the handful of names they
+ * registered, under a `symbol` that is those names joined with commas. Counting rows read
+ * "1 assets" for both. Falls back to one per row where nothing says otherwise, which is
+ * the truth for a system deployed on a single instrument and for any payload written
+ * before either field existed. */
+const nameCount = rows => rows.reduce(
+  (a, s) => a + (s.names != null ? s.names : (hasHoldings(s) ? s.holdings.length : 1)), 0);
+
+/* Names with a position. Asked of the breakdown where there is one, because "1 with a
+ * position" off the row's own `state` is a single yes/no about a book that may hold three
+ * names or none of them. */
+const withPosition = rows => rows.reduce((a, s) => a + (hasHoldings(s)
+  ? s.holdings.filter(h => Math.abs(h.units || 0) > 1e-12).length
+  : (s.state && s.state !== "flat" ? 1 : 0)), 0);
+
 /* "1 assets" is a lie about a book. A book is ONE strategy row that holds a whole class
  * internally, so the count the reader wants is the names inside it, not the number of
- * rows — a $100,000 account over the top 100 was reading as a single asset. */
+ * rows — a $100,000 account over the top 100 was reading as a single asset. The same
+ * arithmetic was wrong one kind over: a member's row is also one row over several names. */
 function assetCount(rows) {
   const books = rows.filter(s => s.kind === "book");
-  if (!books.length) return `${rows.length} assets`;
+  if (!books.length) {
+    const n = nameCount(rows);
+    return `${n} asset${n === 1 ? "" : "s"}`;
+  }
   const names = books.reduce((a, s) => a + (s.names || 0), 0);
   const held = books.reduce((a, s) => a + (s.held || 0), 0);
   const rest = rows.length - books.length;
@@ -1463,14 +1489,17 @@ function assetCount(rows) {
 }
 
 
-/* A book is one strategy holding a whole class, so it expands into one row PER NAME
- * rather than the single row every other system gets.
+/* A row that holds several instruments expands into one row PER NAME rather than the
+ * single row a system deployed on one instrument gets. Two kinds arrive here — a house
+ * BOOK holding a whole asset class, and a MEMBER holding the names they registered — and
+ * they share this function because they publish the same `holdings` shape. Two renderers
+ * would be two places for the same formatting bug.
  *
  * Every name is listed, held or not. "46 of 100 held" only reads if the other 54 are
  * visible as waiting — a name the rule is out of is holding its slice in cash, which is a
  * state and not an absence. Held names sort to the top because they are the ones doing
  * something; the rest stay alphabetical so a reader can find one. */
-function bookRows(s) {
+function holdingRows(s) {
   const rows = (s.holdings || []);
   if (!rows.length) {
     return `<tr><td class="l" colspan="${ASSET_COLS}">${esc(s.symbol || "the book")} —
@@ -1507,9 +1536,11 @@ const assetHead = () => `<thead><tr><th class="l">Asset</th><th class="l">State<
   <th>${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</th>
   <th>Trades</th><th class="l">Status</th></tr></thead>`;
 
-/* One row for a system that is deployed on a single instrument. A book expands into one
- * row per name instead — see `bookRows` — and the two shapes share a header, so they have
- * to print the same columns in the same order. */
+/* One row for a system that is deployed on a single instrument, and the fallback for one
+ * that holds several and published no breakdown — a payload written before members
+ * carried `holdings`, which `dist/dashboard.html` freezes forever. Anything with a
+ * breakdown expands into one row per name instead, through `holdingRows`, and the two
+ * shapes share a header, so they have to print the same columns in the same order. */
 const assetRow = s => `
   <tr data-go="#/paper/${s.id}">
     <td class="l">${esc(s.symbol)}</td>
@@ -1601,6 +1632,52 @@ const paperGroupList = () => (D.paper_groups && D.paper_groups.length ? D.paper_
   : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
      { key: "etf", label: "ETFs" }]);
 
+/* ---------- a MEMBER's holdings ----------
+ * One section for one member strategy, and **the heading and the note come from the
+ * STRATEGY rather than from the class group.** That is the whole difference between this
+ * and the group sections beside it.
+ *
+ * `D.paper_groups[].note` says what a universe is worth as EVIDENCE — "the same universe
+ * the equity rules were ranked on", "ranked on the crypto sheet, which has its own rules
+ * and its own cost grid". Both are true and useful sentences about a house rule promoted
+ * off a leaderboard, and both are false about a member: nobody ranked these names, the
+ * member picked them, and the desk trades them on instruction. Printing "Top 10 crypto"
+ * over three tickers somebody typed into a registration is the same mislabel as filing a
+ * hundred-name book under "SPY · SOXL · TQQQ", one kind of strategy over.
+ *
+ * The count is asked of the BREAKDOWN and never of the row: a member is one row over
+ * several names, so counting rows printed "1 assets" over a book holding three.
+ *
+ * It says nothing about what the strategy IS, on purpose — the hero's `.lede` directly
+ * above is exactly that sentence, off the same `note`. */
+function memberHoldings(s) {
+  const known = hasHoldings(s);
+  const cls = Array.isArray(s.classes) ? s.classes.filter(Boolean) : [];
+  /* Every member registration has published `classes` since 2026-08-29 — always, so that
+   * "single-class" and "an older desk" cannot read alike — which is why an absent list
+   * says nothing rather than being read as one class. */
+  const spread = cls.length > 1
+    ? ` Its names come from ${cls.length} asset classes —
+        ${cls.map(c => esc(PAPER_CLASS_LABEL[c] || c)).join(", ")} — settling on a venue
+        each out of one pot of cash.`
+    : "";
+  return `
+  <section class="sec">
+    <div class="sec-head"><h2>What it holds</h2>
+      <span class="sec-note">${assetCount([s])} · ${withPosition([s])} with a position ·
+        ${fillsOf(s)} fills</span></div>
+    <p class="grp-note">A member's own strategy: the orders arrive from outside this desk,
+      so these are the instruments the member registered rather than a research universe,
+      and no leaderboard ranked them.${spread}${known ? "" :
+      ` This record was published before the desk broke a member's book out name by name,
+        so it is the one row the desk wrote and not a row each.`}</p>
+    <div class="tbl-wrap"><table>
+      ${assetHead()}
+      <tbody>${known ? holdingRows(s) : assetRow(s)}</tbody>
+    </table></div>
+  </section>`;
+}
+
 /* ---------- which of the two pages is this ----------
  * A system that has never filled is not a system with a short record; it is a different
  * thing, and the page was drawing it as the same thing minus the numbers. Every component
@@ -1648,7 +1725,10 @@ function sysStage(rows, curve) {
 function waitingSection(rows) {
   const holdings = rows.flatMap(s => s.holdings || []);
   const warming = holdings.filter(h => h.warming).length;
-  const names = rows.reduce((x, s) => x + (s.names || 0), 0) || rows.length;
+  /* The instruments, not the rows. A member with three registered names and no fill yet
+   * is the commonest visitor to this page, and "Universe: 1 name" was the same
+   * count-the-rows mistake the holdings heading above it had. */
+  const names = nameCount(rows);
   const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
   const bars = Math.max(...rows.map(s => (s.paper_curve || []).length), 0);
   const halted = rows.filter(s => s.status === "halted").length;
@@ -1745,7 +1825,23 @@ function paperSystem(cls, tf, ruleSlug) {
 
   <div id="sys-body"></div>
 
-  <div class="note">${href
+  <div class="note">${
+    /* Three sentences, because there are three different reasons the multi-year answer
+     * might not be one click away, and two of them are house-book reasons.
+     *
+     * A MEMBER was never a candidate for a sheet. "No row on the leaderboard, which ships
+     * only its top rows" says the measurement exists somewhere and this rule missed the
+     * cut — which is exactly backwards for somebody's own strategy trading on instruction:
+     * it was not scored, it will not be scored, and pointing at the board implies a
+     * verdict is pending on it. */
+    rows.every(s => s.kind === "member")
+    ? `There is no walk-forward result for this one, and there is not going to be: it is a
+       member's own strategy, trading on instruction, so this desk never ranked it against
+       anything. What the page shows is
+       ${isReplay() ? "a replay over cached bars" : "days of simulated fills"} — evidence
+       about the execution path, and about nothing else. The
+       <a href="#/backtest">Backtest</a> board is the house's own rules.`
+    : href
     ? `Whether this rule actually works is the multi-year question, and it is not answered
        here — see <a href="${href}">the walk-forward result for ${esc(rule)}</a>. What this
        page shows is ${isReplay() ? "a replay over cached bars" : "days of simulated fills"},
@@ -1789,8 +1885,12 @@ function paintSystem() {
   const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
 
   const groups = paperGroupList();
-  const assets = groups.map(g => {
-    const gs = rows.filter(s => (s.group || "") === g.key)
+  /* A MEMBER's names are not a universe, so they do not go under a universe's heading.
+   * Everything else on this page still groups by `s.group`. */
+  const memberRows = rows.filter(s => s.kind === "member");
+  const houseRows = rows.filter(s => s.kind !== "member");
+  const assets = memberRows.map(memberHoldings).join("") + groups.map(g => {
+    const gs = houseRows.filter(s => (s.group || "") === g.key)
                    .sort((x, y) => x.symbol.localeCompare(y.symbol));
     if (!gs.length) return "";
     const ga = aggregate(gs);
@@ -1803,7 +1903,8 @@ function paintSystem() {
       ${g.note ? `<p class="grp-note">${esc(g.note)}</p>` : ""}
       <div class="tbl-wrap"><table>
         ${assetHead()}
-        <tbody>${gs.map(s => s.kind === "book" ? bookRows(s) : assetRow(s)).join("")}</tbody>
+        <tbody>${gs.map(s => (s.kind === "book" || hasHoldings(s))
+          ? holdingRows(s) : assetRow(s)).join("")}</tbody>
       </table></div>
       ${(() => {
         /* Per-name sparklines, where `paper_curves.py` published any. It drops them for a

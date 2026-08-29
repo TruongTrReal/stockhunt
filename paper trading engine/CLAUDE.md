@@ -278,6 +278,18 @@ rule off a walk-forward sheet is `kind='house_rule'` on account `00`; a manager'
 registration and `_units` is per symbol, and both are its own — never the Nautilus venue
 account, which nets every strategy on an instrument together.
 
+**...and it publishes that book name by name**, since 2026-08-29, through `holdings()` —
+one entry per REGISTERED symbol, held or not, in exactly the shape `BookStrategy.holdings()`
+uses, so the dashboard renders both kinds with one function. The per-symbol state was
+always tracked here and simply never left the process, so the board had only `symbol` —
+the joined string of everything the member registered — to key a row on, and drew three
+instruments as one row with one units figure and em-dashes for cost, mark and value.
+`symbol` is unchanged and still that string; the breakdown is published beside it, with
+`held` and `names`, exactly as a book publishes them. Two consequences: `pnl_pct` is
+signed by direction here, because a member may be short and a book may not; and
+`paper_state._set_turnover` now divides a member's fills by `names`, so its turnover is
+round trips per name — the unit every other row already carries.
+
 ### ...and since 2026-08-29 those instruments may come from ANY asset class
 
 A registration is already a portfolio, and confining it to one class came from `cls` on the

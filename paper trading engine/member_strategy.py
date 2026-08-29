@@ -35,6 +35,14 @@ a venue balance is only the sandbox's own bookkeeping behind the fills.
 **Every fill is reported with its symbol.** The fill table's natural key includes it; two
 names bought at the same size and price on the same bar would otherwise deduplicate into
 one row and half the position would vanish from the record.
+
+**...and so is the book, name by name.** `holdings()` publishes one entry per registered
+symbol in exactly the shape `BookStrategy.holdings()` uses. The per-symbol state was
+always tracked here and simply never left the process, so the board had only the joined
+`symbol` string to key a row on and drew three instruments as one row with one units
+figure and em-dashes for cost, mark and value. `symbol` is unchanged and still the joined
+string — the record, `paper_curves` and the fills table all key off it — the breakdown is
+published ALONGSIDE it.
 """
 
 from __future__ import annotations
@@ -113,6 +121,10 @@ class MemberStrategy(Strategy):
         # Dropped when a name goes flat.
         self._cost: dict[str, float] = {}
         self._last_price: dict[str, float] = {}
+        # Fills per name, for the board's per-symbol row. `_n_fills` is the book's total
+        # and cannot be split after the fact, so a three-name book reported its one ETH
+        # fill against all three names or against none of them.
+        self._fills_by: dict[str, int] = {}
         self._n_fills = 0
         self._start_ts: pd.Timestamp | None = None
         self._bench_start: float | None = None
@@ -200,6 +212,20 @@ class MemberStrategy(Strategy):
                 paper_pnl_pct=0.0, paper_trades=0, position_units=0, entry=None,
                 capital=self.config.capital, cash=self.config.capital, units=0.0,
                 equity=self.config.capital, turnover=0.0,
+                # Published at REGISTRATION, not left until the first fill. A member's
+                # `symbol` is the joined string of everything they registered, so without
+                # this the board counted the rows it had — one — and printed "1 assets"
+                # over a book holding three. `BookStrategy.on_start` publishes these for
+                # the same reason and under the same names.
+                #
+                # `names` also moves one published number: `paper_state._set_turnover`
+                # divides lifetime fills by it, so a member's turnover is now round trips
+                # PER NAME rather than for the whole book. That is the unit the
+                # walk-forward sheets report and the unit every other row on the board
+                # already carries, so the change makes the column comparable rather than
+                # merely different — but it does mean a three-name member's figure is a
+                # third of what the desk used to print for it.
+                held=0, names=len(self.config.symbols), holdings=self.holdings(),
                 # PUBLISHED, not merely held. `paper_pnl_pct` is `equity / capital - 1` for
                 # a levered book exactly as it is for an unlevered one — the base is the
                 # money the member put up either way, so the percentage is not on a
@@ -218,6 +244,81 @@ class MemberStrategy(Strategy):
 
     def prices(self) -> dict:
         return dict(self._last_price)
+
+    def held_count(self) -> int:
+        """How many NAMES carry a position. Not the units total.
+
+        A long and a short of equal size sum to zero units and are two open positions,
+        so the board's "with a position" figure has to count names rather than add them
+        up — which is also why this is published beside `position_units` rather than
+        being derived from it downstream.
+        """
+        return sum(1 for u in self._units.values() if abs(u) > 1e-12)
+
+    def holdings(self) -> list[dict]:
+        """Every registered symbol, held or not — the row-per-name the board draws.
+
+        **Same shape and same field names as `BookStrategy.holdings()`, deliberately.**
+        Both kinds of strategy are rows on one board and `app.js` renders them with one
+        function; a parallel vocabulary here would buy a second renderer and two places
+        for the same bug.
+
+        The data was always here — `_units`, `_cost` and `_last_price` are all keyed on
+        the symbol — and only the publishing was missing. Without it the board had
+        nothing to key a row on and fell back to the joined `symbol` STRING, so a book
+        holding `BTC/USD`, `ETH/USD` and `BNB/USD` drew ONE row headed with all three
+        names, one units figure that was their sum, and an em-dash everywhere a per-name
+        cost, mark or value belonged.
+
+        **Every registered symbol, not only the held ones.** "BNB/USD, flat" is a fact:
+        the member registered it, the desk is watching it, and it is holding its share of
+        the book in cash. Dropping the row would say this strategy holds two names when
+        it holds three — the silent narrowing this repo keeps having to undo.
+
+        Three fields carry a member-specific meaning under the shared name:
+
+        * `entry` is `_cost`, the AVERAGE cost of what is currently held, so a partial
+          sell is priced against what it actually closed. `BookStrategy._entry` is the
+          same quantity under the same name.
+        * `pnl_pct` is signed by DIRECTION. A book is long/flat by construction and can
+          use `price / entry - 1` unconditionally; a member with `allow_short` cannot —
+          a short whose price has fallen has made money, and printing that as a loss
+          would make the colour on this page mean something other than gained or lost.
+          The sign convention is `fill_pnl.apply_fill`'s, so the percentage and the
+          realised figure on the fills table cannot disagree about who is winning.
+        * `warming` is "the desk has seen no price for this name yet". A member computes
+          nothing and needs exactly one bar rather than a warm-up window, so it clears
+          far sooner here than on a book — but it answers the same question, which is
+          why it keeps the same name.
+
+        The symbol's CLASS is deliberately NOT on the row. A member's names may come from
+        several asset classes since 2026-08-29 and a book's never can, but that
+        disclosure already travels on the registration as `classes`, and a per-row copy
+        would be a second place for one fact to go stale.
+        """
+        out = []
+        for symbol in self.config.symbols:
+            units = self._units.get(symbol, 0.0)
+            price = self._last_price.get(symbol)
+            entry = self._cost.get(symbol)
+            held = abs(units) > 1e-12
+            ret = None
+            if held and price and entry:
+                ret = (price / entry - 1.0) * (1.0 if units > 0 else -1.0) * 100.0
+            out.append({
+                "symbol": symbol,
+                "state": "long" if units > 0 else "short" if units < 0 else "flat",
+                "units": round(units, 6),
+                "entry": entry,
+                "mark": price,
+                # Signed, so a short reads as the liability it is. `gross()` is the
+                # absolute version and is what the leverage ceiling is measured on.
+                "value": round(units * price, 2) if (held and price) else 0.0,
+                "pnl_pct": None if ret is None else round(ret, 3),
+                "trades": self._fills_by.get(symbol, 0),
+                "warming": symbol not in self._last_price,
+            })
+        return out
 
     def classes(self) -> list[str]:
         """Every asset class this book holds, sorted. One entry on a single-class book."""
@@ -336,6 +437,8 @@ class MemberStrategy(Strategy):
             else str(event.order_side)
         signed = qty if side == "BUY" else -qty
 
+        self._fills_by[symbol] = self._fills_by.get(symbol, 0) + 1
+
         before = self._units.get(symbol, 0.0)
         # What this fill CLOSED, against the average cost of the position it closed. A
         # member's book kept no cost basis at all before this, so every fill it reported
@@ -379,7 +482,9 @@ class MemberStrategy(Strategy):
                 paper_pnl_pct=round((self.equity() / self.config.capital - 1) * 100, 3),
                 equity=round(self.equity(), 2), cash=round(self._cash, 4),
                 units=sum(self._units.values()), capital=self.config.capital,
-                leverage=self.config.leverage, gross=round(self.gross(), 2))
+                leverage=self.config.leverage, gross=round(self.gross(), 2),
+                held=self.held_count(), names=len(self.config.symbols),
+                holdings=self.holdings())
             paper_state.flush(force=True)
 
     def on_order_rejected(self, event) -> None:
@@ -431,7 +536,12 @@ class MemberStrategy(Strategy):
             position_units=round(sum(self._units.values()), 6),
             equity=round(equity, 2), cash=round(self._cash, 4),
             units=sum(self._units.values()), capital=self.config.capital,
-            leverage=self.config.leverage, gross=round(self.gross(), 2))
+            leverage=self.config.leverage, gross=round(self.gross(), 2),
+            # Re-published on every bar, because `mark` and `warming` move with the feed
+            # even when nothing has traded: a name the desk has just seen its first price
+            # for stops being "waiting for bars" without a fill anywhere.
+            held=self.held_count(), names=len(self.config.symbols),
+            holdings=self.holdings())
         paper_state.flush()
 
     def on_stop(self) -> None:
