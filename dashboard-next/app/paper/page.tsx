@@ -551,6 +551,37 @@ export default function PaperPage() {
         </div>
       )}
 
+      {/* HOW SOMETHING STARTS TRADING HERE. Three doors, three different owners, and until
+          now nothing on the site said they existed or how they differ — `Register` was one
+          button on a page called "Your strategies", and the other two are reached from the
+          leaderboard. A reader looking at what the desk runs had no way to learn how to
+          add to it.
+          It teaches rather than acts: each line links to the door rather than opening it,
+          because two of the three need a choice made somewhere else first (which rules) and
+          the third hands over a credential. */}
+      <section className="sec">
+        <div className="sec-head">
+          <h2>How something gets here</h2>
+          <span className="sec-note">three doors · they do different things</span>
+        </div>
+        <ul className="doors">
+          <li>
+            <Link href="/portfolio">Build a basket</Link> — pick rules off the{" "}
+            <Link href="/">leaderboard</Link>, see them combined first, then switch it on.
+            One pot of money split across them.
+          </li>
+          <li>
+            <Link href="/">Promote one rule</Link> — a single research rule, traded as its
+            own book on its own capital. It appears below rather than in a basket.
+          </li>
+          <li>
+            <a href="/desk#register">Register your own strategy</a> — your code, on your
+            machine, sending orders over the API or a TradingView alert. The desk fills them
+            and keeps the record; the logic never leaves you.
+          </li>
+        </ul>
+      </section>
+
       <section className="sec">
         <div className="sec-head">
           <h2>Portfolios</h2>
@@ -616,7 +647,8 @@ export default function PaperPage() {
           <h2>Not in a portfolio</h2>
           <span className="sec-note">
             {countSystems(loose)} system{countSystems(loose) === 1 ? "" : "s"} registered on
-            their own · best first · each one is its own record
+            their own · best first · each one is its own record ·{" "}
+            <a href="/desk#register">register one</a>
           </span>
         </div>
 
@@ -661,9 +693,15 @@ export default function PaperPage() {
           ))
         ) : (
           <p className="sec-note">
-            {loose.length
-              ? "Nothing outside a portfolio matches this filter."
-              : "Every registration on this desk belongs to a portfolio."}
+            {loose.length ? (
+              "Nothing outside a portfolio matches this filter."
+            ) : (
+              <>
+                Every registration on this desk belongs to a portfolio. To run your own
+                strategy beside them — your code, your machine, orders over the API —{" "}
+                <a href="/desk#register">register one</a>.
+              </>
+            )}
           </p>
         )}
       </section>
