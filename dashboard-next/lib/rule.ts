@@ -46,8 +46,9 @@ export const DASH = "—";
 export const fmtNum = (v: number | null | undefined, d = 1) =>
   v == null || Number.isNaN(v) ? DASH : Number(v).toFixed(d);
 
-export const fmtPct = (v: number | null | undefined, d = 2) =>
-  v == null || Number.isNaN(v) ? DASH : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
+/** Re-exported, not redefined — see the note on the definition in `lib/format.ts`. */
+import { fmtPct } from "@/lib/format";
+export { fmtPct };
 
 export const fmtIR = (v: number | null | undefined) =>
   v == null || Number.isNaN(v) ? DASH : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);

@@ -20,11 +20,20 @@
  *  them: measured, absent from this row, or absent from this sheet. */
 type N = number | null | undefined;
 
-/* `−0.00%` says a loss too small to print and reads as a defect; the sign is decided on
-   what SURVIVES the rounding, not on the raw value. A figure that rounds to zero is zero,
-   and it takes the `+`. */
+/* THE signed percent, and it is the only one. `lib/live.ts` and `lib/rule.ts` each carried
+   their own copy, which is how a fix landed here and the paper page went on printing
+   `−0.00%` from a different function of the same name — the same three-copies problem the
+   navs had, one layer down. Both now re-export this.
+ *
+ * Two properties the copies disagreed on, kept from whichever had it:
+ * a TYPOGRAPHIC minus, because `toFixed`'s ASCII hyphen sits at a different height and
+ * width and makes a column of numbers look ragged; and a non-finite guard, since a mean
+ * over an empty list is `NaN` and `NaN.toFixed()` is the string "NaN".
+ *
+ * `−0.00%` says a loss too small to print and reads as a defect, so the sign is decided on
+ * what SURVIVES the rounding: a figure that rounds to zero is zero and takes the `+`. */
 export const fmtPct = (v: N, d = 2) => {
-  if (v == null) return "—";
+  if (v == null || !Number.isFinite(v)) return "—";
   const shown = Math.abs(v).toFixed(d);
   return (v >= 0 || Number(shown) === 0 ? "+" : "−") + shown + "%";
 };

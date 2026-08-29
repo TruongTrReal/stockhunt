@@ -102,12 +102,10 @@ export type { Fill };
 /* Copied from the vanilla board rather than shared, because the two boards are separate
  * bundles. Each carries the reason it prints what it prints. */
 
-/** Signed, with the TYPOGRAPHIC minus: `toFixed` emits an ASCII hyphen, which sits at a
- *  different height and width and makes a column of numbers look misaligned. */
-export const fmtPct = (v: number | null | undefined, d = 2) =>
-  v == null || !Number.isFinite(v)
-    ? "—"
-    : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
+/** Re-exported, not redefined. This file had its own copy and `lib/format.ts` had another;
+ *  a fix to one left the other printing the old thing under the same name. */
+import { fmtPct } from "@/lib/format";
+export { fmtPct };
 
 export const fmtNum = (v: number | null | undefined, d = 1) =>
   v == null || !Number.isFinite(v) ? "—" : Number(v).toFixed(d);
