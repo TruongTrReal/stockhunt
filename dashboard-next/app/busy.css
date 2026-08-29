@@ -354,3 +354,22 @@
   gap: 5px;
   font-size: 14px;
 }
+
+/* The three doors on `/paper`. A list rather than three cards: they are not equal choices
+   to be weighed side by side — a reader wants exactly one of them and needs to recognise
+   which in a glance, which reads faster down a column than across a row. */
+.doors {
+  list-style: none;
+  margin: 0 0 var(--gap, 12px);
+  padding: 0;
+  max-width: 78ch;
+}
+.doors li {
+  padding: 6px 0;
+  border-top: 1px solid var(--line, #222);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dim, #9aa0a6);
+}
+.doors li:first-child { border-top: 0; }
+.doors a { color: var(--fg, #e8eaed); }

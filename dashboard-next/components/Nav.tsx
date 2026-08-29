@@ -29,7 +29,7 @@ const IN_APP = [
 ] as const;
 
 const ELSEWHERE = [
-  ["/desk", "My desk"],
+  ["/desk", "Your strategies"],
   ["/desk/docs", "API"],
 ] as const;
 

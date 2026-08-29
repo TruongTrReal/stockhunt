@@ -343,7 +343,7 @@
       <a href="/paper">Paper trading</a>
       <a href="/portfolio">Portfolios</a>
       <a href="/">Research</a>
-      <a href="/desk" class="on">My desk</a>
+      <a href="/desk" class="on">Your strategies</a>
       <a href="/desk/docs">API</a>
     </nav>
   </div>
@@ -1211,6 +1211,19 @@ function closeWizard(force) {
 
 el("w-close").onclick = () => closeWizard(false);
 el("open-top").onclick = openWizard;
+
+/* A DEEP LINK THAT LANDS ON THE WIZARD, not merely on the page holding it.
+ *
+ * `/paper` points people here to connect their own strategy, and a link that drops a
+ * reader at the top of a page carrying their keys, a promote table and the house book has
+ * not finished the job it was clicked for. `#register` is what the board links to.
+ *
+ * The hash is cleared as it opens, so closing the wizard and reloading does not reopen it,
+ * and so the URL a reader might copy is the page rather than an action. */
+if (location.hash === "#register") {
+  history.replaceState(null, "", location.pathname);
+  openWizard();
+}
 document.addEventListener("keydown", ev => {
   if (ev.key === "Escape" && W.open) closeWizard(false);
 });
