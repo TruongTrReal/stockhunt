@@ -90,7 +90,23 @@ def scan(intr: Path, asset_class: str, dates: list[pd.Timestamp], live: set[str]
         in_universe = any(safe_symbol(s) == f.stem for s in live)
         worst = None
         session_only = False
+        # The comparison window spans TWO calendar days (see `_extremes`), so at the head and
+        # tail of an intraday series the two sides stop covering the same time. On the first
+        # day, the daily side contributes the PREVIOUS session's extremes while the intraday
+        # side can only contribute the first — and the difference is reported as destroyed
+        # data. It bit hard: `us_stocks` 1m begins 2020-03-25 because that is the vendor's 1m
+        # depth, 15m and 5m are derived from it and inherit that start, and 2020-03-24 was
+        # the +11% session after the COVID bottom. 80 of 216 names were flagged "short" for a
+        # day their series does not claim to cover, which reads exactly like a real defect.
+        #
+        # So the daily bar only adjudicates days the intraday series actually spans.
+        if not len(n):
+            out["nodata"] += 1
+            continue
+        first_day, last_day = n.index.min().normalize(), n.index.max().normalize()
         for day in dates:
+            if day.normalize() < first_day or day.normalize() >= last_day:
+                continue
             de, ne = _extremes(d, day), _extremes(n, day)
             if de is None or ne is None:
                 continue

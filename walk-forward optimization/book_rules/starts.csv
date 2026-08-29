@@ -1,10 +1,11 @@
 class,tf,n_rules,n_folds,oos_start
 cme_futures,1d,549,14,2013-06-07
-cme_futures,1h,408,8,2019-01-03
-commodities,15m,391,4,2023-01-20
-commodities,1d,433,24,2003-01-03
-commodities,1h,401,4,2023-01-20
-commodities,4h,543,4,2023-01-20
+cme_futures,1h,409,8,2019-01-03
+commodities,15m,391,4,2023-01-19
+commodities,1d,433,24,2003-01-04
+commodities,1h,401,4,2023-01-19
+commodities,4h,543,4,2023-01-19
+commodities,5m,143,4,2023-02-25
 crypto,1d,543,6,2020-08-29
 crypto,4h,543,4,2023-01-07
 us_etfs,15m,412,4,2023-02-10

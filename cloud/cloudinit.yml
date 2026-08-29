@@ -1,0 +1,10 @@
+#cloud-config
+disable_root: false
+ssh_pwauth: false
+ssh_authorized_keys:
+  - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIawJ95aSe2CIc02nmXuSTUc8O8F7O0pWX/Yavq64IKh stockhunt-deploy
+runcmd:
+  - mkdir -p /root/.ssh
+  - echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIawJ95aSe2CIc02nmXuSTUc8O8F7O0pWX/Yavq64IKh stockhunt-deploy' >> /root/.ssh/authorized_keys
+  - chmod 700 /root/.ssh
+  - chmod 600 /root/.ssh/authorized_keys

@@ -408,16 +408,69 @@ def span_for(asset_class: str) -> dict[str, tuple]:
     * `us_etfs` — `etf_entry_span()`, from the liquidity screen. A fund is held from the
       date it became buyable.
 
-    `crypto` and `commodities` have neither, and would not benefit: the vendor serves no
-    volume for either, so there is no turnover series to gate an entry date on. Their
-    screen is at the *name* level only — `universe_screen.py` drops a pair from the
+    * `commodities` — `commodity_entry_span()`, from the fabricated-Open screen. A metal
+      is held from the date its Open stops being a placeholder.
+
+    The third one does NOT answer a tradability question like the other two, and the
+    difference is worth keeping straight: `us_stocks` and `us_etfs` cut bars a rule could
+    not have traded, while `commodities` cuts bars whose *prices are not measurements*.
+    Gold and silver print an Open exactly equal to the High or the Low on every bar until
+    early 2006. Same mechanism, different reason, so it gets its own record rather than
+    being folded into the liquidity screen.
+
+    `crypto` has none, and would not benefit: the vendor serves no volume for the class, so
+    there is no turnover series to gate an entry date on, and its Open is not synthetic.
+    Its screen is at the *name* level only — `universe_screen.py` drops a pair from the
     universe or keeps it whole. Every caveat that implies is on that module's sheet.
     """
     if asset_class == "us_stocks":
         return membership_span()
     if asset_class == "us_etfs":
         return etf_entry_span()
+    if asset_class == "commodities":
+        return commodity_entry_span()
     return {}
+
+
+_COMMODITY_ENTRY: dict[str, tuple] | None = None
+
+
+def commodity_entry_span() -> dict[str, tuple]:
+    """`symbol -> (date the Open became a real price, None)`, from the fabricated-Open screen.
+
+    Head cut only. Written by `commodity_entry.py --write` to
+    `data/reference/commodity_entry.csv`, which carries the measured reason for each date.
+
+    **Twelve Data serves gold and silver with a synthetic Open for the first half of their
+    history** — exactly equal to the High or exactly equal to the Low on 100% of bars, for
+    27 years of XAU and 24 of XAG, ending in the same week of February 2006 on both. After
+    the break the rate settles at 0-15%, which is what a real Open does on quiet and
+    gapping sessions.
+
+    Two things make this worth a cut rather than a caveat. It sits INSIDE the backtest
+    window — `BACKTEST_START` is 2000, so six affected years were being scored — and
+    `check_data --fix` actively propagates it: an Open outside its own High/Low is a
+    malformed bar, so the repair widens the extremes onto the bad number and the result is
+    a bar that passes every integrity test with three fabricated fields instead of one.
+
+    `--fill open` is where it bites hardest, which is the fill this repo quotes as its
+    honest pessimistic bound.
+
+    Absent file, or a name absent from it, means no cut — the same convention
+    `etf_entry_span` and `membership_span` use.
+    """
+    global _COMMODITY_ENTRY
+    if _COMMODITY_ENTRY is None:
+        path = DATA_DIR / "reference" / "commodity_entry.csv"
+        if not path.exists():
+            _COMMODITY_ENTRY = {}
+        else:
+            df = pd.read_csv(path, parse_dates=["entry"])
+            _COMMODITY_ENTRY = {
+                str(r.symbol): (r.entry if pd.notna(r.entry) else None, None)
+                for r in df.itertuples()
+            }
+    return _COMMODITY_ENTRY
 
 
 _ETF_ENTRY: dict[str, tuple] | None = None
@@ -601,10 +654,25 @@ def main() -> None:
             if not counts:
                 print("  nothing fetched")
                 continue
-            first = next(iter(counts))
-            sample = load(asset_class, timeframe, [first])[first]
+            # The sample is whichever fetched symbol LOADS, not simply the first one.
+            #
+            # Fetching and loading do not answer the same question: `fetch` pulls the whole
+            # union of names the class has ever held, while `load` returns only the bars
+            # inside each name's membership span. On an intraday cell those can be disjoint
+            # — `A` (Agilent) held a top-100 slot from 2001 to 2003 and the 4h cache starts
+            # 2019, so it loads to nothing and `[first]` raised KeyError *after* all 88
+            # windows had been fetched and written. A summary line must not be able to fail
+            # a run whose data is already safely on disk.
+            sample = None
+            for cand in counts:
+                got = load(asset_class, timeframe, [cand]).get(cand)
+                if got is not None and len(got):
+                    sample = got
+                    break
+            span = (f"{sample.index[0]} -> {sample.index[-1]}" if sample is not None
+                    else "no symbol has bars inside its membership span at this timeframe")
             print(f"  {len(counts)} symbols | bars {min(counts.values()):,}-"
-                  f"{max(counts.values()):,} | {sample.index[0]} -> {sample.index[-1]}")
+                  f"{max(counts.values()):,} | {span}")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 [Unit]
 Description=Score strategies submitted through /v1/research and put them on the board
-Documentation=https://github.com/TruongTrReal/stockhunt
+Documentation=https://github.com/stockhunt1111/quant-research-sh-vn
 After=network-online.target
 Wants=network-online.target
 

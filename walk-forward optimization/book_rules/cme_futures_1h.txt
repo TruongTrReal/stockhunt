@@ -394,6 +394,7 @@ rsi2_connors
 rsi2_raw
 sell_in_may
 sma_fan_dip
+sp100_momentum
 ssl_hybrid
 st_reversal
 supertrend

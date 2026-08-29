@@ -68,6 +68,18 @@ NEIGHBOUR_TOL = 0.20
 WICK_LO, WICK_HI = 0.50, 2.00
 # How close the DAILY bar must come to an intraday extreme for it to count as corroborated.
 DAILY_TOL = 0.01
+# ...and how close the INTRADAY cache must come when the roles are inverted, i.e. when it is
+# adjudicating a 1d sheet. Deliberately looser, because the two directions fail differently:
+# a daily bar aggregates every tick of its session, so it reaches any extreme its intraday
+# does. The reverse is not true — the intraday cache can miss the last few ticks of a
+# violent move, and then a REAL extreme in the daily bar reads as uncorroborated.
+#
+# Measured on the case that forced it: WTI's continuous contract prints a daily low of
+# 4.3647 on 2020-04-21, the session after crude went negative. The 1m cache bottoms at
+# 4.4465 — the same event, 1.9% short of it. At the 1% tolerance that is "the intraday says
+# this never happened", and the clamp would have edited the negative-oil week out of the
+# futures daily sheet. Nothing else in the repo would have noticed.
+INTRADAY_TOL = 0.05
 
 
 def find_faults(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
@@ -106,7 +118,7 @@ def find_faults(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
 
 
 def daily_veto(df: pd.DataFrame, daily: pd.DataFrame | None, drop: pd.Series,
-               low_bad: pd.Series, high_bad: pd.Series
+               low_bad: pd.Series, high_bad: pd.Series, tol: float | None = None
                ) -> tuple[pd.Series, pd.Series, pd.Series, int]:
     """Drop any repair the DAILY bar for that date corroborates.
 
@@ -133,6 +145,19 @@ def daily_veto(df: pd.DataFrame, daily: pd.DataFrame | None, drop: pd.Series,
     """
     if daily is None or daily.empty:
         return drop, low_bad, high_bad, 0
+    # A frame cannot adjudicate itself. When `df` IS the daily frame, `dlo` and `lo` below
+    # are the same column, so `low_ok` is `lo <= lo * 1.01` -- true for every bar -- and
+    # every candidate is vetoed. `repair_spikes --tf 1d` was therefore a guaranteed no-op
+    # that reported "0 repaired, N spared by the daily bar" and looked like a clean sheet.
+    #
+    # Refusing loudly rather than returning early, because the quiet version is what hid it:
+    # a no-op that prints reassuring counts is worse than an error. The caller passes the
+    # INTRADAY cache when checking a daily sheet -- see `adjudicator_for`.
+    if daily is df or (daily.shape == df.shape and daily.index.equals(df.index)
+                       and daily["Low"].equals(df["Low"])):
+        raise ValueError(
+            "daily_veto was handed the frame it is meant to adjudicate. A bar cannot "
+            "corroborate itself; pass the intraday cache when repairing a 1d sheet.")
     d = daily.copy()
     d.index = pd.to_datetime(d.index).normalize()
     d = d[~d.index.duplicated(keep="first")]
@@ -143,20 +168,21 @@ def daily_veto(df: pd.DataFrame, daily: pd.DataFrame | None, drop: pd.Series,
     hi = df["High"].astype("float64")
     c = df["Close"].astype("float64")
 
-    low_ok = (dlo <= lo * (1.0 + DAILY_TOL)).fillna(False)
-    high_ok = (dhi >= hi * (1.0 - DAILY_TOL)).fillna(False)
-    close_ok = ((c >= dlo * (1.0 - DAILY_TOL))
-                & (c <= dhi * (1.0 + DAILY_TOL))).fillna(False)
+    t = DAILY_TOL if tol is None else tol
+    low_ok = (dlo <= lo * (1.0 + t)).fillna(False)
+    high_ok = (dhi >= hi * (1.0 - t)).fillna(False)
+    close_ok = ((c >= dlo * (1.0 - t))
+                & (c <= dhi * (1.0 + t))).fillna(False)
 
     vetoed = int((low_bad & low_ok).sum() + (high_bad & high_ok).sum()
                  + (drop & close_ok).sum())
     return drop & ~close_ok, low_bad & ~low_ok, high_bad & ~high_ok, vetoed
 
 
-def repair_frame(df: pd.DataFrame,
-                 daily: pd.DataFrame | None = None) -> tuple[pd.DataFrame, list[dict], int]:
+def repair_frame(df: pd.DataFrame, daily: pd.DataFrame | None = None,
+                 tol: float | None = None) -> tuple[pd.DataFrame, list[dict], int]:
     drop, (low_bad, high_bad) = find_faults(df)
-    drop, low_bad, high_bad, vetoed = daily_veto(df, daily, drop, low_bad, high_bad)
+    drop, low_bad, high_bad, vetoed = daily_veto(df, daily, drop, low_bad, high_bad, tol)
     notes: list[dict] = []
     out = df.copy()
     for ts in df.index[drop]:
@@ -194,15 +220,61 @@ def main() -> int:
             print(f"{a.asset_class}/{tf}: no cache")
             continue
         touched = dropped = clamped = vetoed = 0
+        # WHICH SHEET ADJUDICATES WHICH. An intraday bar is judged by the daily bar for its
+        # date; a DAILY bar has to be judged by something else, and the only independent
+        # aggregation of the same instrument from the same vendor is the intraday cache.
+        #
+        # The inversion is not symmetric, and the asymmetry is the safety. Intraday reaches
+        # back only to ~2019 on equities, so most daily history has no adjudicator at all —
+        # and an unadjudicated daily bar must be SPARED, never repaired on local evidence.
+        # The 17 post-2000 daily bars the local detector flags are almost all real: the
+        # 2025-10-10 crypto cascade, WTI's negative-oil week, UAL's false-bankruptcy crash,
+        # the Kohl's squeeze. Repairing those would edit the true extremes out of the exact
+        # series every other timeframe is checked against.
         daily_dir = cache_dir(a.asset_class, "1d")
+        adj_dir = None
+        if tf == "1d":
+            for finer in ("1m", "5m", "15m", "1h", "4h"):
+                cand = cache_dir(a.asset_class, finer)
+                if cand.exists() and any(cand.glob("*.parquet")):
+                    adj_dir = cand
+                    break
+            print(f"  (1d sheet: adjudicated by {adj_dir.name if adj_dir else 'NOTHING'}; "
+                  f"dates it does not cover are spared)")
+        else:
+            adj_dir = daily_dir
         for path in files:
             df = pd.read_parquet(path)
-            # The same symbol's DAILY bars, read straight off the cache rather than through
+            # The adjudicating sheet, read straight off the cache rather than through
             # `td_loader.load`, which applies BACKTEST_START and the quarantine — neither
             # belongs in a decision about whether a printed price was real.
-            dpath = daily_dir / path.name
-            daily = pd.read_parquet(dpath) if dpath.exists() else None
-            fixed, notes, n_vetoed = repair_frame(df, daily)
+            dpath = (adj_dir / path.name) if adj_dir else None
+            daily = pd.read_parquet(dpath) if (dpath and dpath.exists()) else None
+            whole = None
+            if tf == "1d":
+                if daily is None:
+                    continue          # no adjudicator for this symbol: spare it whole
+                # Collapse the intraday cache to one row per date so it can stand in for a
+                # daily bar, then spare every date it does not reach.
+                g = daily.groupby(daily.index.normalize())
+                daily = pd.DataFrame({"Low": g["Low"].min(), "High": g["High"].max()})
+                covered = df.index.normalize().isin(daily.index)
+                if not covered.any():
+                    continue
+                # Judge ONLY the covered dates, but keep the rest of the series to write
+                # back. Repairing a slice and saving the slice would silently truncate the
+                # sheet to the intraday era — on us_stocks that is 2019 onward, deleting
+                # fifty years of daily history to fix one bar.
+                whole, df = df, df[covered]
+            fixed, notes, n_vetoed = repair_frame(
+                df, daily, INTRADAY_TOL if tf == "1d" else None)
+            if whole is not None:
+                # Splice the judged rows back over the untouched ones, preserving order and
+                # dropping only what `repair_frame` actually dropped.
+                keep = whole.index.difference(df.index).union(fixed.index)
+                fixed = pd.concat([whole.loc[whole.index.difference(df.index)],
+                                   fixed]).sort_index()
+                fixed = fixed.loc[fixed.index.isin(keep)]
             vetoed += n_vetoed
             if not notes:
                 continue

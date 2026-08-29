@@ -1,6 +1,6 @@
 [Unit]
 Description=Stockhunt paper desk API (board + manager desk, behind the login)
-Documentation=https://github.com/TruongTrReal/stockhunt
+Documentation=https://github.com/stockhunt1111/quant-research-sh-vn
 After=network-online.target
 Wants=network-online.target
 
