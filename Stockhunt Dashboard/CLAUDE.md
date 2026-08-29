@@ -745,10 +745,76 @@ unfolded a hundred-name table *inside the ranked list*, and opening two made the
 unreadable — which is the only thing the list is for. None of it had a URL either: a
 disclosure triangle cannot be bookmarked, linked in a message, or sent to somebody.
 
-The page carries, in this order: a `.strip` of six tiles (P&L, fills, names held, turnover,
-equity, running), the live record as a `pnlFigure` rather than a 34px sparkline, the
-**performance metrics** table, the two simulated windows, the **trade history** with its
-CSV export, and then **one section per universe** with every name in it.
+The page carries, in this order: a `.strip.sys-vitals` of six tiles (P&L, fills, names held,
+turnover, equity, running), the live record as a `pnlFigure` rather than a 34px sparkline,
+the **performance metrics** table, the **trade history** with its CSV export, **one section
+per universe** with every name in it, and the two simulated windows last. The reading order
+is the argument: what is this, is it working, what has it done, what does it hold — and only
+then the what-if. The simulated windows are the one section that is not the record, so they
+sit after it rather than in the middle of it.
+
+### There are TWO of this page, and a system with no fills gets the other one (2026-08-29)
+
+Every component used to render at full size around absent data. A system with five bars and
+zero fills drew a 220px chart of a line that cannot move, a fifteen-row metrics table eleven
+of whose rows were an em-dash, a `Trade history — 0 fills` header over nothing, and six stat
+tiles spread across a 1900px rail to report four zeros. **A system with 0 fills should not
+look like a system with 6,000 fills minus the numbers**, because it is a different thing.
+
+`sysStage(rows, curve)` is that decision, taken once so the chart, the metrics and the fills
+step aside together instead of each deciding for itself. `waiting` is read off the **fill
+count, never off the curve**: with no fill there is no position, so cumulative P&L is exactly
+0.00% on every recorded bar — the curve is not short, it is structurally flat, and a chart of
+it plots its own axis. Five bars with a fill behind them still draw a figure.
+
+The waiting page is `waitingSection` + the holdings + the simulated windows. Holdings stay
+because they are the live state (which names are warming, which are in cash) and the
+simulated windows stay because they are the only thing on an empty page with content in
+them. Four things about it:
+
+- **It says WHY nothing filled, and the reason is derived.** Halted, or every name still
+  `warming` (the desk has seen no price for it), or bars are arriving and the rule has
+  simply not signalled. Three different states the payload can tell apart, so they get
+  three different sentences.
+- **It says that a REFUSED order looks identical**, and this is the point of the section.
+  Zero fills has two causes — nobody sent an order, or every order was turned down (not
+  enough cash for the size, a sell with no position and no `allow_short`, an unknown
+  symbol) — and they were indistinguishable here, which has cost this desk's owner hours
+  three separate times. **The published payload carries fills and holdings and no order
+  ledger at all**, so the refusal count is not reachable from this page; it must not be
+  invented, and it must not be fetched from an endpoint `dist/dashboard.html` cannot
+  answer. What the page can do is stop implying the first cause: it names both, says which
+  it can see, and points at the manager console's **Refused** table, which is where
+  `deskdb` keeps the reason string. Truthfully saying *look there* beats silently implying
+  *nothing happened*.
+- **That pointer is discovered, not assumed.** `DESK_LINK` is only true when this page is
+  served by `paper api`; `dist/dashboard.html` and the loopback `serve.py` have no `/desk`
+  route. Without it the console is still NAMED, because a dead link is worse than a
+  sentence.
+- **It says nothing about what the system is**, because the hero's `.lede` directly above
+  is exactly that sentence off the same `note`. Printing it twice on the one page whose
+  defect was furniture around absent data would only be furniture around present data.
+
+Two smaller cases of the same defect went with it:
+
+- **`liveMetricRows` returns a fourth element: why the row is blank.** A row with a reason
+  is lifted OUT of the table by `liveMetricsSection` and named once in `heldBackNote`
+  underneath, grouped **by reason** — five rows blank for one reason is one fact, and
+  printing it five times is the wall of em-dashes again in prose. `MIN_METRIC_BARS` still
+  blanks Volatility and Sharpe under 20 bars; what changed is where the blank is stated.
+  A system with a full record carries no reason on any row and therefore loses nothing —
+  that is the check.
+- **`pnlPanel` refuses to draw a constant.** `pnlSpark` baselines at 100, so a rule that
+  never opened a position over the window plots as a straight line pinned to the bottom of
+  a 150px box. That is worse than blank: a flat line under `+0.00%` reads as a rule that
+  traded and made nothing, when the fact is that it never traded at all — the exact
+  distinction the rest of this page exists to make.
+
+**`.sys-vitals` caps the stat strip at ~680px.** `--rail` is `none` so DATA can use the
+screen, and that argument is about the nine-column holdings table and the 200-row fills
+list. Six key/value tiles are not data in that sense: stretched by `auto-fit` across a
+1900px window, collecting six figures was a movement of the head rather than a glance.
+Three columns of two rows is one fixation. Nothing below it is narrowed.
 
 Seven things to preserve:
 

@@ -1169,65 +1169,106 @@ function liveMetrics(rows, curve, cls, tf) {
   };
 }
 
-/* [label, printed value, what it means]. Flat rather than driven by a key list like
- * `METRIC_ROWS`, because half of these are counts and dollars that need their own
- * formatter and a shared one would be a switch statement pretending to be a table. */
+/* [label, printed value, what it means, why it is blank]. Flat rather than driven by a key
+ * list like `METRIC_ROWS`, because half of these are counts and dollars that need their own
+ * formatter and a shared one would be a switch statement pretending to be a table.
+ *
+ * **The fourth element is the whole reason this list is not just rendered.** A young system
+ * can compute four of these fifteen, so the table used to be eleven rows of em-dash with
+ * the explanation buried in a third column nobody reads down a blank column — a table that
+ * says "Sharpe —, Win rate —, Profit factor —, Average win —" reads as a broken page rather
+ * than as a young one. A row with an absence reason is lifted OUT of the table by
+ * `liveMetricsSection` and named in one sentence underneath instead, grouped by reason. The
+ * fact survives, the furniture does not, and a system with a full record loses nothing
+ * because none of its rows carries a reason.
+ *
+ * The reason strings are short and stand alone: they are all the reader gets for that
+ * metric, so they must say what is missing rather than that something is. */
 function liveMetricRows(m) {
   const dash = "—";
   // Not an error and not a gap in the record: these fills predate the desk recording
   // what each one closed, so the closed-trade statistics cannot be derived from them yet.
   // The underlying fills are complete either way, which is what the sentence has to say.
-  const stale = "not available for this period — these fills were recorded before the " +
-    "desk began tracking what each one closed. The fill record itself is complete.";
-  const short = `not yet — needs ${MIN_METRIC_BARS} bars of record, there ` +
+  const stale = "these fills were recorded before the desk began tracking what each one " +
+    "closed, so they cannot be derived. The fill record itself is complete";
+  const shortWhy = `needs ${MIN_METRIC_BARS} bars of record, there ` +
     `${m.bars === 1 ? "is" : "are"} ${m.bars}`;
+  const twoBars = `needs two closed bars, there ${m.bars === 1 ? "is" : "are"} ${m.bars}`;
+  const noClosed = "no fill has closed a position yet — every one so far opened or added";
+  // Present, but only when the desk has recorded what each fill closed AND something has
+  // closed. The three states are different facts and only the middle one is an absence
+  // this page can date: `priced` is about the payload, `closed` is about the desk.
+  const closedWhy = !m.priced ? stale : m.closed ? null : noClosed;
   return [
     ["Total P&L", fmtPct(m.total),
-     "Cumulative percent since this system's first fill, chained across restarts."],
+     "Cumulative percent since this system's first fill, chained across restarts.",
+     m.total == null ? "no closed bar on the record yet" : null],
     ["Max drawdown", m.maxdd == null ? dash : fmtPct(m.maxdd, 2),
-     "Worst fall from a high-water mark of the live record. Percentage points of P&L, not of equity."],
+     "Worst fall from a high-water mark of the live record. Percentage points of P&L, not of equity.",
+     m.maxdd == null ? "no closed bar on the record yet" : null],
     ["Volatility", m.vol == null ? dash : fmtNum(m.vol, 1) + "%",
-     m.vol == null ? short
-       : `Annualised standard deviation of the bar-to-bar record, on ${m.bpy} bars a year.`],
+     `Annualised standard deviation of the bar-to-bar record, on ${m.bpy} bars a year.`,
+     m.vol == null ? shortWhy : null],
     ["Sharpe", m.sharpe == null ? dash : fmtNum(m.sharpe, 2),
-     m.sharpe == null ? short
-       : "Mean bar return over its standard deviation, annualised, idle cash at 0%. Months of record before this means anything."],
+     "Mean bar return over its standard deviation, annualised, idle cash at 0%. Months of record before this means anything.",
+     m.sharpe == null ? shortWhy : null],
     ["Best bar", m.best == null ? dash : fmtPct(m.best),
-     "Largest single-bar gain on the record."],
+     "Largest single-bar gain on the record.", m.best == null ? twoBars : null],
     ["Worst bar", m.worst == null ? dash : fmtPct(m.worst),
-     "Largest single-bar loss on the record."],
+     "Largest single-bar loss on the record.", m.worst == null ? twoBars : null],
     ["Fills", m.lifetime.toLocaleString(),
-     "Every order that filled, lifetime — the count in the database, not this session's."],
+     "Every order that filled, lifetime — the count in the database, not this session's.", null],
     ["Closed trades", m.priced ? m.closed.toLocaleString() : dash,
-     m.priced
-       ? "Fills that closed part of a position. An opening or adding fill is not one, because it closed nothing."
-       : stale],
+     "Fills that closed part of a position. An opening or adding fill is not one, because it closed nothing.",
+     m.priced ? null : stale],
     ["Realised P&L", m.priced ? cash(m.realised) : dash,
-     m.priced
-       ? "Cash actually booked by the closed trades above, against what the closed part cost. Open positions are not in it — those are in Total P&L."
-       : stale],
+     "Cash actually booked by the closed trades above, against what the closed part cost. Open positions are not in it — those are in Total P&L.",
+     closedWhy],
     ["Win rate", m.win_rate == null ? dash : fmtNum(m.win_rate, 1) + "%",
-     m.priced
-       ? "Share of closed trades that realised a gain. A low rate is fine if the wins are large."
-       : stale],
+     "Share of closed trades that realised a gain. A low rate is fine if the wins are large.",
+     closedWhy],
     ["Profit factor", m.profit_factor == null ? dash : fmtNum(m.profit_factor, 2),
-     !m.priced ? stale
-       : m.closed && m.profit_factor == null
-         ? "No closed trade has lost yet, so there is nothing to divide by."
-         : "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses."],
+     "Gross winnings ÷ gross losses. Above 1 means the wins outweigh the losses.",
+     closedWhy || (m.profit_factor == null
+       ? "no closed trade has lost yet, so there is nothing to divide by" : null)],
     ["Average win", m.priced ? cash(m.avg_win) : dash,
-     m.priced ? "Mean realised P&L of a winning trade." : stale],
+     "Mean realised P&L of a winning trade.",
+     closedWhy || (m.avg_win == null ? "no closed trade has gained yet" : null)],
     ["Average loss", m.priced ? cash(m.avg_loss) : dash,
-     m.priced ? "Mean realised P&L of a losing trade." : stale],
+     "Mean realised P&L of a losing trade.",
+     closedWhy || (m.avg_loss == null ? "no closed trade has lost yet" : null)],
     ["Turnover / yr", m.turnover == null ? dash : fmtNum(m.turnover, 1),
-     "Round trips per name per year — the unit the walk-forward sheets report, so the two compare."],
+     "Round trips per name per year — the unit the walk-forward sheets report, so the two compare.",
+     m.turnover == null ? "the desk has not published one for this system" : null],
     ["Bars recorded", m.bars.toLocaleString(),
-     "Closed bars behind every figure above. This is the number that says how much to trust them."],
+     "Closed bars behind every figure above. This is the number that says how much to trust them.",
+     null],
   ];
+}
+
+/* One sentence per REASON, not one per metric. Five rows held back for the same reason is
+ * one fact about the record, and listing it five times is the same wall of em-dashes in
+ * prose. `Map` and not an object literal: the reasons are sentences and insertion order is
+ * the table's own order, which is the order a reader has just scanned. */
+function heldBackNote(rows) {
+  const byReason = new Map();
+  rows.forEach(([name, , , why]) => {
+    if (!why) return;
+    if (!byReason.has(why)) byReason.set(why, []);
+    byReason.get(why).push(name);
+  });
+  if (!byReason.size) return "";
+  const list = names => names.length === 1 ? `<b>${names[0]}</b>`
+    : names.slice(0, -1).map(n => `<b>${n}</b>`).join(", ")
+      + ` and <b>${names[names.length - 1]}</b>`;
+  return `<p class="held-back">Not on the table yet:
+    ${[...byReason].map(([why, names]) => `${list(names)} — ${why}`).join("; ")}.</p>`;
 }
 
 function liveMetricsSection(rows, curve, cls, tf) {
   const m = liveMetrics(rows, curve, cls, tf);
+  const all = liveMetricRows(m);
+  const have = all.filter(r => !r[3]);
   return `
   <section class="sec">
     <div class="sec-head"><h2>Performance metrics</h2>
@@ -1235,7 +1276,7 @@ function liveMetricsSection(rows, curve, cls, tf) {
     <div class="tbl-wrap metrics-box"><table>
       <thead><tr><th class="l">Metric</th><th>Value</th>
         <th class="l">What it means</th></tr></thead>
-      <tbody>${liveMetricRows(m).map(([name, val, help]) => `
+      <tbody>${have.map(([name, val, help]) => `
         <tr><td class="l">${name}</td>
           <td class="num">${val}</td>
           <td class="l" style="white-space:normal;color:var(--muted);font-size:12.5px">${help}</td>
@@ -1249,6 +1290,7 @@ function liveMetricsSection(rows, curve, cls, tf) {
       are the desk's own live arithmetic and are not directly comparable with the research
       figures.</caption>
     </table></div>
+    ${heldBackNote(all)}
   </section>`;
 }
 
@@ -1360,13 +1402,24 @@ const systemBreaks = rows => rows.length === 1 ? (rows[0].curve_breaks || []) : 
 function pnlPanel(entry, label) {
   if (!entry) return `<p class="sec-note">No simulated history for this window.</p>`;
   const d = entry.dates || [];
+  const c = (entry.curve || []).filter(v => isFinite(v));
+  /* A rule that never took a position over the window has a curve that is a CONSTANT, and
+   * `pnlSpark` baselines at 100, so a constant plots as a straight line pinned to the
+   * bottom edge of a 150px box. That is the same picture-of-nothing this page was full of,
+   * one section down, and it is worse than blank: a flat line under "+0.00%" reads as a
+   * rule that traded and made nothing, when the fact is that it never traded at all. The
+   * distinction is the whole subject of an empty system's page, so it is stated. */
+  const flat = c.length > 1 && Math.max(...c) - Math.min(...c) < 1e-9;
   return `
   <div class="pnl-wrap">
     <div class="pnl-head">
       <span class="pnl-val num ${sign(entry.pnl_pct)}">${fmtPct(entry.pnl_pct)}</span>
       <span class="pnl-lbl">${label}</span>
     </div>
-    ${pnlSpark(entry.curve, 600, 150)}
+    ${flat
+      ? `<p class="pnl-young">Flat across the whole window: the rule opened no position in
+           it, so there is no line to draw.</p>`
+      : pnlSpark(entry.curve, 600, 150)}
     <div class="pnl-axis"><span>${esc(d[0] || "")}</span><span>${esc(d[d.length - 1] || "")}</span></div>
   </div>`;
 }
@@ -1523,6 +1576,108 @@ const paperGroupList = () => (D.paper_groups && D.paper_groups.length ? D.paper_
   : [{ key: "crypto", label: "Crypto" }, { key: "megacap", label: "Equities" },
      { key: "etf", label: "ETFs" }]);
 
+/* ---------- which of the two pages is this ----------
+ * A system that has never filled is not a system with a short record; it is a different
+ * thing, and the page was drawing it as the same thing minus the numbers. Every component
+ * rendered at full size around absent data: a 220px chart of a line that cannot move, a
+ * fifteen-row metrics table two thirds of which was an em-dash, a `Trade history — 0 fills`
+ * header over nothing, and six stat tiles spread across a 1900px rail to report four zeros.
+ *
+ * `sysStage` is that decision, taken ONCE, so the chart, the metrics and the fills step
+ * aside together instead of each deciding for itself and half the furniture surviving.
+ *
+ * **`waiting` is read off the FILL COUNT, never off the curve.** With no fill there is no
+ * position, so cumulative P&L is exactly 0.00% on every bar the desk has recorded — the
+ * curve is not short, it is structurally flat, and a chart of it plots its own axis. That
+ * is why five recorded bars still draw nothing here while five bars with a fill behind them
+ * draw a figure. */
+function sysStage(rows, curve) {
+  const fills = rows.reduce((a, s) => a + fillsOf(s), 0);
+  const bars = (curve || []).filter(v => isFinite(v)).length;
+  return { fills, bars, waiting: fills === 0 };
+}
+
+/* ---------- a system that has not traded ----------
+ * Four questions, in the order somebody who opened this page has them: what is this, is it
+ * on, what has it done, and why is that nothing.
+ *
+ * **The last one is the point of the section.** Zero fills has two completely different
+ * causes — nobody sent this system an order, or every order it sent was REFUSED — and they
+ * looked identical here, which has cost hours more than once. The published payload
+ * (`paper_state.json` / `live.json`) carries fills and holdings and no order ledger at all,
+ * so the refusal count is not reachable from this page and must not be invented or fetched
+ * from an endpoint the single-file build cannot answer. What it can do is stop implying the
+ * first cause: it names both, says which of them it can see, and points at the manager
+ * console's **Refused** table, which is where `deskdb` keeps the reason string
+ * ("not enough cash: BTC/USD 2 at 77,640.45 costs 155,280.90 and this strategy holds
+ * 10,000.00").
+ *
+ * The pointer is discovered, not assumed — `DESK_LINK` is only true when this page is being
+ * served by `paper api`, and `dist/dashboard.html` and the loopback `serve.py` have no such
+ * route. Without it the console is still NAMED, because "look there" is useful even when
+ * the link cannot be drawn, and a dead link is worse than a sentence.
+ *
+ * It says NOTHING about what the system is, on purpose: the hero's `.lede` directly above
+ * is exactly that sentence, off the same `note`. Printing it twice on the one page whose
+ * defect was furniture around absent data would only be furniture around present data. */
+function waitingSection(rows) {
+  const holdings = rows.flatMap(s => s.holdings || []);
+  const warming = holdings.filter(h => h.warming).length;
+  const names = rows.reduce((x, s) => x + (s.names || 0), 0) || rows.length;
+  const capital = rows.reduce((x, s) => x + (s.capital || 0), 0);
+  const bars = Math.max(...rows.map(s => (s.paper_curve || []).length), 0);
+  const halted = rows.filter(s => s.status === "halted").length;
+  const running = rows.filter(s => s.status === "running").length;
+  const since = rows[0].since;
+  const kind = isReplay() ? "replayed" : "live";
+
+  /* Three states the payload CAN tell apart, so they get three different sentences. A
+   * holding is `warming` while the desk has seen no price for that name, which is the one
+   * "not its fault yet" reason; halted is a decision somebody made; otherwise the bars have
+   * arrived, the rule has been asked, and it has said no every time. */
+  const why = halted
+    ? `This system is <b>halted</b>, so it is not being asked for a signal at all. Nothing
+       will fill until it is running again.`
+    : warming === holdings.length && holdings.length
+      ? `Every name is still <b>warming up</b> — the desk has not seen a price for any of
+         them yet, so the rule has not been asked for a signal.`
+      : warming
+        ? `${warming} of ${holdings.length} names are still <b>warming up</b>; on the rest
+           the rule has been asked on every closed bar and has not signalled an entry.`
+        : `Bars are arriving and the rule is being asked on each one — it has simply not
+           signalled an entry yet. That is a normal state for a selective rule, and on a
+           short timeframe it can be a long one.`;
+
+  return `
+  <section class="sec sys-wait">
+    <div class="sec-head"><h2>Nothing has traded yet</h2>
+      <span class="sec-note">0 fills · ${bars} closed bar${bars === 1 ? "" : "s"}
+        recorded</span></div>
+
+    <dl class="sys-facts">
+      <div><dt>Staked</dt><dd>${capital ? money(capital) : "—"}</dd></div>
+      <div><dt>Universe</dt><dd>${names} <span class="of">name${names === 1 ? "" : "s"}</span></dd></div>
+      <div><dt>Closed bars</dt><dd>${bars}</dd></div>
+      <div><dt>${kind === "live" ? "Live since" : "Replaying since"}</dt>
+        <dd>${esc(since || "—")}</dd></div>
+      <div><dt>Deployments</dt><dd>${running} <span class="of">of ${rows.length} running</span></dd></div>
+    </dl>
+
+    <p class="wait-why">${why}</p>
+
+    <p class="wait-blind"><b>A refused order leaves no fill either.</b> This page reads the
+      fills the desk publishes, and that record contains no rejections — so "0 fills" here
+      covers two different things: nothing was sent, or everything sent was turned down
+      (not enough cash for the size, a sell with no position and no <code>allow_short</code>,
+      an unknown symbol). Which of the two it is cannot be answered from this page.
+      ${DESK_LINK
+        ? `The order ledger and the refusal reason are in the manager console, under
+           <a href="/desk">Refused</a>.`
+        : `The order ledger and the refusal reason are in the manager console — the
+           <em>Refused</em> table on the desk page, which this build has no route to.`}</p>
+  </section>`;
+}
+
 /* What `#sys-body` is currently drawing, so a tick repaint can rebuild it without
  * re-reading the hash. Cleared by nothing: `repaintPaper` gates on the hash instead, so a
  * stale value cannot paint over another view. */
@@ -1649,8 +1804,49 @@ function paintSystem() {
     </section>`;
   }).join("");
 
+  const st = sysStage(rows, live);
+
+  /* Not traded, not simulated, and said so twice: the section note and the paragraph under
+   * it. It is the one section a system with no record still has real content in — the same
+   * rule over the same instruments' recent bars — which is why it survives the empty state
+   * while the chart, the metrics and the fills do not. */
+  const simSection = `
+  <section class="sec">
+    <div class="sec-head"><h2>Simulated history</h2>
+      <span class="sec-note">not traded — the same rule over recent bars</span></div>
+    ${sim ? `
+    <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
+      pnlPanel(sim[w], label)).join("")}</div>
+    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: this rule
+      over the same instruments' recent history. They say how it <em>would</em> have gone;
+      ${st.waiting
+        ? `this system has not done anything yet`
+        : `the record above is what it did`}. Whether it beats holding is the multi-year
+      question, and it is answered on the backtest page, not by three months of either
+      line.</p>`
+    : `<p class="sec-note pnl-caveat">No simulated history for this system yet.</p>`}
+  </section>`;
+
+  const holdingsSection = assets
+    || `<p class="sec-note">No holdings published for this system yet.</p>`;
+
+  /* THE EMPTY PAGE. Six tiles of zeros, a chart of a flat line, eleven em-dashes and an
+   * empty fills table are all removed rather than shrunk — `waitingSection` answers what
+   * they were being asked, in a fifth of the height, and says the one thing none of them
+   * could: that a refused order looks exactly like this too. Holdings stay because they
+   * are the live state (which names are warming, which are in cash), and the simulated
+   * windows stay because they are the only thing on the page with content in them. */
+  if (st.waiting) {
+    host.innerHTML = `
+    ${waitingSection(rows)}
+    ${holdingsSection}
+    ${simSection}`;
+    bindGo(host);
+    return;
+  }
+
   host.innerHTML = `
-  <div class="strip">
+  <div class="strip sys-vitals">
     <div class="stat"><span class="k">${isReplay() ? "Replay P&amp;L" : "Paper P&amp;L"}</span>
       <span class="v ${sign(a.mean)}">${fmtPct(a.mean)}</span>
       <span class="s">cumulative${since ? `, since ${esc(since)}` : ""}</span></div>
@@ -1699,24 +1895,11 @@ function paintSystem() {
 
   ${liveMetricsSection(rows, live, cls, tf)}
 
-  <section class="sec">
-    <div class="sec-head"><h2>Simulated history</h2>
-      <span class="sec-note">not traded — the same rule over recent bars</span></div>
-    ${sim ? `
-    <div class="sim-wins">${PC_WINDOWS.map(([w, label]) =>
-      pnlPanel(sim[w], label)).join("")}</div>
-    <p class="sec-note pnl-caveat">Those two are <b>simulated</b>, not traded: this rule
-      over the same instruments' recent history. They say how it <em>would</em> have gone;
-      the record above is what it did. Whether it beats holding is the multi-year
-      question, and it is answered on the backtest page, not by three months of either
-      line.</p>`
-    : `<p class="sec-note pnl-caveat">No simulated history for this system yet; only the
-      live record below is available.</p>`}
-  </section>
-
   ${fillsSection(rows)}
 
-  ${assets || `<p class="sec-note">No holdings published for this system yet.</p>`}`;
+  ${holdingsSection}
+
+  ${simSection}`;
 
   bindGo(host);
   /* Re-bound on every tick repaint, which is the point: `#sys-body` is rewritten whole, so
