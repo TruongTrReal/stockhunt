@@ -34,10 +34,18 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 
+import pathlib
+
 import fill_pnl
 import paper_config
 
-DB_PATH = paper_config.RESULTS_DIR / "paper.db"
+# THE RECORD. Overridable, in the shape `stockhunt.deskdb` already uses for its own file,
+# and the override is what makes a backfill inspectable: a run that writes months of
+# reconstructed history has to be produced and read somewhere OTHER than the live record
+# before anybody decides to keep it. Without a redirect the only way to look at one is to
+# have already written it over the thing it might be wrong about.
+DB_PATH = pathlib.Path(os.environ.get("STOCKHUNT_PAPER_DB")
+                       or (paper_config.RESULTS_DIR / "paper.db"))
 
 # Points kept in the rendered curve. The database keeps everything; this is only how much
 # of it the browser is asked to draw.
