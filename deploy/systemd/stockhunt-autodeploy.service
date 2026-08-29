@@ -1,6 +1,6 @@
 [Unit]
 Description=Deploy the Stockhunt board+API from origin/master if it has moved
-Documentation=https://github.com/stockhunt1111/quant-research-sh-vn
+Documentation=https://github.com/TruongTrReal/stockhunt
 After=network-online.target
 Wants=network-online.target
 

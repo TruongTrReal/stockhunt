@@ -1,6 +1,6 @@
 [Unit]
 Description=Stockhunt paper trading desk (Nautilus sandbox on live Twelve Data bars)
-Documentation=https://github.com/stockhunt1111/quant-research-sh-vn
+Documentation=https://github.com/TruongTrReal/stockhunt
 After=network-online.target stockhunt-api.service
 Wants=network-online.target
 
