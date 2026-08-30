@@ -129,6 +129,27 @@ export function paperFills(legs: PaperLeg[]): PaperFill[] {
   return out.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
 }
 
+/** What this leg was funded with out of the pot. The desk's figure when it has published
+ *  one, the ledger's while it is still being attached — so the pot does not appear to
+ *  shrink between the two. */
+export const capitalOf = (l: PaperLeg) => l.sys?.capital ?? (Number(l.leg.capital) || 0);
+
+/** What a leg's share of the pot is worth ON THE RECORD.
+ *
+ * NOT the desk's `equity` field, and that distinction cost a wrong figure on this page.
+ * The sandbox re-funds every book at its configured capital when the desk restarts, so
+ * `equity` is the CURRENT SESSION's mark and drops back to the pot on every deploy. The
+ * page printed "+18.32%" from the chained lifetime curve beside "$20k marked" from the
+ * session — two different measurements in adjacent columns, and the money one silently
+ * said the basket had made nothing.
+ *
+ * The dollars therefore come off the SAME series as the percent: the lifetime curve,
+ * applied to the leg's funding. `livePnl` already makes the same call one level down and
+ * for the same reason.
+ */
+export const valueOf = (l: PaperLeg) =>
+  capitalOf(l) * (1 + (l.sys ? livePnl(l.sys) / 100 : 0));
+
 export interface PaperRecord {
   legs: PaperLeg[];
   /** Legs the desk has actually published a row for. */
@@ -139,10 +160,10 @@ export interface PaperRecord {
   fills: PaperFill[];
   /** Cumulative percent now — the last point of the curve, 0 before there is one. */
   pnlPct: number;
-  /** Money, from the desk's marks. `equity` already carries the current mark of every
-   *  holding, so this moves with the feed rather than with the fill log. */
+  /** The pot, and what it is worth on the record. Both off the lifetime curve — see
+   *  `valueOf` for why the desk's own `equity` field is the wrong number here. */
   capital: number;
-  equity: number;
+  value: number;
   /** Fills the desk has PUBLISHED (capped per leg) against fills it has RECORDED. */
   shown: number;
   lifetime: number;
@@ -158,7 +179,6 @@ export function paperRecord(p: Portfolio | null, rows: Sys[]): PaperRecord {
   const present = legs.map((l) => l.sys).filter((s): s is Sys => !!s);
   const curve = paperCurve(legs);
   const fills = paperFills(legs);
-  const capOf = (l: PaperLeg) => l.sys?.capital ?? (Number(l.leg.capital) || 0);
   // The EARLIEST leg's start, never the newest. The basket's record begins when its first
   // leg did; taking the last would date the whole record from its most recent swap.
   const sinces = present.map((s) => s.since).filter((v): v is string => !!v).sort();
@@ -171,8 +191,8 @@ export function paperRecord(p: Portfolio | null, rows: Sys[]): PaperRecord {
     pnlPct: curve.length ? curve[curve.length - 1] : 0,
     // The LEDGER's capital for a leg the desk has not published yet, so the pot does not
     // appear to shrink while a leg is being attached.
-    capital: legs.reduce((a, l) => a + capOf(l), 0),
-    equity: legs.reduce((a, l) => a + (l.sys?.equity ?? capOf(l)), 0),
+    capital: legs.reduce((a, l) => a + capitalOf(l), 0),
+    value: legs.reduce((a, l) => a + valueOf(l), 0),
     shown: fills.length,
     lifetime: present.reduce((a, s) => a + fillsOf(s), 0),
     since: sinces[0] ?? null,

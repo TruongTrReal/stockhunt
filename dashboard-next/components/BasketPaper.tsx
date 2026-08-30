@@ -43,8 +43,10 @@ import {
 } from "@/lib/live";
 import { fmtMoney } from "@/lib/format";
 import {
+  capitalOf,
   contributionOf,
   downloadBasketFills,
+  valueOf,
   type PaperLeg,
   type PaperRecord,
 } from "@/lib/paperbasket";
@@ -59,7 +61,7 @@ export function BasketCurve({
   replay: boolean;
 }) {
   const pnl = rec.pnlPct;
-  const dollars = rec.equity - rec.capital;
+  const dollars = rec.value - rec.capital;
 
   if (!rec.reporting) {
     return (
@@ -111,7 +113,19 @@ export function BasketCurve({
           {rec.legs.length} leg{rec.legs.length === 1 ? "" : "s"}, equal capital, no
           rebalancing between them
         </span>{" "}
-        · {fmtMoney(rec.capital)} in, {fmtMoney(rec.equity)} marked{" "}
+        ·{" "}
+        <span
+          className="explains"
+          title={
+            "The pot, and what it is worth on the RECORD — the chained lifetime curve " +
+            "applied to the money. Not the sandbox's own equity: it re-funds every book at " +
+            "its configured capital when the desk restarts, so that figure is the current " +
+            "session's mark and drops back to the pot on every deploy. The percent above " +
+            "and these dollars come off one series."
+          }
+        >
+          {fmtMoney(rec.capital)} in, {fmtMoney(rec.value)} on the record
+        </span>{" "}
         <span className={`num ${sign(dollars)}`}>
           ({dollars >= 0 ? "+" : ""}
           {money(dollars)})
@@ -236,13 +250,15 @@ const LEG_COLS: LegCol[] = [
     h: "Money in it",
     doc: "What this leg was funded with out of the pot. Equal shares — that is what a "
        + "portfolio here is — and it is re-split whenever the membership changes.",
-    cell: (l) => <>{fmtMoney(l.sys?.capital ?? (Number(l.leg.capital) || 0))}</>,
+    cell: (l) => <>{fmtMoney(capitalOf(l))}</>,
   },
   {
-    h: "Marked at",
-    doc: "What the leg's book is worth at the desk's latest marks: cash plus every holding "
-       + "at its last bar close. This is the number that moves.",
-    cell: (l) => <>{l.sys?.equity == null ? "—" : fmtMoney(l.sys.equity)}</>,
+    h: "Worth now",
+    doc: "What this leg's share of the pot is worth on the record: its funding compounded "
+       + "by its own lifetime curve. NOT the sandbox's equity — that re-funds to the "
+       + "configured capital on every desk restart, so it is the current session's mark and "
+       + "would print a flat figure beside a P&L that is not flat.",
+    cell: (l) => <>{l.sys ? fmtMoney(valueOf(l)) : "—"}</>,
   },
   {
     h: "P&L",
