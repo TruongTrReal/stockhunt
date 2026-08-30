@@ -93,9 +93,13 @@ def cells(cls: str, tf: str, depth: int = DEPTH) -> list[dict]:
 
       published   `ibs`, `volmanaged` — built by `strategies.registry`. Tradable.
       single      the 231 TA-Lib rules — built by `signals`. Tradable.
-      pair        a combo, rebuilt from its stored legs by `signals.position_for_row`,
-                  which needs the leaderboard ROW. A live strategy holds only a label,
-                  so a combo cannot be reconstructed and is NOT tradable.
+      pair        `MAXINDEX~TAN|and` — a combo. TRADABLE, provided both legs are.
+                  This line used to say the opposite, and the claim was about the wrong
+                  function: `signals.position_for_row` does need the leaderboard ROW, but
+                  `live_signal.position_for` never calls it. It asks `combo.parse` for the
+                  legs and the operator, which are IN THE LABEL, builds each leg through
+                  the same dispatcher as any single rule, and combines them. A live
+                  strategy holding only a label is therefore enough.
 
     Marked rather than filtered out, so the picker can show the board's real top of the
     list and say why a row is unavailable — silently dropping the best rule is how the

@@ -892,7 +892,22 @@ def score(book: dict, rule: str, trial_sharpes, fac: pd.DataFrame | None) -> dic
         deployed = ps - (1.0 - book["exposure"].to_numpy()) * prf
         eq_d = float(np.prod(1.0 + deployed))
         dep_years = len(ps) * expo / bpy
-        row["roe_ann"] = eq_d ** (1.0 / dep_years) - 1.0 if dep_years > 0 else np.nan
+        # `dep_years > 0` IS NOT ENOUGH OF A GUARD. Deployed years is calendar years times
+        # mean exposure, so a rule that is almost never in the market gives a tiny positive
+        # `dep_years`, `1 / dep_years` becomes enormous, and `eq_d ** huge` raises
+        # OverflowError rather than returning a number. That killed the whole `crypto 5m`
+        # book after 4.2 hours at the last scoring step -- one rule out of 362, and the
+        # sheet was lost, not the row.
+        #
+        # Caught rather than restructured: the expression is left exactly as it was, so
+        # every value it already produces is bit-for-bit unchanged, and only the case that
+        # used to crash now yields NaN. NaN is also the honest answer -- annualising a
+        # multiple over a deployment measured in hours is an extrapolation with no meaning,
+        # and `roe_ann` is already NaN for zero exposure two lines below.
+        try:
+            row["roe_ann"] = eq_d ** (1.0 / dep_years) - 1.0 if dep_years > 0 else np.nan
+        except OverflowError:
+            row["roe_ann"] = np.nan
     else:
         row["roe_ann"] = np.nan
 

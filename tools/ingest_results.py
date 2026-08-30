@@ -117,7 +117,28 @@ def ingest_book(cls: str, tf: str) -> int:
     The leaderboard's ranking tiebreak lives here (`cashmatch_excess_cagr`) and so does the
     filter that keeps rules which never open a position off the board (`n_trades`).
     """
-    df = _read(BM / f"book_{cls}_{tf}.csv")
+    # FALL BACK TO THE OPEN-FILL BOOK WHERE NO CLOSE-FILL ONE EXISTS, which is every 5m
+    # sheet and only 5m sheets.
+    #
+    # 5m is open fill by design, not by omission: at 78 bars a day a rule computed from a
+    # bar's own close and filled at that same close measures the look-ahead rather than the
+    # rule -- `ibs` on commodities reads 5.5%/yr at 1d and 1,970%/yr at 15m on close fill.
+    # So `book_<cls>_5m.csv` does not exist and must not be created.
+    #
+    # Reading only the close-fill name therefore left every 5m row on the board carrying its
+    # verdict and NOTHING ELSE: no CAGR, no IR, no turnover, `pnl_basis: none`. The rules had
+    # been scored; the board simply had no book to print. `payload.py` already accepts either
+    # fill for the robustness matrix for exactly this reason, and this is the same fix one
+    # layer down.
+    #
+    # The store has no `fill` column and does not need one: a sheet has at most one book here,
+    # and which fill produced it is a property of the timeframe rather than a choice.
+    path = BM / f"book_{cls}_{tf}.csv"
+    if not path.exists():
+        alt = BM / f"book_{cls}_{tf}_open.csv"
+        if alt.exists():
+            path = alt
+    df = _read(path)
     if df.empty:
         return 0
     return resultsdb.put_book(_records(df))

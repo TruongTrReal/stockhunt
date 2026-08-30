@@ -503,8 +503,32 @@ def unpromotable_reason(rule: str) -> str:
     registration written by any other route -- an older catalog, a hand-written row, a
     member's API call -- cannot reach the node. The picker's check is a courtesy; the
     desk's is the bind.
+
+    **A PAIR IS EXACTLY AS PROMOTABLE AS ITS WORST LEG**, and until 2026-08-30 this
+    function could not see a leg at all. It matched `UNPROMOTABLE_RULES` against the whole
+    label, so `volmanaged` was barred and `volmanaged~CORREL|vote` sailed through -- the
+    combo dispatcher builds that happily out of two legs, one of which anchors an expanding
+    statistic at the first bar and therefore cannot reproduce live what it scored in the
+    backtest. The prefix arm only APPEARED to work: `regime:ibs~CORREL|or` was caught
+    because the overlay happened to sit at position 0, and `CORREL~regime:ibs|or` was not.
+
+    So a combo is decomposed and each leg is asked the same question. Recursive, because a
+    leg may itself be a combo, and `combo.parse` reads the legs straight out of the name.
     """
     label = str(rule or "")
+
+    from strategies.overlays import combo
+    if combo.is_combo(label):
+        try:
+            a, b, _op = combo.parse(label)
+        except Exception:
+            return ""                    # unparseable is `live_signal.family`'s call, not this one
+        for leg in (a, b):
+            why = unpromotable_reason(leg)
+            if why:
+                return f"its leg `{leg}` cannot be traded live: {why}"
+        return ""
+
     base = label.split("@", 1)[0]
     if base in UNPROMOTABLE_RULES:
         return (f"{base} computes an EXPANDING statistic anchored at the first bar, so a "

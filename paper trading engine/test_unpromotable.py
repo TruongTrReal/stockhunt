@@ -87,3 +87,35 @@ def test_the_desk_refuses_it_even_when_the_catalog_did_not(self=None):
     assert desk_control.book_refusal({"tf": "1d", "rule": "ibs"}) == ""
     # The timeframe gate it shares the function with still answers first.
     assert "books run at" in desk_control.book_refusal({"tf": "2h", "rule": "ibs"})
+
+
+def test_a_pair_is_as_promotable_as_its_worst_leg(self=None):
+    """The hole this file existed to close, one level down.
+
+    `unpromotable_reason` matched its lists against the WHOLE label, and a combo's legs are
+    inside the label rather than being it. So `volmanaged` was barred and
+    `volmanaged~CORREL|vote` was not -- and the combo dispatcher builds that happily, out
+    of a leg that anchors an expanding statistic at the first bar and therefore cannot
+    reproduce live what the backtest scored.
+    """
+    for label in ("volmanaged~CORREL|vote",      # barred leg first
+                  "CORREL~volmanaged|and",       # ...and second, which position cannot decide
+                  "lorentzian_knn~TAN|vote"):
+        why = paper_config.unpromotable_reason(label)
+        assert why, f"{label} must be refused"
+        assert "leg" in why.lower(), f"{label} must say WHICH leg: {why}"
+
+    # The prefix arm only ever worked by accident: `regime:` sat at position 0 in one of
+    # these and not the other, and `str.startswith` cannot see the second.
+    assert paper_config.unpromotable_reason("regime:ibs~CORREL|or")
+    assert paper_config.unpromotable_reason("CORREL~regime:ibs|or")
+
+
+def test_a_pair_of_ordinary_legs_stays_promotable(self=None):
+    """The other half, and the one that matters for the board.
+
+    Barring a pair because it is a pair is exactly the bug that was fixed in `catalog.py`;
+    this test is what stops a fix to the paragraph above from reintroducing it.
+    """
+    for label in ("CDLDOJI~CORREL|vote", "MAXINDEX~TAN|and", "MININDEX~TRIMA_50|vote"):
+        assert paper_config.unpromotable_reason(label) == "", f"{label} must be tradable"

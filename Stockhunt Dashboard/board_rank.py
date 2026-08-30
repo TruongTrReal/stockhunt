@@ -1144,6 +1144,15 @@ def _expectancy(r) -> float | None:
         return None
 
 
+def _int0(v) -> int:
+    """`int(v)`, with NaN and None as 0. See the note at its call site."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if f != f else int(f)          # f != f is True only for NaN
+
+
 def _book_record(r) -> dict:
     """One row of a `portfolio_wf` book sheet, as the leaderboard reads it.
 
@@ -1176,7 +1185,11 @@ def _book_record(r) -> dict:
         # whole change exists to remove.
         "dsharpe": num(getattr(r, "fold_dsharpe", None)),
         "t": num(getattr(r, "fold_t", None), 2),
-        "n_folds": int(getattr(r, "n_folds_scored", 0) or 0),
+        # `x or 0` DOES NOT GUARD AGAINST NaN, because NaN is truthy: `float("nan") or 0`
+        # returns the NaN and `int(NaN)` raises. A single book row with no fold count then
+        # takes the whole sheet down with a ValueError rather than showing a blank cell --
+        # which is how `commodities 5m` came to 500 while `us_stocks 5m` rendered fine.
+        "n_folds": _int0(getattr(r, "n_folds_scored", 0)),
         "dsharpe_pooled": num(getattr(r, "dsharpe", None)),
         "boot_t": num(getattr(r, "boot_t", None), 2),
         "dsr": num(getattr(r, "dsr", None), 3),

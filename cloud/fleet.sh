@@ -156,6 +156,13 @@ boot_one() {   # boot_one <class>   -- runs in the background, one per class
   # rules_for.py lives in the wfo folder because it imports wfo_paths, which is that
   # folder's path bootstrap and only resolves from there.
   scp -q -i "$KEY" $SSH_OPTS "$ROOT/cloud/remote/rules_for.py" "root@$ip:/opt/stockhunt/walk-forward optimization/"
+  # stitch_slices.py, and leaving it out is what destroyed `us_etfs 5m` on 2026-08-29.
+  # `run_class.sh` calls it by absolute path at the END of every cell, so a box without
+  # it scores every chunk perfectly, banks every slice, fails the stitch with a bare
+  # "can't open file", says "produced nothing", writes no cell -- and reports DONE.
+  # Nothing upstream of the last second of a nine-hour cell looks wrong. Every file
+  # run_class.sh invokes must be uploaded here; there is no other path onto the box.
+  scp -q -i "$KEY" $SSH_OPTS "$ROOT/cloud/remote/stitch_slices.py" "root@$ip:/opt/stockhunt/"
   ssh -i "$KEY" $SSH_OPTS "root@$ip" \
     "cd /opt/stockhunt && chmod +x run_class.sh && setsid nohup ./run_class.sh $cls > cloud_$cls.log 2>&1 < /dev/null & sleep 2; echo ok" >/dev/null
   echo "[$cls] RUNNING"
@@ -217,18 +224,56 @@ cmd_status() {
 # destroyed before its results are home has thrown away everything it computed.
 _reap_one() {
   local cls="$1" id="$2" ip="$3"
-  if ! ssh -i "$KEY" $SSH_OPTS -o ConnectTimeout=8 "root@$ip" \
-        "test -f /opt/stockhunt/wfo-results/.finished" 2>/dev/null; then
+  if ! ssh -i "$KEY" $SSH_OPTS -o ConnectTimeout=8 "root@$ip"         "test -f /opt/stockhunt/wfo-results/.finished" 2>/dev/null; then
     return 0
   fi
   echo "  $cls finished -- fetching"
-  if ssh -i "$KEY" $SSH_OPTS "root@$ip" "cd /opt/stockhunt/wfo-results && tar -cf - ."       | tar -xf - -C "$ROOT/walk-forward optimization/results/"; then
-    if destroy_verified "$id"; then
-      rm -f "$FLEET/$cls" "$FLEET/$cls.files"
-      echo "  $cls DESTROYED, billing stopped"
-    fi
-  else
+  # FETCH ONLY WHAT THE BOX PRODUCED, never the whole of results/.
+  #
+  # The first version tarred `wfo-results/` wholesale, and the box had copied every results
+  # CSV into it -- including sheets the box never touched, at whatever revision its
+  # `git clone --depth 1` happened to catch. Extracting that over the workstation OVERWROTE
+  # another session's newer wf_summary_*, book_*, cwf_* and strat_* with older copies.
+  # Nothing errored: the damage showed only as a whole-file diff with identical line counts,
+  # and committing it would have reverted their work onto master -- which here is a deploy.
+  #
+  # A box produces verdict cells, an oversized-rule ledger, and the wf_summary it wrote for
+  # its own class. That is the whole list, spelled out rather than implied by a directory.
+  local files="edge_cells oversized_rules.csv wf_summary_${cls}_5m.csv wf_summary_${cls}_15m.csv"
+  if ! ssh -i "$KEY" $SSH_OPTS "root@$ip"        "cd /opt/stockhunt/wfo-results && tar -cf - $files 2>/dev/null"        | tar -xf - -C "$ROOT/walk-forward optimization/results/" 2>/dev/null; then
     echo "  $cls FETCH FAILED -- box left alive on purpose, nothing thrown away"
+    return 0
+  fi
+
+  # ALSO FETCH THE RAW SLICES, and they are not a duplicate of the cell.
+  #
+  # `us_etfs 5m` was lost this way on 2026-08-29: nine and a half hours of scoring, every
+  # chunk banked, and then `stitch_slices.py` failed -- so the box wrote no cell, said DONE,
+  # and the reaper destroyed it because the FETCH had succeeded. A successful transfer of
+  # nothing is not a successful reap. The slices are the expensive part and stitching them is
+  # seconds, so they come home separately, to a staging directory rather than into results/
+  # where nothing should read them by accident.
+  mkdir -p "$FLEET/slices"
+  ssh -i "$KEY" $SSH_OPTS "root@$ip"     "cd '/opt/stockhunt/walk-forward optimization/results' && tar -cf - slices_${cls}_* 2>/dev/null"     | tar -xf - -C "$FLEET/slices/" 2>/dev/null
+
+  # ONLY NOW may it be destroyed, and only if something arrived for every timeframe the box
+  # was asked to do. Verified against the disk, not against an exit code.
+  local missing="" tf
+  for tf in 15m 5m; do
+    [ -f "$ROOT/walk-forward optimization/results/edge_cells/edge_${cls}_${tf}.csv" ] && continue
+    [ -d "$FLEET/slices/slices_${cls}_${tf}" ] &&       [ -n "$(ls -A "$FLEET/slices/slices_${cls}_${tf}" 2>/dev/null)" ] && continue
+    missing="$missing $tf"
+  done
+  if [ -n "$missing" ]; then
+    echo "  $cls NOT DESTROYED -- no cell and no slices for:$missing"
+    echo "    the box is still billing. Investigate before reaping it again."
+    return 0
+  fi
+
+  echo "  $cls fetched (cells + slices + ledger) -- destroying"
+  if destroy_verified "$id"; then
+    rm -f "$FLEET/$cls" "$FLEET/$cls.files"
+    echo "  $cls DESTROYED, billing stopped"
   fi
 }
 cmd_reap() { need_key || return 1; [ -d "$FLEET" ] || { echo "no fleet"; return 0; }; each_box _reap_one; }

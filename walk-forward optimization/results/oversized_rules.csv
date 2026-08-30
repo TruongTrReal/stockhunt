@@ -20,3 +20,10 @@ us_stocks,5m,mc_rolling_window_seasonality_test
 us_stocks,5m,mc_rolling_window_zero_cross_reversion
 us_stocks,5m,mc_weighted_ema_by_return
 us_stocks,5m,mc_weighted_median_score
+us_etfs,5m,lorentzian_knn
+us_etfs,5m,mc_adaptive_band_reversion
+us_etfs,5m,mc_entropy_divergence
+us_etfs,5m,mc_local_linear_regression
+us_etfs,5m,mc_rolling_max_drawdown_reversion
+us_etfs,5m,mc_rolling_window_complexity_index
+us_etfs,5m,mc_weighted_ema_by_return
