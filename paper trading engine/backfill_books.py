@@ -110,7 +110,14 @@ def trim_before(sid: str, cutoff: str) -> dict:
         c1 = conn.execute("DELETE FROM curve WHERE sid = ? AND ts < ?", (sid, cutoff))
         c2 = conn.execute("DELETE FROM fills WHERE sid = ? AND ts < ?", (sid, cutoff))
         conn.commit()
-    return {"curve": c1.rowcount, "fills": c2.rowcount}
+    # AND THEN RE-ZERO WHAT IS LEFT. `equity_pct` is percent from the session's start, and
+    # the session started at the warm-up, so every surviving row still carries the warm-up's
+    # P&L. Deleting the rows removed the BARS and not the RETURN. Without this the record
+    # opens on a jump nobody earned — measured, on the first run that shipped: -38.5% on
+    # the crypto legs and +14.3% on the futures ones, before the window had a single bar in
+    # it. `store.rebase_session` owns the arithmetic and is idempotent.
+    rebased = store.rebase_session(sid, store.session_id())
+    return {"curve": c1.rowcount, "fills": c2.rowcount, "rebased": rebased}
 
 
 class _null:

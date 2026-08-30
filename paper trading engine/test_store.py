@@ -124,6 +124,40 @@ check("short restart added no break", s4["curve_breaks"], s3["curve_breaks"])
 check("...and no new outage", s4["gaps"], 2)
 check("its point joined the line", len(s4["paper_curve"]), len(s3["paper_curve"]) + 1)
 
+print("\nsession 5 - a session written ABOUT THE PAST lands in the past")
+# `session_id` is an AUTOINCREMENT: the order sessions were CREATED, which is the order
+# they RAN only while nothing writes a session about a window that already closed. A
+# reconstruction does exactly that, takes the newest id, and the chained record then drew
+# weeks of history AFTER the days that followed it. Sessions are ordered by their own first
+# timestamp now, and each stays whole.
+back_id = store.start_session()
+_conn = store.connect()
+before = len(store.lifetime_curve(SID)["equity"])
+for i, ts in enumerate(["2026-07-01T00:00:00+00:00", "2026-07-02T00:00:00+00:00"]):
+    _conn.execute("INSERT OR IGNORE INTO curve (sid, session_id, ts, equity_pct, bench_pct)"
+                  " VALUES (?,?,?,?,?)", (SID, back_id, ts, i * 5.0, 0.0))
+_conn.commit()
+chained = store.lifetime_curve(SID)
+check("the older session's points come first", chained["equity"][:2], [0.0, 5.0])
+check("...and nothing was lost", len(chained["equity"]), before + 2)
+
+print("\nsession 6 - a curve trimmed at the front is re-zeroed, BY RATIO")
+# `backfill_books.trim_before` deletes the warm-up's BARS; without a rebase it leaves the
+# warm-up's RETURN in every surviving row, and the record opens on a jump nobody earned.
+trim_id = store.start_session()
+for ts, pct in [("2026-06-01T00:00:00+00:00", 10.0), ("2026-06-02T00:00:00+00:00", 21.0)]:
+    _conn.execute("INSERT OR IGNORE INTO curve (sid, session_id, ts, equity_pct, bench_pct)"
+                  " VALUES (?,?,?,?,?)", (SID, trim_id, ts, pct, 0.0))
+_conn.commit()
+moved = store.rebase_session(SID, trim_id)
+after = _conn.execute("SELECT equity_pct FROM curve WHERE sid=? AND session_id=? ORDER BY ts",
+                      (SID, trim_id)).fetchall()
+check("both points rewritten", moved, 2)
+check("it now starts at zero", round(after[0][0], 9), 0.0)
+# 1.21 / 1.10 = 1.10 -- a RATIO, not 21 - 10 = 11.
+check("the rest is rebased by ratio, not subtraction", round(after[1][0], 6), 10.0)
+check("running it twice changes nothing", store.rebase_session(SID, trim_id), 0)
+
 print("\nstore summary:", store.summary())
 print("\n" + ("ALL PASS" if ok else "FAILURES ABOVE"))
 sys.exit(0 if ok else 1)

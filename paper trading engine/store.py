@@ -541,11 +541,30 @@ def lifetime_curve(sid: str) -> dict:
     rather than being told a zero that was never measured.
     """
     conn = connect()
-    # Ordered by session first. Sessions are monotonic in time, but a warm-up replay can
-    # insert bars that predate the current session's own first bar, and ordering by ts
-    # alone would then interleave two sessions and invent a break at every crossing.
-    rows = conn.execute("""SELECT session_id, ts, equity_pct, bench_pct FROM curve
-                           WHERE sid = ? ORDER BY session_id, ts""", (sid,)).fetchall()
+    # Sessions stay CONTIGUOUS, and they are ordered by WHEN THEY HAPPENED.
+    #
+    # Two things have to hold at once and only this ordering gives both. A session's rows
+    # must not interleave with another's — a warm-up replay can insert bars that predate
+    # the current session's own first bar, and ordering by ts alone would then cross two
+    # sessions and invent a break at every crossing. That is why this used to order by
+    # `session_id` first.
+    #
+    # But `session_id` is an AUTOINCREMENT and therefore the order sessions were CREATED,
+    # which is only the order they RAN while nothing writes a session about the past. A
+    # reconstruction does exactly that: `merge_backfill.py` opens one session for a window
+    # that closed weeks earlier, it takes the next id, and the chained record then drew
+    # four weeks of August AFTER the two days that followed it. A curve whose x-axis is
+    # not in time order is not a record of anything.
+    #
+    # So the sessions are sorted by their own first timestamp and each stays whole. `id`
+    # breaks a tie, so two sessions starting on the same bar keep their creation order.
+    rows = conn.execute("""SELECT c.session_id, c.ts, c.equity_pct, c.bench_pct
+                           FROM curve c
+                           JOIN (SELECT session_id, MIN(ts) AS t0 FROM curve
+                                 WHERE sid = ? GROUP BY session_id) g
+                             ON g.session_id = c.session_id
+                           WHERE c.sid = ?
+                           ORDER BY g.t0, c.session_id, c.ts""", (sid, sid)).fetchall()
     if not rows:
         return {"equity": [], "bench": [], "breaks": [], "gaps": 0, "unknown_gaps": 0}
 
@@ -661,6 +680,53 @@ def _thin(eq: list[float], bn: list[float], breaks: list[int]):
         bn = bn[::2]
         breaks = sorted({b // 2 for b in breaks})
     return eq, bn, breaks
+
+
+def rebase_session(sid: str, session_id: int) -> int:
+    """Make a session's FIRST SURVIVING POINT the zero of its own curve.
+
+    `equity_pct` is percent from the START OF ITS OWN SESSION, and `lifetime_curve` chains
+    on that promise. Delete rows off the front and the promise breaks SILENTLY: the
+    earliest row that survives still carries everything that happened before it, and the
+    record opens on a jump nobody earned.
+
+    That is not hypothetical. `backfill_books.trim_before` has to delete the front, because
+    a reconstruction warms the rule on hundreds of bars before the window it was asked for
+    and trades through them. The first reconstruction that shipped therefore opened its
+    crypto legs at -38.5% and its futures legs at +14.3% — warm-up P&L, credited to a
+    record that was supposed to begin flat, and invisible in every figure computed from it
+    because the series is internally consistent from that point on.
+
+    Rebasing is a RATIO and not a subtraction: these are compounded returns, so the base is
+    divided out of the multiple rather than taken off the percent.
+
+    Returns the number of rows changed; 0 when the session already begins at zero, which is
+    what makes this safe to run twice.
+    """
+    conn = connect()
+    row = conn.execute("""SELECT equity_pct, bench_pct FROM curve
+                          WHERE sid = ? AND session_id = ? ORDER BY ts LIMIT 1""",
+                       (sid, session_id)).fetchone()
+    if row is None:
+        return 0
+    e0, b0 = float(row[0] or 0.0), float(row[1] or 0.0)
+    if abs(e0) < 1e-9 and abs(b0) < 1e-9:
+        return 0
+    ke, kb = 1.0 + e0 / 100.0, 1.0 + b0 / 100.0
+    if ke <= 0.0 or kb <= 0.0:
+        # A base of -100% or worse is a book that was already worthless at the first
+        # surviving bar. There is no ratio to divide by and no honest rebase; the record
+        # itself is the thing to look at.
+        raise ValueError(f"{sid} session {session_id}: base of {e0:.2f}%/{b0:.2f}% cannot "
+                         f"be divided out — the book was worth nothing at that point.")
+    with _lock:
+        cur = conn.execute(
+            """UPDATE curve
+               SET equity_pct = ((1.0 + equity_pct / 100.0) / ? - 1.0) * 100.0,
+                   bench_pct  = ((1.0 + bench_pct  / 100.0) / ? - 1.0) * 100.0
+               WHERE sid = ? AND session_id = ?""", (ke, kb, sid, session_id))
+        conn.commit()
+    return cur.rowcount
 
 
 def summary() -> dict:
