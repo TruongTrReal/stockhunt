@@ -373,3 +373,39 @@
 }
 .doors li:first-child { border-top: 0; }
 .doors a { color: var(--fg, #e8eaed); }
+
+/* THE DIVIDER BETWEEN THE TWO MEASUREMENTS on a portfolio's page. `/portfolio/detail/`
+   carries both the desk's record and the walk-forward research, and the one thing it must
+   never let a reader do is take a figure from one for the other. Section headings alone do
+   not do that work — a page of `.sec` blocks reads as one continuous document — so each
+   half opens with a full-width band that is visibly a different order of heading.
+
+   A rule and a heavier, wider-tracked label rather than a box or a tint: colour on this
+   site means gained or lost, and a tinted band above a P&L figure would be read as a
+   verdict on it. */
+.sec-band {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 30px 0 14px;
+  padding-top: 12px;
+  border-top: 2px solid var(--line, #222);
+}
+.sec-band:first-of-type {
+  margin-top: 20px;
+}
+.band-h {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg, #e8eaed);
+}
+.band-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dim, #9aa0a6);
+  max-width: 74ch;
+}

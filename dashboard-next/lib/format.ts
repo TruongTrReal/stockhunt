@@ -20,8 +20,23 @@
  *  them: measured, absent from this row, or absent from this sheet. */
 type N = number | null | undefined;
 
-export const fmtPct = (v: N, d = 2) =>
-  v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
+/* THE signed percent, and it is the only one. `lib/live.ts` and `lib/rule.ts` each carried
+   their own copy, which is how a fix landed here and the paper page went on printing
+   `−0.00%` from a different function of the same name — the same three-copies problem the
+   navs had, one layer down. Both now re-export this.
+ *
+ * Two properties the copies disagreed on, kept from whichever had it:
+ * a TYPOGRAPHIC minus, because `toFixed`'s ASCII hyphen sits at a different height and
+ * width and makes a column of numbers look ragged; and a non-finite guard, since a mean
+ * over an empty list is `NaN` and `NaN.toFixed()` is the string "NaN".
+ *
+ * `−0.00%` says a loss too small to print and reads as a defect, so the sign is decided on
+ * what SURVIVES the rounding: a figure that rounds to zero is zero and takes the `+`. */
+export const fmtPct = (v: N, d = 2) => {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const shown = Math.abs(v).toFixed(d);
+  return (v >= 0 || Number(shown) === 0 ? "+" : "−") + shown + "%";
+};
 export const fmtIR = (v: N) =>
   v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);
 /** Annualised growth, printed unsigned: 17.51% reads as a rate, +17.51% reads as a gain. */
@@ -77,7 +92,21 @@ export const fmtRatio = (v: N) =>
 /** Colour means one thing on this site — gained or lost — so this is the only place a
  *  class is chosen from a number's sign. `flat` for zero AND for missing: neither is a
  *  gain and neither is a loss. */
-export const sign = (v: N) => (v != null && v > 0 ? "gain" : v != null && v < 0 ? "loss" : "flat");
+/* THE colour, and it agrees with what `fmtPct` PRINTS rather than with the raw value.
+ *
+ * A row reading `+0.00%` in red said two things at once — the same contradiction, one
+ * rounding place down, as the sparkline that pointed up beside a negative figure. If a
+ * loss is too small to print it is too small to colour, so the decision is made on the
+ * rounded magnitude and a value that rounds to zero is flat.
+ *
+ * `digits` matches the caller's `fmtPct` precision; the default is that function's. Three
+ * copies of this lived in `format.ts`, `live.ts` and `rule.ts` for the same reason three
+ * copies of `fmtPct` did — the other two now re-export this one. */
+export const sign = (v: N, digits = 2) => {
+  if (v == null || !Number.isFinite(v)) return "flat";
+  if (Number(Math.abs(v).toFixed(digits)) === 0) return "flat";
+  return v > 0 ? "gain" : "loss";
+};
 
 /** React escapes text for us; this exists for the column `doc`s, which are HTML strings
  *  carrying <b>, <code> and <br> and are rendered with `dangerouslySetInnerHTML`. Any

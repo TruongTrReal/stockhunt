@@ -363,7 +363,10 @@ export function adaptBlend(raw: BlendResponse | null | undefined): Blend {
     bench,
     legs,
     corr: Array.isArray(r.corr?.matrix) ? r.corr.matrix.map((row) => nums(row)) : [],
-    corrLabels: labels.length ? labels : legs.map((l) => l.label),
+    // Not the engine's labels. `blend._label` names a leg `cls/tf/rule` and the
+    // correlation panel truncates from the RIGHT inside a narrow column, so five legs off
+    // one sheet all render as `us_stock…` and every row names nothing. See `legLabels`.
+    corrLabels: legs.length ? legLabels(legs) : labels,
     start: axis.start ?? dates[0] ?? null,
     end: axis.end ?? dates[dates.length - 1] ?? null,
     years: numOr(axis.years) ?? spanYears(dates),
@@ -385,6 +388,24 @@ export function adaptBlend(raw: BlendResponse | null | undefined): Blend {
 }
 
 export const legLabel = (l: LegRef) => `${l.rule} · ${l.tf} ${l.cls}`;
+/** Names for the correlation panel, built so the DISCRIMINATING PART SURVIVES TRUNCATION.
+ *
+ * `blend._label` puts the class and timeframe in front of the rule, which is the right
+ * order for a log line and the wrong one for a 20-character column: the panel clips from
+ * the right, so five legs picked off one sheet all read `us_stock…` and the row that
+ * exists to name both ends of a correlated pair names neither.
+ *
+ * When every leg shares a sheet — which a follow-portfolio does by construction — the
+ * prefix carries no information at all and is dropped. When they do not, it is the whole
+ * point, so it stays; but it goes AFTER the rule, where truncation eats the context rather
+ * than the identity.
+ */
+export function legLabels(legs: BlendLeg[]): string[] {
+  const shared = new Set(legs.map((l) => `${l.cls}|${l.tf}`)).size <= 1;
+  return legs.map((l) =>
+    l.rule ? (shared ? l.rule : `${l.rule} · ${l.tf} ${l.cls}`) : l.label);
+}
+
 export const legKey = (l: LegRef) => `${l.cls}|${l.tf}|${l.rule}`;
 
 /* ====================================================== the correlation reading */

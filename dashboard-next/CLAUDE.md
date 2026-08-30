@@ -199,6 +199,42 @@ of `* 100`.
   neutral ink; the six series hues carry leg IDENTITY only, in their fixed order, matching
   the slot each leg has elsewhere on the page.
 
+### The detail page carries BOTH measurements, in two labelled halves
+
+`/portfolio/detail/` shows the desk's record above the research, and the separation is
+structural rather than a caption. **On the desk** is `lib/paperbasket.ts` +
+`components/BasketPaper.tsx`: the blended paper curve, each leg's live figures, the
+record as numbers, and every fill with the leg that made it. **In the research** is
+everything that was already there. A full-width `.sec-band` opens each half, because a
+page of `.sec` blocks reads as one continuous document and a figure from one half must
+never be readable as belonging to the other.
+
+Four things about the paper half are load-bearing:
+
+* **Legs are matched by `sid`, never by (cls, tf, rule).** `store.sid_for` is
+  `account:name` and `portfolios._leg_name` puts the portfolio inside the name. A rule can
+  be promoted by hand AND held by a basket at once — two registrations, two funded books —
+  and matching on the rule would pull the hand-promoted book's fills into the basket and
+  count its money twice.
+* **The paper curve does NOT rebalance; the research blend does.** Each leg is its own
+  funded book and nothing moves money between them, so the pot's cumulative return is the
+  plain mean of the legs'. A leg the desk has not attached contributes 0 — its share of the
+  pot sitting in cash — so the sum is divided by the FULL leg count, never by however many
+  legs happened to publish.
+* **Tail alignment is index alignment, not time alignment.** `live.json` publishes no date
+  axis with `paper_curve`, so the legs are aligned at their newest point. That is exact
+  while every leg sits on one bar grid and under `store.MAX_CURVE_POINTS`, which a
+  follow-portfolio does by construction; a mixed basket says so on the chart and has its
+  annualised figures withheld rather than computed on a grid that means two things.
+* **"Realtime" is once per closed bar.** A book marks its holdings on a bar and nothing
+  prices it in between, so a daily leg moves once a day. The caption says that rather than
+  implying a tick that does not exist.
+
+`legLabels` in `lib/portfolio.ts` exists because `blend._label` names a leg `cls/tf/rule`
+and the correlation panel clips from the right in a narrow column — five legs off one sheet
+all rendered as `us_stock…`, so the row that exists to name both ends of a correlated pair
+named neither. The rule goes first; the sheet is dropped when every leg shares it.
+
 `NEXT_TURBOPACK_ROOT` in `next.config.ts` is unset in a normal checkout and exists for one
 case: building inside a git worktree, whose `node_modules` is a junction back to the main
 checkout. Turbopack refuses to follow a symlink out of the project root and dies before

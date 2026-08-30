@@ -102,12 +102,10 @@ export type { Fill };
 /* Copied from the vanilla board rather than shared, because the two boards are separate
  * bundles. Each carries the reason it prints what it prints. */
 
-/** Signed, with the TYPOGRAPHIC minus: `toFixed` emits an ASCII hyphen, which sits at a
- *  different height and width and makes a column of numbers look misaligned. */
-export const fmtPct = (v: number | null | undefined, d = 2) =>
-  v == null || !Number.isFinite(v)
-    ? "—"
-    : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d) + "%";
+/** Re-exported, not redefined. This file had its own copy and `lib/format.ts` had another;
+ *  a fix to one left the other printing the old thing under the same name. */
+import { fmtPct } from "@/lib/format";
+export { fmtPct };
 
 export const fmtNum = (v: number | null | undefined, d = 1) =>
   v == null || !Number.isFinite(v) ? "—" : Number(v).toFixed(d);
@@ -142,8 +140,9 @@ export const price = (v: number | null | undefined) =>
   v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** Colour means one thing on this site: gained or lost. */
-export const sign = (v: number | null | undefined) =>
-  v == null ? "flat" : v > 0 ? "gain" : v < 0 ? "loss" : "flat";
+/** Re-exported, not redefined — see the note on the definition in `lib/format.ts`. */
+import { sign } from "@/lib/format";
+export { sign };
 
 /** The same slug the backtest side uses. Nothing reverses it — a page finds its rows by
  *  matching `slug(s.rule)` against the segment, so it never has to be reversible. */
@@ -336,9 +335,33 @@ export interface Aggregate {
   open: number;
 }
 
+/** A system's P&L, on the SAME measurement its curve draws.
+ *
+ * `paper_pnl_pct` is `equity / capital - 1` for the CURRENT SESSION, and `paper_curve` is
+ * the chained LIFETIME series `store.lifetime_curve` rebuilds across every session and
+ * gap. The desk restarts — for a deploy, for a widened universe — and at each restart the
+ * field resets to zero while the curve carries on. So a row drew one measurement and
+ * printed the other, and after a restart they disagreed in magnitude and, on
+ * `top5-us_stocks-1d`, in SIGN: a rising green line beside a negative figure, on a site
+ * where colour means gained or lost.
+ *
+ * The curve wins, because the lifetime record is the thing this desk exists to produce —
+ * `store.py`'s whole argument is that a forward test which resets on restart is a series of
+ * unrelated day-one snapshots. The field is the fallback for a system that has published no
+ * curve yet, where it is the only answer there is.
+ */
+export function livePnl(s: Sys): number {
+  const curve = s.paper_curve;
+  if (Array.isArray(curve) && curve.length) {
+    const last = curve[curve.length - 1];
+    if (typeof last === "number" && Number.isFinite(last)) return last;
+  }
+  return s.paper_pnl_pct || 0;
+}
+
 export function aggregate(list: Sys[]): Aggregate {
   const n = list.length;
-  const mean = n ? list.reduce((a, s) => a + (s.paper_pnl_pct || 0), 0) / n : 0;
+  const mean = n ? list.reduce((a, s) => a + livePnl(s), 0) / n : 0;
   return {
     n,
     mean,
