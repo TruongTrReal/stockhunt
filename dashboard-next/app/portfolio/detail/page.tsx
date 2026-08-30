@@ -13,21 +13,31 @@
  * time, from an API that requires a session, on a box that may not be able to reach it. One
  * static page serves every id. `app/rule/page.tsx` is here for the same reason.
  *
- * TWO MEASUREMENTS, NEVER ADDED. The curve and everything computed from it are the
- * walk-forward research over the legs' whole history — what this basket WOULD have done.
- * What it HAS done since the desk picked it up is the paper record, and it lives on
- * `/paper/`. Days of fills and years of walk-forward are different measurements.
+ * TWO MEASUREMENTS, NEVER ADDED — and BOTH are on this page now, which makes the rule
+ * stricter rather than looser. "On the desk" is the record: the blended paper curve, each
+ * leg's live figures, and every fill. "In the research" is the walk-forward over the legs'
+ * whole history — what the basket WOULD have done. Two separately titled halves with their
+ * own captions; never summed, never drawn on one pair of axes, and neither offered as
+ * evidence for the other. Weeks of fills describe the execution path; decades of
+ * walk-forward describe the rules.
  */
 
 import { Suspense, useEffect, useMemo, useState, type ReactElement } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import {
+  BasketCurve,
+  BasketFills,
+  BasketLegs,
+  BasketMetrics,
+} from "@/components/BasketPaper";
 import { LegCorrelation } from "@/components/LegCorrelation";
 import { LegTable } from "@/components/LegTable";
 import { PortfolioChart } from "@/components/PortfolioChart";
 import { PortfolioToggle } from "@/components/PortfolioToggle";
 import { fmtMoney, fmtNum, fmtDate } from "@/lib/format";
-import { useLive } from "@/lib/live";
+import { isReplay, strategiesOf, useLive } from "@/lib/live";
+import { paperRecord } from "@/lib/paperbasket";
 import {
   growthOf,
   legKey,
@@ -223,6 +233,20 @@ function DetailView() {
 
   const corr = useMemo(() => readCorr(blend?.corr ?? []), [blend]);
 
+  /* THE DESK'S RECORD for this basket, out of the live document. `useLive` holds the
+     socket and the poller, so everything below repaints when the desk republishes —
+     which is once per closed bar, because a book marks its holdings on a bar and nothing
+     prices it in between. Keyed on the document's own stamp rather than on the array:
+     `strategiesOf` returns a new array on every tick and an unkeyed memo would rebuild
+     five legs, their fills and a blended curve on each one. */
+  const rows = strategiesOf(doc);
+  const replay = isReplay(doc);
+  const rec = useMemo(
+    () => paperRecord(p, rows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p?.portfolio_id, ledgerLegs.length, doc?.generated_at, rows.length],
+  );
+
   if (!ready && !p) return <div className="note busy-note">Reading the ledger…</div>;
   if (!p)
     return (
@@ -274,6 +298,73 @@ function DetailView() {
         </div>
 
         <PortfolioToggle p={p} canWrite={canWrite} />
+      </div>
+
+      {/* ============================================== ON THE DESK — the record.
+          First, and above the research, because it is the only half of this page that
+          reports something that happened. The research below is the larger and more
+          decision-relevant measurement, but it is a projection; a reader arriving at a
+          basket that is trading wants to know what it is doing before what it might have
+          done. The two are separated by a divider and their own headings so that no
+          figure from one can be read as belonging to the other. */}
+      <div className="sec-band">
+        <h2 className="band-h">On the desk</h2>
+        <span className="band-note">
+          what this basket has actually done since it was picked up — the desk&apos;s own
+          record, repainting as it publishes
+        </span>
+      </div>
+
+      <section className="sec">
+        <div className="sec-head">
+          <h2>Cumulative return</h2>
+          <span className="sec-note">the whole pot, from the fills the desk has recorded</span>
+        </div>
+        <BasketCurve rec={rec} replay={replay} />
+      </section>
+
+      <div className="d-split">
+        <div className="d-col">
+          <section className="sec">
+            <div className="sec-head">
+              <h2>Each leg, live</h2>
+              <span className="sec-note">
+                biggest contributor first · these are the desk&apos;s figures, not the
+                backtest&apos;s
+              </span>
+            </div>
+            <BasketLegs rec={rec} replay={replay} />
+          </section>
+        </div>
+
+        <div className="d-col">
+          <section className="sec">
+            <div className="sec-head">
+              <h2>The record, as numbers</h2>
+              <span className="sec-note">
+                over the closed bars of this record only — no benchmark column
+              </span>
+            </div>
+            <BasketMetrics rec={rec} />
+          </section>
+        </div>
+      </div>
+
+      <section className="sec">
+        <div className="sec-head">
+          <h2>Trade history</h2>
+          <span className="sec-note">every fill, newest first, with the leg that made it</span>
+        </div>
+        <BasketFills rec={rec} name={p.name} />
+      </section>
+
+      {/* ============================================== IN THE RESEARCH — the projection. */}
+      <div className="sec-band">
+        <h2 className="band-h">In the research</h2>
+        <span className="band-note">
+          what these legs would have done held together over the walk-forward years. A
+          different measurement from everything above, and never added to it
+        </span>
       </div>
 
       {/* RANKING IS NOT PASSING. It belongs on this page more than on the list, because this
