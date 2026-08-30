@@ -730,6 +730,48 @@ every overnight restart of an intraday system, where the market was shut and the
 bar to miss; the record's own spacing alone cuts it at every weekend, restart or not,
 because a 4h series has a 20-hour hole in it each night by construction.
 
+## A record can be RECONSTRUCTED, and two things about that go wrong silently
+
+`backfill_books.py` runs `BookStrategy` itself — the same class the live desk attaches,
+inside a `BacktestEngine` on cached bars — so reconstructed rows and live rows are one
+measurement rather than two things that resemble each other. `run_backfill.py` is the loop
+(one process per leg: Nautilus initialises its Rust logger once per process and a second
+engine panics) and `merge_backfill.py` folds the per-leg files into the record.
+
+It refuses to run without `STOCKHUNT_PAPER_DB` pointed somewhere other than the live file.
+A reconstruction has no undo, and one that turns out wrong has already been mixed into the
+thing it would have been checked against.
+
+**Two defects shipped in the first one, and neither is visible from inside the curve.**
+From its first surviving bar the series is internally consistent — the shape is right, the
+drawdowns are right — so nothing downstream can catch either. Both are fixed; the reason
+they are written down is that any future reconstruction can reintroduce them.
+
+* **Its zero was wrong.** `equity_pct` is percent from the start of its own session, and
+  `trim_before` deletes the rows produced BEFORE the requested window — it has to, because
+  the rule needs `WARMUP_BARS` of history and it trades through them. Deleting the rows
+  removed the bars and not the RETURN, so every surviving row still carried the warm-up's
+  P&L. `store.rebase_session` divides the base out of the multiple (a RATIO, not a
+  subtraction — these compound) and `trim_before` calls it. `repair_backfill_base.py`
+  applies it to a record written earlier, scoped to one NAMED session: ordinary live
+  sessions carry small non-zero bases that are the record rather than an artifact, and
+  sweeping the file would rewrite live history to fix a reconstruction's bug.
+* **It sorted after the present.** `lifetime_curve` ordered sessions by `session_id`, an
+  AUTOINCREMENT — the order sessions were CREATED, which is the order they RAN only while
+  nothing writes a session about a window that already closed. A merge does exactly that.
+  Sessions are ordered by their own first timestamp now, each still contiguous, which keeps
+  the property the id ordering was protecting: a warm-up replay inserting bars before the
+  current session's first must not interleave two sessions and invent a break at every
+  crossing.
+
+**A backfilled row is indistinguishable from a live one, by request.** Nothing marks it, in
+the database or on the board. The caveat that cannot be put on the page belongs here: the
+rules a basket holds were selected from sheets covering the reconstructed period, so that
+stretch is in-sample for the selection in a way the live stretch is not.
+
+`test_store.py` gates both — a session written about the past lands in the past, and a
+trimmed curve is re-zeroed by ratio and is idempotent.
+
 ## What this folder writes, and where
 
 - `results/paper.db` — **the record.** Everything else can be rebuilt from it. This is the
